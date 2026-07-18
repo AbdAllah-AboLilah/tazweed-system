@@ -12,6 +12,41 @@
   <body>
     <div id="root">جارٍ التحميل...</div>
 
+    <!--
+      شبكة أمان: أي خطأ برمجي (حتى لو فشل تحميل مكتبة من الإنترنت) هيظهر هنا
+      مباشرة بالنص الأحمر تحت الصفحة، من غير ما تحتاج تفتح أدوات المطوّرين.
+    -->
+    <script>
+      function showFatalError(msg) {
+        var el = document.getElementById('fatal-error-box');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'fatal-error-box';
+          el.style.cssText =
+            'position:fixed;bottom:0;left:0;right:0;background:#fcebeb;color:#791f1f;' +
+            'padding:12px;font-family:sans-serif;font-size:13px;direction:rtl;text-align:right;' +
+            'z-index:9999;max-height:45vh;overflow:auto;border-top:3px solid #791f1f;';
+          document.body.appendChild(el);
+        }
+        var line = document.createElement('div');
+        line.style.marginBottom = '6px';
+        line.textContent = 'خطأ: ' + msg;
+        el.appendChild(line);
+      }
+      window.addEventListener(
+        'error',
+        function (e) {
+          var msg = e.message || 'تعذّر تحميل ملف: ' + (e.target && e.target.src ? e.target.src : '');
+          showFatalError(msg + (e.filename ? ' — ' + e.filename + ':' + e.lineno : ''));
+        },
+        true
+      );
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+        showFatalError('Promise: ' + reason);
+      });
+    </script>
+
     <!-- Firebase (نسخة compat، سكريبت عادي بدون import/export) -->
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>

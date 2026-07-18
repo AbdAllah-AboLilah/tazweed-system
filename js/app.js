@@ -262,6 +262,22 @@ function init() {
     return;
   }
 
+  // شبكة أمان: لو الشاشة فضلت عالقة على "جارٍ التحميل" أكتر من 8 ثواني،
+  // على الأغلب بيانات Firebase غلط أو المشروع مش شغال، مش بالضرورة خطأ برمجي.
+  setTimeout(() => {
+    if (state.view === 'loading') {
+      document.getElementById('root').innerHTML = `
+        <div class="card" style="max-width:480px; margin:60px auto; text-align:center;">
+          <h2 style="font-size:16px; margin-bottom:10px;">النظام مستني رد من Firebase من غير نتيجة</h2>
+          <p style="font-size:14px; color:var(--text-secondary); line-height:1.7;">
+            على الأغلب بيانات <code>firebase-config.js</code> غير صحيحة، أو مشروع
+            Firebase نفسه فيه مشكلة (Authentication مش مفعّل مثلًا)، أو مفيش اتصال
+            بالإنترنت حاليًا. راجع قسم 2 في README.md.
+          </p>
+        </div>`;
+    }
+  }, 8000);
+
   auth.onAuthStateChanged((user) => {
     state.user = user;
 
