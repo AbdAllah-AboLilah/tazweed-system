@@ -1,0 +1,64 @@
+rules_version = '2';
+
+// قواعد أمان Firestore — طبقًا لملف المواصفات (قسم 4: الأدوار والصلاحيات)
+// المرحلة 1: لا توجد واجهة تعديل بعد، لكن القواعد جاهزة من الآن لمنع أي
+// تعديل غير مصرّح به حتى قبل بناء واجهة التعديل في المرحلة 2.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return userProfile().role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && role() == 'admin';
+    }
+
+    // مدير الفرع والمشرف: كل الصلاحيات مؤقتًا (سيُخصَّص لاحقًا حسب الاتفاق)
+    function isFullAccess() {
+      return isSignedIn() && role() in ['admin', 'branch_manager', 'supervisor'];
+    }
+
+    function warehouseAccess() {
+      return userProfile().warehouseAccess;
+    }
+
+    function canEditBranch() {
+      return isFullAccess() || (role() == 'warehouse_keeper' && warehouseAccess() in ['branch', 'both']);
+    }
+
+    function canEditMain() {
+      return isFullAccess() || (role() == 'warehouse_keeper' && warehouseAccess() in ['main', 'both']);
+    }
+
+    // حسابات المستخدمين: القراءة لأي مستخدم مسجّل دخول (عشان نعرض الاسم/الدور)،
+    // والكتابة (إنشاء/تعديل/حذف حسابات) للمدير فقط.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if isSignedIn();
+      allow write: if isFullAccess();
+
+      match /grades/{gradeId} {
+        allow read: if isSignedIn();
+        allow create, delete: if isFullAccess();
+        // ملاحظة: تقييد التعديل بحيث أمين مخزن الفرع يقدر يعدّل branchQty بس،
+        // وأمين المخزن الرئيسي يعدّل mainQty بس (على مستوى الحقل الواحد) هيتم
+        // إحكامه في المرحلة 2 لما تُبنى واجهة التعديل الفعلية.
+        allow update: if isFullAccess() || canEditBranch() || canEditMain();
+      }
+    }
+  }
+}

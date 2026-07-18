@@ -1,0 +1,17 @@
+{
+  "name": "نظام التزويد",
+  "short_name": "التزويد",
+  "description": "نظام إدارة مخزون الطرح والتزويد — مخزن الفرع والمخزن الرئيسي",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f3ef",
+  "theme_color": "#185fa5",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,129 @@
+# نظام التزويد — المرحلة 1 (HTML وJavaScript عادي بالكامل)
+
+هذه النسخة النهائية: **HTML وCSS وJavaScript عادي 100%**، بدون React، بدون
+JSX، بدون Babel، بدون أي أداة تحويل خالص. نفس فكرة أي نظام HTML عادي بنيته
+قبل كده. الشيء الوحيد الجاي من الإنترنت هو مكتبة Firebase نفسها (لتسجيل
+الدخول وقاعدة البيانات)، وهي سكريبت عادي زي أي مكتبة جافاسكريبت تقليدية.
+
+تم اختبار هذه النسخة فعليًا (تسجيل دخول → عرض البيانات → تسجيل خروج) قبل
+إرسالها، وليس افتراضًا نظريًا.
+
+---
+
+## 1. جرّبه دلوقتي (بدون أي تثبيت)
+
+افتح `index.html` بالضغط عليه مرتين — هيفتح فورًا. لسه محتاج إعداد Firebase
+(قسم 2) عشان تسجيل الدخول يشتغل فعليًا بحساب حقيقي.
+
+---
+
+## 2. إعداد Firebase (5 دقايق، مرة واحدة فقط)
+
+1. [console.firebase.google.com](https://console.firebase.google.com) → **Add project**.
+2. **Build → Authentication → Get started** → فعّل **Email/Password**.
+3. **Build → Firestore Database → Create database** (Production mode).
+4. **Project settings (⚙️) → General → Your apps** → أيقونة `</>` → سجّل تطبيق ويب، وهتظهرلك بيانات الإعداد.
+5. افتح `firebase-config.js` واستبدل القيم بالبيانات الحقيقية.
+6. **Firestore Database → Rules**: انسخ محتوى `firestore.rules` والصقه واضغط **Publish**.
+
+---
+
+## 3. إنشاء أول حساب (المدير)
+
+1. Authentication → Users → **Add user** (إيميل + باسورد).
+2. انسخ الـ **User UID**.
+3. Firestore Database → **Start collection** باسم `users`، ID = نفس الـ UID:
+   - `name`: اسم الشخص
+   - `role`: `admin`
+   - `warehouseAccess`: `null`
+
+لإضافة فئة/صنف تجريبي، شوف `docs/data-model-example.txt`.
+
+---
+
+## 4. رفع النظام على GitHub + النشر التلقائي
+
+### أ) تثبيت Git (مرة واحدة)
+```
+https://git-scm.com/downloads
+```
+
+### ب) عمل مستودع
+```
+https://github.com/new
+```
+اسم مثل `tazweed-system`، **Public**، من غير أي ملفات إضافية.
+
+### ج) رفع الملفات
+```
+git init
+git add .
+git commit -m "أول رفعة"
+git branch -M main
+git remote add origin الرابط-اللي-نسخته-من-GitHub
+git push -u origin main
+```
+
+### د) تفعيل GitHub Pages
+1. صفحة المستودع → **Settings** → **Pages**.
+2. **Source: Deploy from a branch** → **Branch: main** → **/ (root)** → **Save**.
+3. بعد دقيقة: `https://username.github.io/tazweed-system/`
+
+**تأكد إن ملف `.nojekyll`** (فاضي، اسمه يبدأ بنقطة) اترفع مع باقي الملفات —
+بدونه GitHub بيحاول "يعالج" الموقع بأداة Jekyll ويبوظه. في هذه النسخة
+الاحتمال ده أصلًا شبه معدوم (مفيش أي كود فيه `{{ }}` من الأساس)، لكن الملف
+موجود كإجراء احتياطي إضافي.
+
+### للتحديث لاحقًا
+```
+git add .
+git commit -m "وصف التعديل"
+git push
+```
+
+---
+
+## 5. الأدوار المدعومة حاليًا
+
+| القيمة في role | المعنى |
+|---|---|
+| `admin` | مدير — كل الصلاحيات + إدارة الحسابات |
+| `branch_manager` | مدير الفرع — كل الصلاحيات (مؤقتًا) |
+| `supervisor` | مشرف — كل الصلاحيات (مؤقتًا) |
+| `warehouse_keeper` | أمين مخزن — حسب `warehouseAccess`: `branch` / `main` / `both` |
+| `user` | مستخدم عادي — عرض فقط |
+
+---
+
+## 6. بنية المشروع
+
+```
+index.html              الصفحة الوحيدة — بس Firebase + عناصر فاضية
+styles.css              التصميم
+manifest.json           إعداد تثبيت التطبيق (PWA)
+sw.js                   Service Worker (إشعار "فيه تحديث جديد")
+firebase-config.js      بيانات الاتصال بمشروعك على Firebase
+firestore.rules         قواعد أمان قاعدة البيانات
+.nojekyll                إجراء احتياطي (تعطيل معالجة Jekyll على GitHub Pages)
+js/
+  app-info.js           اسم النظام + رقم الإصدار
+  permissions.js        منطق الأدوار والصلاحيات
+  app.js                كل منطق الواجهة: تسجيل الدخول، الفئات، جدول الدرجات
+  update-prompt.js       إشعار التحديث الجديد
+docs/data-model-example.txt   مثال لإدخال بيانات تجريبية يدويًا
+```
+
+كل ملف جافاسكريبت عادي 100%، بيتفتح ويتعدّل في أي محرر نصوص، ومفيش أي خطوة
+معالجة أو تحويل قبل ما يشتغل.
+
+---
+
+## 7. ما لم يُبنَ بعد
+
+- التعديل المباشر على الكميات (`+` / `−`) وسجل العمليات.
+- منطق النواقص الكامل والإشعارات.
+- مؤشر حالة الاتصال المرئي (التخزين المحلي IndexedDB نفسه مفعّل بالفعل).
+- توليد QR وطباعة اللاصق وورقة التزويد.
+- تثبيت التطبيق فعليًا كأيقونة (الإشعار جاهز، والتثبيت الكامل يحتاج اختبار على الاستضافة الحقيقية).
+
+التفاصيل الكاملة في `tarha-inventory-system-spec.md`.
