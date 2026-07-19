@@ -14,6 +14,8 @@ const state = {
   loginBusy: false,
   showActivityLog: false,
   activityLog: [],
+  showAddCategoryForm: false,
+  showAddGradeForm: false,
 };
 
 let unsubProfile = null;
@@ -165,6 +167,7 @@ function attachLoginEvents() {
 // ============================================================
 function dashboardHTML() {
   const roleLabel = ROLE_LABELS_AR[state.profile?.role] || '';
+  const canManageCatalog = hasFullAccess(state.profile);
 
   const tabsHTML = state.categories
     .map(
@@ -175,16 +178,40 @@ function dashboardHTML() {
     )
     .join('');
 
+  const addCategoryTabHTML = canManageCatalog
+    ? `<button class="tab" id="add-category-tab-btn">+ فئة جديدة</button>`
+    : '';
+
+  const addCategoryFormHTML = state.showAddCategoryForm
+    ? `
+    <div class="card" style="margin:0 1rem 1rem; padding:1rem;">
+      <form id="add-category-form" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+        <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
+          <label>اسم الفئة الجديدة</label>
+          <input class="input" id="new-category-name" required />
+        </div>
+        <button class="btn btn-primary" type="submit">إضافة</button>
+        <button class="btn" type="button" id="cancel-add-category">إلغاء</button>
+      </form>
+    </div>`
+    : '';
+
   let bodyHTML;
   if (state.showActivityLog) {
     bodyHTML = `<div style="padding:1rem;">${activityLogHTML()}</div>`;
   } else if (state.categories.length === 0) {
-    bodyHTML = `<div style="padding:2rem; text-align:center; color:var(--text-secondary);">لا توجد فئات (شيتات) مضافة بعد في قاعدة البيانات.</div>`;
-  } else {
     bodyHTML = `
-      <div class="tabs">${tabsHTML}</div>
-      <div style="padding:1rem;">${gradeTableHTML()}</div>`;
+      <div style="padding:2rem; text-align:center; color:var(--text-secondary);">
+        لا توجد فئات (شيتات) مضافة بعد في قاعدة البيانات.
+        ${canManageCatalog ? ' اضغط "+ فئة جديدة" فوق عشان تبدأ.' : ''}
+      </div>`;
+  } else {
+    bodyHTML = `<div style="padding:1rem;">${gradeTableHTML()}</div>`;
   }
+
+  const tabsRowHTML = !state.showActivityLog
+    ? `<div class="tabs">${tabsHTML}${addCategoryTabHTML}</div>${addCategoryFormHTML}`
+    : '';
 
   return `
     <div>
@@ -202,6 +229,7 @@ function dashboardHTML() {
           <button class="btn" id="logout-btn">تسجيل خروج</button>
         </div>
       </div>
+      ${tabsRowHTML}
       ${bodyHTML}
     </div>`;
 }
@@ -228,12 +256,36 @@ function qtyCellHTML(categoryId, gradeId, field, value, canEdit) {
 }
 
 function gradeTableHTML() {
-  if (state.grades.length === 0) {
-    return `<div style="padding:1rem; color:var(--text-secondary);">لا توجد درجات مضافة في هذه الفئة بعد.</div>`;
-  }
-
   const canEditBranch = canEditWarehouse(state.profile, 'branch');
   const canEditMain = canEditWarehouse(state.profile, 'main');
+  const canManageCatalog = hasFullAccess(state.profile);
+
+  const toolbarHTML = canManageCatalog
+    ? `
+    <div style="display:flex; gap:8px; margin-bottom:0.75rem;">
+      <button class="btn" id="add-grade-btn">+ إضافة درجة</button>
+      <button class="btn" id="delete-category-btn">حذف الفئة دي</button>
+    </div>`
+    : '';
+
+  const addGradeFormHTML = state.showAddGradeForm
+    ? `
+    <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
+      <form id="add-grade-form" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
+        <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" required /></div>
+        <div class="field" style="margin-bottom:0;"><label>اسم الصنف</label><input class="input" id="new-grade-name" /></div>
+        <div class="field" style="margin-bottom:0;"><label>الباركود</label><input class="input" style="width:130px;" id="new-grade-barcode" /></div>
+        <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="0" /></div>
+        <div class="field" style="margin-bottom:0;"><label>الرئيسي</label><input class="input" style="width:70px;" type="number" id="new-grade-main" value="0" /></div>
+        <button class="btn btn-primary" type="submit">إضافة</button>
+        <button class="btn" type="button" id="cancel-add-grade">إلغاء</button>
+      </form>
+    </div>`
+    : '';
+
+  if (state.grades.length === 0) {
+    return `${toolbarHTML}${addGradeFormHTML}<div style="padding:1rem; color:var(--text-secondary);">لا توجد درجات مضافة في هذه الفئة بعد.</div>`;
+  }
 
   const rows = state.grades
     .map(
@@ -245,11 +297,13 @@ function gradeTableHTML() {
         ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
         ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
         <td><span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span></td>
+        ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(g.number)}">حذف</button></td>` : ''}
       </tr>`
     )
     .join('');
 
   return `
+    ${toolbarHTML}${addGradeFormHTML}
     <div class="card" style="padding:0; overflow-x:auto;">
       <table>
         <thead>
@@ -260,6 +314,7 @@ function gradeTableHTML() {
             <th>الفرع</th>
             <th>الرئيسي</th>
             <th>الحالة</th>
+            ${canManageCatalog ? '<th></th>' : ''}
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -275,14 +330,33 @@ function activityLogHTML() {
   const rows = state.activityLog
     .map((entry) => {
       const when = entry.timestamp && entry.timestamp.toDate ? entry.timestamp.toDate().toLocaleString('ar-EG') : '—';
-      const fieldLabel = entry.field === 'branchQty' ? 'مخزن الفرع' : entry.field === 'mainQty' ? 'المخزن الرئيسي' : entry.field || '';
+      let itemLabel = '';
+      let detailLabel = '';
+
+      if (entry.action === 'edit') {
+        const fieldLabel = entry.field === 'branchQty' ? 'مخزن الفرع' : entry.field === 'mainQty' ? 'المخزن الرئيسي' : entry.field || '';
+        itemLabel = `${escapeHTML(entry.gradeNumber)} — ${escapeHTML(entry.itemName || '')}`;
+        detailLabel = `${escapeHTML(fieldLabel)}: ${escapeHTML(entry.oldValue)} ← ${escapeHTML(entry.newValue)}`;
+      } else if (entry.action === 'add_category') {
+        itemLabel = escapeHTML(entry.categoryName || '');
+        detailLabel = 'إضافة فئة جديدة';
+      } else if (entry.action === 'delete_category') {
+        itemLabel = escapeHTML(entry.categoryName || '');
+        detailLabel = 'حذف فئة بالكامل';
+      } else if (entry.action === 'add_grade') {
+        itemLabel = `${escapeHTML(entry.gradeNumber)} — ${escapeHTML(entry.itemName || '')}`;
+        detailLabel = 'إضافة درجة جديدة';
+      } else if (entry.action === 'delete_grade') {
+        itemLabel = `${escapeHTML(entry.gradeNumber)} — ${escapeHTML(entry.itemName || '')}`;
+        detailLabel = 'حذف درجة';
+      }
+
       return `
         <tr>
           <td>${escapeHTML(when)}</td>
           <td>${escapeHTML(entry.userName)}</td>
-          <td>${escapeHTML(entry.gradeNumber)} — ${escapeHTML(entry.itemName || '')}</td>
-          <td>${escapeHTML(fieldLabel)}</td>
-          <td>${escapeHTML(entry.oldValue)} ← ${escapeHTML(entry.newValue)}</td>
+          <td>${itemLabel}</td>
+          <td>${detailLabel}</td>
         </tr>`;
     })
     .join('');
@@ -294,9 +368,8 @@ function activityLogHTML() {
           <tr>
             <th>الوقت</th>
             <th>الشخص</th>
-            <th>الصنف</th>
-            <th>المخزن</th>
-            <th>التغيير</th>
+            <th>الصنف/الفئة</th>
+            <th>العملية</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -350,6 +423,130 @@ function attachDashboardEvents() {
       setQuantity(categoryId, gradeId, field, newValue);
     });
   });
+
+  const addCategoryTabBtn = document.getElementById('add-category-tab-btn');
+  if (addCategoryTabBtn) {
+    addCategoryTabBtn.addEventListener('click', () => {
+      state.showAddCategoryForm = !state.showAddCategoryForm;
+      render();
+    });
+  }
+
+  const addCategoryForm = document.getElementById('add-category-form');
+  if (addCategoryForm) {
+    addCategoryForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('new-category-name').value.trim();
+      if (!name) return;
+      await addCategory(name);
+      state.showAddCategoryForm = false;
+      render();
+    });
+  }
+
+  const cancelAddCategory = document.getElementById('cancel-add-category');
+  if (cancelAddCategory) {
+    cancelAddCategory.addEventListener('click', () => {
+      state.showAddCategoryForm = false;
+      render();
+    });
+  }
+
+  const addGradeBtn = document.getElementById('add-grade-btn');
+  if (addGradeBtn) {
+    addGradeBtn.addEventListener('click', () => {
+      state.showAddGradeForm = !state.showAddGradeForm;
+      render();
+    });
+  }
+
+  const addGradeForm = document.getElementById('add-grade-form');
+  if (addGradeForm) {
+    addGradeForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const number = Number(document.getElementById('new-grade-number').value);
+      if (!number) return;
+      const itemName = document.getElementById('new-grade-name').value.trim();
+      const barcodeNumber = document.getElementById('new-grade-barcode').value.trim();
+      const branchQty = Number(document.getElementById('new-grade-branch').value) || 0;
+      const mainQty = Number(document.getElementById('new-grade-main').value) || 0;
+      await addGrade(state.activeCategoryId, { number, itemName, barcodeNumber, branchQty, mainQty });
+      state.showAddGradeForm = false;
+      render();
+    });
+  }
+
+  const cancelAddGrade = document.getElementById('cancel-add-grade');
+  if (cancelAddGrade) {
+    cancelAddGrade.addEventListener('click', () => {
+      state.showAddGradeForm = false;
+      render();
+    });
+  }
+
+  const deleteCategoryBtn = document.getElementById('delete-category-btn');
+  if (deleteCategoryBtn) {
+    deleteCategoryBtn.addEventListener('click', async () => {
+      const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+      if (!cat) return;
+      if (!confirm(`متأكد إنك عايز تمسح فئة "${cat.name}" بكل درجاتها؟ الخطوة دي مش هترجع.`)) return;
+      await deleteCategory(cat.id, cat.name);
+    });
+  }
+
+  document.querySelectorAll('[data-delete-grade-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const gradeId = btn.dataset.deleteGradeId;
+      const gradeNumber = btn.dataset.deleteGradeNumber;
+      if (!confirm(`متأكد إنك عايز تمسح الدرجة رقم ${gradeNumber}؟`)) return;
+      const grade = state.grades.find((g) => g.id === gradeId);
+      await deleteGrade(state.activeCategoryId, gradeId, gradeNumber, grade?.itemName || '');
+    });
+  });
+}
+
+// ============================================================
+// إدارة الفئات والدرجات (إضافة/حذف)
+// ============================================================
+async function addCategory(name) {
+  const nextOrder = state.categories.reduce((max, c) => Math.max(max, c.order || 0), 0) + 1;
+  const ref = await db.collection('categories').add({ name, order: nextOrder });
+  await logActivity({ action: 'add_category', categoryId: ref.id, categoryName: name });
+  state.activeCategoryId = ref.id;
+}
+
+async function deleteCategory(categoryId, categoryName) {
+  const gradesSnap = await db.collection('categories').doc(categoryId).collection('grades').get();
+  await Promise.all(gradesSnap.docs.map((d) => d.ref.delete()));
+  await db.collection('categories').doc(categoryId).delete();
+  await logActivity({ action: 'delete_category', categoryId, categoryName });
+  if (state.activeCategoryId === categoryId) {
+    state.activeCategoryId = null;
+    state.grades = [];
+  }
+}
+
+async function addGrade(categoryId, data) {
+  const ref = await db.collection('categories').doc(categoryId).collection('grades').add({
+    number: data.number,
+    itemName: data.itemName || '',
+    barcodeNumber: data.barcodeNumber || '',
+    branchQty: data.branchQty || 0,
+    mainQty: data.mainQty || 0,
+    status: 'normal',
+  });
+  await logActivity({
+    action: 'add_grade',
+    categoryId,
+    gradeId: ref.id,
+    gradeNumber: data.number,
+    itemName: data.itemName || '',
+  });
+}
+
+async function deleteGrade(categoryId, gradeId, gradeNumber, itemName) {
+  await db.collection('categories').doc(categoryId).collection('grades').doc(gradeId).delete();
+  await logActivity({ action: 'delete_grade', categoryId, gradeId, gradeNumber, itemName });
 }
 
 // ============================================================
@@ -371,9 +568,18 @@ async function setQuantity(categoryId, gradeId, field, newValue) {
   await applyQuantityChange(gradeRef, snap, field, oldValue, newValue);
 }
 
+function logActivity(details) {
+  return db.collection('activityLog').add({
+    ...details,
+    userId: state.user.uid,
+    userName: state.profile.name,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
 async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
   await gradeRef.update({ [field]: newValue });
-  await db.collection('activityLog').add({
+  await logActivity({
     action: 'edit',
     categoryId: state.activeCategoryId,
     gradeId: snap.id,
@@ -382,9 +588,6 @@ async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
     field,
     oldValue,
     newValue,
-    userId: state.user.uid,
-    userName: state.profile.name,
-    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
   });
 }
 
@@ -440,6 +643,8 @@ function init() {
       state.activeCategoryId = null;
       state.showActivityLog = false;
       state.activityLog = [];
+      state.showAddCategoryForm = false;
+      state.showAddGradeForm = false;
       state.view = 'login';
       render();
       return;
