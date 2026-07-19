@@ -12,11 +12,14 @@ const state = {
   grades: [],
   loginError: '',
   loginBusy: false,
+  showActivityLog: false,
+  activityLog: [],
 };
 
 let unsubProfile = null;
 let unsubCategories = null;
 let unsubGrades = null;
+let unsubActivityLog = null;
 
 // ============================================================
 // أدوات مساعدة
@@ -172,12 +175,16 @@ function dashboardHTML() {
     )
     .join('');
 
-  const bodyHTML =
-    state.categories.length === 0
-      ? `<div style="padding:2rem; text-align:center; color:var(--text-secondary);">لا توجد فئات (شيتات) مضافة بعد في قاعدة البيانات.</div>`
-      : `
+  let bodyHTML;
+  if (state.showActivityLog) {
+    bodyHTML = `<div style="padding:1rem;">${activityLogHTML()}</div>`;
+  } else if (state.categories.length === 0) {
+    bodyHTML = `<div style="padding:2rem; text-align:center; color:var(--text-secondary);">لا توجد فئات (شيتات) مضافة بعد في قاعدة البيانات.</div>`;
+  } else {
+    bodyHTML = `
       <div class="tabs">${tabsHTML}</div>
       <div style="padding:1rem;">${gradeTableHTML()}</div>`;
+  }
 
   return `
     <div>
@@ -191,6 +198,7 @@ function dashboardHTML() {
             ${escapeHTML(APP_NAME)}
             <span style="font-size:11px; color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
           </span>
+          <button class="btn" id="activity-log-btn">${state.showActivityLog ? 'رجوع للشيتات' : 'سجل العمليات'}</button>
           <button class="btn" id="logout-btn">تسجيل خروج</button>
         </div>
       </div>
@@ -198,10 +206,34 @@ function dashboardHTML() {
     </div>`;
 }
 
+function qtyCellHTML(categoryId, gradeId, field, value, canEdit) {
+  if (!canEdit) {
+    return `<td>${escapeHTML(value ?? 0)}</td>`;
+  }
+  return `
+    <td>
+      <div class="qty-cell">
+        <button class="qty-btn" data-action="dec" data-category-id="${escapeHTML(categoryId)}" data-grade-id="${escapeHTML(gradeId)}" data-field="${field}">−</button>
+        <input
+          class="qty-input"
+          type="number"
+          value="${escapeHTML(value ?? 0)}"
+          data-category-id="${escapeHTML(categoryId)}"
+          data-grade-id="${escapeHTML(gradeId)}"
+          data-field="${field}"
+        />
+        <button class="qty-btn" data-action="inc" data-category-id="${escapeHTML(categoryId)}" data-grade-id="${escapeHTML(gradeId)}" data-field="${field}">+</button>
+      </div>
+    </td>`;
+}
+
 function gradeTableHTML() {
   if (state.grades.length === 0) {
     return `<div style="padding:1rem; color:var(--text-secondary);">لا توجد درجات مضافة في هذه الفئة بعد.</div>`;
   }
+
+  const canEditBranch = canEditWarehouse(state.profile, 'branch');
+  const canEditMain = canEditWarehouse(state.profile, 'main');
 
   const rows = state.grades
     .map(
@@ -210,8 +242,8 @@ function gradeTableHTML() {
         <td>${escapeHTML(g.number)}</td>
         <td>${escapeHTML(g.itemName || '—')}</td>
         <td>${escapeHTML(g.barcodeNumber || '—')}</td>
-        <td>${escapeHTML(g.branchQty ?? 0)}</td>
-        <td>${escapeHTML(g.mainQty ?? 0)}</td>
+        ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
+        ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
         <td><span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span></td>
       </tr>`
     )
@@ -235,6 +267,43 @@ function gradeTableHTML() {
     </div>`;
 }
 
+function activityLogHTML() {
+  if (state.activityLog.length === 0) {
+    return `<div style="padding:1rem; color:var(--text-secondary);">لا يوجد أي عمليات مسجّلة بعد.</div>`;
+  }
+
+  const rows = state.activityLog
+    .map((entry) => {
+      const when = entry.timestamp && entry.timestamp.toDate ? entry.timestamp.toDate().toLocaleString('ar-EG') : '—';
+      const fieldLabel = entry.field === 'branchQty' ? 'مخزن الفرع' : entry.field === 'mainQty' ? 'المخزن الرئيسي' : entry.field || '';
+      return `
+        <tr>
+          <td>${escapeHTML(when)}</td>
+          <td>${escapeHTML(entry.userName)}</td>
+          <td>${escapeHTML(entry.gradeNumber)} — ${escapeHTML(entry.itemName || '')}</td>
+          <td>${escapeHTML(fieldLabel)}</td>
+          <td>${escapeHTML(entry.oldValue)} ← ${escapeHTML(entry.newValue)}</td>
+        </tr>`;
+    })
+    .join('');
+
+  return `
+    <div class="card" style="padding:0; overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>الوقت</th>
+            <th>الشخص</th>
+            <th>الصنف</th>
+            <th>المخزن</th>
+            <th>التغيير</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
 function attachDashboardEvents() {
   document.querySelectorAll('.tab').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -251,6 +320,84 @@ function attachDashboardEvents() {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => auth.signOut());
   }
+
+  const activityLogBtn = document.getElementById('activity-log-btn');
+  if (activityLogBtn) {
+    activityLogBtn.addEventListener('click', () => {
+      state.showActivityLog = !state.showActivityLog;
+      if (state.showActivityLog) {
+        subscribeActivityLog();
+      } else if (unsubActivityLog) {
+        unsubActivityLog();
+        unsubActivityLog = null;
+      }
+      render();
+    });
+  }
+
+  document.querySelectorAll('.qty-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const { categoryId, gradeId, field } = btn.dataset;
+      const delta = btn.dataset.action === 'inc' ? 1 : -1;
+      changeQuantity(categoryId, gradeId, field, delta);
+    });
+  });
+
+  document.querySelectorAll('.qty-input').forEach((input) => {
+    input.addEventListener('change', () => {
+      const { categoryId, gradeId, field } = input.dataset;
+      const newValue = Math.max(0, Number(input.value) || 0);
+      setQuantity(categoryId, gradeId, field, newValue);
+    });
+  });
+}
+
+// ============================================================
+// تعديل الكميات + سجل العمليات
+// ============================================================
+async function changeQuantity(categoryId, gradeId, field, delta) {
+  const gradeRef = db.collection('categories').doc(categoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  const oldValue = snap.data()[field] || 0;
+  const newValue = Math.max(0, oldValue + delta);
+  await applyQuantityChange(gradeRef, snap, field, oldValue, newValue);
+}
+
+async function setQuantity(categoryId, gradeId, field, newValue) {
+  const gradeRef = db.collection('categories').doc(categoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  const oldValue = snap.data()[field] || 0;
+  if (oldValue === newValue) return;
+  await applyQuantityChange(gradeRef, snap, field, oldValue, newValue);
+}
+
+async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
+  await gradeRef.update({ [field]: newValue });
+  await db.collection('activityLog').add({
+    action: 'edit',
+    categoryId: state.activeCategoryId,
+    gradeId: snap.id,
+    gradeNumber: snap.data().number,
+    itemName: snap.data().itemName || '',
+    field,
+    oldValue,
+    newValue,
+    userId: state.user.uid,
+    userName: state.profile.name,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+function subscribeActivityLog() {
+  if (unsubActivityLog) unsubActivityLog();
+  unsubActivityLog = db
+    .collection('activityLog')
+    .orderBy('timestamp', 'desc')
+    .limit(50)
+    .onSnapshot((snap) => {
+      state.activityLog = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      render();
+    });
 }
 
 // ============================================================
@@ -284,12 +431,15 @@ function init() {
     if (unsubProfile) { unsubProfile(); unsubProfile = null; }
     if (unsubCategories) { unsubCategories(); unsubCategories = null; }
     if (unsubGrades) { unsubGrades(); unsubGrades = null; }
+    if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
 
     if (!user) {
       state.profile = null;
       state.categories = [];
       state.grades = [];
       state.activeCategoryId = null;
+      state.showActivityLog = false;
+      state.activityLog = [];
       state.view = 'login';
       render();
       return;

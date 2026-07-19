@@ -198,3 +198,37 @@ th {
 .update-banner .btn {
   padding: 6px 14px;
 }
+
+.qty-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.qty-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.qty-btn:hover {
+  background: var(--border);
+}
+
+.qty-input {
+  width: 48px;
+  text-align: center;
+  padding: 4px 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+}

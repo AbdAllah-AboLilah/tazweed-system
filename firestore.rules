@@ -1,8 +1,8 @@
 rules_version = '2';
 
 // قواعد أمان Firestore — طبقًا لملف المواصفات (قسم 4: الأدوار والصلاحيات)
-// المرحلة 1: لا توجد واجهة تعديل بعد، لكن القواعد جاهزة من الآن لمنع أي
-// تعديل غير مصرّح به حتى قبل بناء واجهة التعديل في المرحلة 2.
+// المرحلة 2: تعديل الكميات + سجل العمليات — التقييد بقى على مستوى الحقل
+// الواحد فعليًا (أمين مخزن الفرع يقدر يعدّل branchQty بس، مش أي حقل تاني).
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -32,12 +32,15 @@ service cloud.firestore {
       return userProfile().warehouseAccess;
     }
 
-    function canEditBranch() {
-      return isFullAccess() || (role() == 'warehouse_keeper' && warehouseAccess() in ['branch', 'both']);
+    function onlyChangedKeys(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
-    function canEditMain() {
-      return isFullAccess() || (role() == 'warehouse_keeper' && warehouseAccess() in ['main', 'both']);
+    function canUpdateGrade() {
+      return isFullAccess()
+        || (role() == 'warehouse_keeper' && warehouseAccess() == 'branch' && onlyChangedKeys(['branchQty']))
+        || (role() == 'warehouse_keeper' && warehouseAccess() == 'main' && onlyChangedKeys(['mainQty']))
+        || (role() == 'warehouse_keeper' && warehouseAccess() == 'both' && onlyChangedKeys(['branchQty', 'mainQty']));
     }
 
     // حسابات المستخدمين: القراءة لأي مستخدم مسجّل دخول (عشان نعرض الاسم/الدور)،
@@ -54,11 +57,16 @@ service cloud.firestore {
       match /grades/{gradeId} {
         allow read: if isSignedIn();
         allow create, delete: if isFullAccess();
-        // ملاحظة: تقييد التعديل بحيث أمين مخزن الفرع يقدر يعدّل branchQty بس،
-        // وأمين المخزن الرئيسي يعدّل mainQty بس (على مستوى الحقل الواحد) هيتم
-        // إحكامه في المرحلة 2 لما تُبنى واجهة التعديل الفعلية.
-        allow update: if isFullAccess() || canEditBranch() || canEditMain();
+        allow update: if canUpdateGrade();
       }
+    }
+
+    // سجل العمليات: أي مستخدم مسجّل دخول يقدر يضيف سجل (وقت تعديله هو نفسه)
+    // ويقرأ السجل، لكن محدش يقدر يعدّل أو يمسح سجل قديم — عشان يفضل موثوق.
+    match /activityLog/{entryId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
     }
   }
 }

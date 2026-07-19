@@ -55,3 +55,21 @@ Document ID: لازم يكون نفس الـ UID بتاع الحساب في Auth
 
 قيم role الممكنة: admin | branch_manager | supervisor | warehouse_keeper | user
 قيم warehouseAccess (لأمين المخزن فقط): "branch" | "main" | "both"
+
+────────────────────────────────────────
+Collection: activityLog (يُنشأ تلقائيًا، لا تحتاج تضيفه يدويًا)
+────────────────────────────────────────
+كل تعديل كمية بيضيف مستند هنا تلقائيًا بالشكل:
+{
+  "action": "edit",
+  "categoryId": "dobeta-sada",
+  "gradeId": "...",
+  "gradeNumber": 15,
+  "itemName": "دوبيتا سادة رمادي",
+  "field": "branchQty",
+  "oldValue": 0,
+  "newValue": 3,
+  "userId": "...",
+  "userName": "اسم الشخص",
+  "timestamp": <server timestamp>
+}
