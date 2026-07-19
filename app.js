@@ -1,0 +1,782 @@
+// نظام التزويد — منطق الواجهة (JavaScript عادي بالكامل، بدون أي إطار عمل)
+
+// ============================================================
+// الحالة العامة للتطبيق
+// ============================================================
+const state = {
+  view: 'loading', // loading | not-configured | login | no-profile | dashboard
+  user: null,
+  profile: null,
+  categories: [],
+  activeCategoryId: null,
+  grades: [],
+  loginError: '',
+  loginBusy: false,
+  showActivityLog: false,
+  activityLog: [],
+  showAddCategoryForm: false,
+  showAddGradeForm: false,
+  showEditCategoryInfoForm: false,
+};
+
+let unsubProfile = null;
+let unsubCategories = null;
+let unsubGrades = null;
+let unsubActivityLog = null;
+
+// ============================================================
+// أدوات مساعدة
+// ============================================================
+function escapeHTML(value) {
+  const div = document.createElement('div');
+  div.textContent = value ?? '';
+  return div.innerHTML;
+}
+
+function statusLabel(status) {
+  if (status === 'pending') return 'طلب معلّق';
+  if (status === 'out') return 'خلصت نهائيًا';
+  return 'عادي';
+}
+
+function statusBadgeClass(status) {
+  if (status === 'pending') return 'badge-pending';
+  if (status === 'out') return 'badge-out';
+  return 'badge-normal';
+}
+
+function rowClassForStatus(status) {
+  if (status === 'pending') return 'row-pending';
+  if (status === 'out') return 'row-out';
+  return '';
+}
+
+// ============================================================
+// الرسم الرئيسي: بيقرر يعرض إيه بناءً على state.view
+// ============================================================
+function render() {
+  const root = document.getElementById('root');
+
+  if (!FIREBASE_IS_CONFIGURED) {
+    root.innerHTML = notConfiguredHTML();
+    return;
+  }
+
+  if (state.view === 'loading') {
+    root.innerHTML = `<div style="padding:2rem; text-align:center;">جارٍ التحميل...</div>`;
+    return;
+  }
+
+  if (state.view === 'login') {
+    root.innerHTML = loginHTML();
+    attachLoginEvents();
+    return;
+  }
+
+  if (state.view === 'no-profile') {
+    root.innerHTML = `
+      <div style="padding:2rem; text-align:center;">
+        الحساب مسجّل دخول لكن لا يوجد له صلاحية مُعرَّفة بعد. اطلب من المدير
+        إنشاء بروفايل الصلاحية في users/{uid}.
+      </div>`;
+    return;
+  }
+
+  if (state.view === 'dashboard') {
+    root.innerHTML = dashboardHTML();
+    attachDashboardEvents();
+    return;
+  }
+}
+
+function notConfiguredHTML() {
+  return `
+    <div class="card" style="max-width:480px; margin:60px auto; text-align:center;">
+      <h2 style="font-size:16px; margin-bottom:10px;">النظام لسه مش متوصل بـ Firebase</h2>
+      <p style="font-size:14px; color:var(--text-secondary); line-height:1.7;">
+        افتح ملف <code>firebase-config.js</code> واستبدل القيم بالبيانات الحقيقية بتاعة
+        مشروعك على Firebase. الخطوات موجودة في <code>README.md</code> — قسم 2.
+      </p>
+    </div>`;
+}
+
+// ============================================================
+// شاشة تسجيل الدخول
+// ============================================================
+function loginHTML() {
+  return `
+    <div class="login-wrap">
+      <form class="card login-card" id="login-form">
+        <h1 style="font-size:18px; font-weight:500; margin-bottom:4px;">
+          ${escapeHTML(APP_NAME)}
+          <span style="font-size:12px; color:var(--text-muted); font-weight:400;">v${escapeHTML(APP_VERSION)}</span>
+        </h1>
+        <div style="font-size:13px; color:var(--text-secondary); margin-bottom:20px;">تسجيل الدخول</div>
+
+        ${state.loginError ? `<div class="error-text">${escapeHTML(state.loginError)}</div>` : ''}
+
+        <div class="field">
+          <label for="email">البريد الإلكتروني</label>
+          <input class="input" type="email" id="email" required />
+        </div>
+
+        <div class="field">
+          <label for="password">كلمة المرور</label>
+          <input class="input" type="password" id="password" required />
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="keep" checked />
+          <label for="keep">إبقاء تسجيل الدخول</label>
+        </div>
+
+        <button class="btn btn-primary" type="submit" style="width:100%;" ${state.loginBusy ? 'disabled' : ''}>
+          ${state.loginBusy ? 'جارٍ الدخول...' : 'دخول'}
+        </button>
+      </form>
+    </div>`;
+}
+
+function attachLoginEvents() {
+  const form = document.getElementById('login-form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const keepLoggedIn = document.getElementById('keep').checked;
+
+    state.loginError = '';
+    state.loginBusy = true;
+    render();
+
+    try {
+      await auth.setPersistence(
+        keepLoggedIn ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION
+      );
+      await auth.signInWithEmailAndPassword(email, password);
+      // onAuthStateChanged هيتكفل بتغيير الشاشة بعد كده
+    } catch (err) {
+      state.loginError = 'بيانات الدخول غير صحيحة، أو الحساب غير موجود.';
+      state.loginBusy = false;
+      render();
+    }
+  });
+}
+
+// ============================================================
+// لوحة التحكم: التابات + جدول الدرجات
+// ============================================================
+function dashboardHTML() {
+  const roleLabel = ROLE_LABELS_AR[state.profile?.role] || '';
+  const canManageCatalog = hasFullAccess(state.profile);
+
+  const tabsHTML = state.categories
+    .map(
+      (cat) => `
+      <button class="tab ${cat.id === state.activeCategoryId ? 'tab-active' : ''}" data-category-id="${escapeHTML(cat.id)}">
+        ${escapeHTML(cat.name)}
+      </button>`
+    )
+    .join('');
+
+  const addCategoryTabHTML = canManageCatalog
+    ? `<button class="tab" id="add-category-tab-btn">+ فئة جديدة</button>`
+    : '';
+
+  const addCategoryFormHTML = state.showAddCategoryForm
+    ? `
+    <div class="card" style="margin:0 1rem 1rem; padding:1rem;">
+      <form id="add-category-form" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+        <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+          <label>اسم الفئة (التاب)</label>
+          <input class="input" id="new-category-name" required />
+        </div>
+        <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+          <label>اسم الصنف (زي الكاشير)</label>
+          <input class="input" id="new-category-item-name" />
+        </div>
+        <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+          <label>الباركود</label>
+          <input class="input" id="new-category-barcode" />
+        </div>
+        <button class="btn btn-primary" type="submit">إضافة</button>
+        <button class="btn" type="button" id="cancel-add-category">إلغاء</button>
+      </form>
+    </div>`
+    : '';
+
+  let bodyHTML;
+  if (state.showActivityLog) {
+    bodyHTML = `<div style="padding:1rem;">${activityLogHTML()}</div>`;
+  } else if (state.categories.length === 0) {
+    bodyHTML = `
+      <div style="padding:2rem; text-align:center; color:var(--text-secondary);">
+        لا توجد فئات (شيتات) مضافة بعد في قاعدة البيانات.
+        ${canManageCatalog ? ' اضغط "+ فئة جديدة" فوق عشان تبدأ.' : ''}
+      </div>`;
+  } else {
+    bodyHTML = `<div style="padding:1rem;">${gradeTableHTML()}</div>`;
+  }
+
+  const tabsRowHTML = !state.showActivityLog
+    ? `<div class="tabs">${tabsHTML}${addCategoryTabHTML}</div>${addCategoryFormHTML}`
+    : '';
+
+  return `
+    <div>
+      <div class="topbar">
+        <div>
+          <div style="font-size:14px; font-weight:500;">${escapeHTML(state.profile?.name)}</div>
+          <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:16px;">
+          <span style="font-size:13px;">
+            ${escapeHTML(APP_NAME)}
+            <span style="font-size:11px; color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
+          </span>
+          <button class="btn" id="activity-log-btn">${state.showActivityLog ? 'رجوع للشيتات' : 'سجل العمليات'}</button>
+          <button class="btn" id="logout-btn">تسجيل خروج</button>
+        </div>
+      </div>
+      ${tabsRowHTML}
+      ${bodyHTML}
+    </div>`;
+}
+
+function qtyCellHTML(categoryId, gradeId, field, value, canEdit) {
+  if (!canEdit) {
+    return `<td>${escapeHTML(value ?? 0)}</td>`;
+  }
+  return `
+    <td>
+      <div class="qty-cell">
+        <button class="qty-btn" data-action="dec" data-category-id="${escapeHTML(categoryId)}" data-grade-id="${escapeHTML(gradeId)}" data-field="${field}">−</button>
+        <input
+          class="qty-input"
+          type="number"
+          value="${escapeHTML(value ?? 0)}"
+          data-category-id="${escapeHTML(categoryId)}"
+          data-grade-id="${escapeHTML(gradeId)}"
+          data-field="${field}"
+        />
+        <button class="qty-btn" data-action="inc" data-category-id="${escapeHTML(categoryId)}" data-grade-id="${escapeHTML(gradeId)}" data-field="${field}">+</button>
+      </div>
+    </td>`;
+}
+
+function categoryInfoBarHTML() {
+  const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+  if (!cat) return '';
+  const canManageCatalog = hasFullAccess(state.profile);
+
+  if (state.showEditCategoryInfoForm) {
+    return `
+      <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
+        <form id="edit-category-info-form" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
+          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+            <label>اسم الصنف (زي الكاشير)</label>
+            <input class="input" id="edit-category-item-name" value="${escapeHTML(cat.itemName || '')}" />
+          </div>
+          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+            <label>الباركود</label>
+            <input class="input" id="edit-category-barcode" value="${escapeHTML(cat.barcodeNumber || '')}" />
+          </div>
+          <button class="btn btn-primary" type="submit">حفظ</button>
+          <button class="btn" type="button" id="cancel-edit-category-info">إلغاء</button>
+        </form>
+      </div>`;
+  }
+
+  return `
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:0.75rem; font-size:13px; color:var(--text-secondary);">
+      <span>اسم الصنف: <strong style="color:var(--text-primary);">${escapeHTML(cat.itemName || '—')}</strong></span>
+      <span>الباركود: <strong style="color:var(--text-primary);">${escapeHTML(cat.barcodeNumber || '—')}</strong></span>
+      ${canManageCatalog ? `<button class="btn" id="edit-category-info-btn" style="padding:3px 10px; font-size:12px;">تعديل</button>` : ''}
+    </div>`;
+}
+
+function gradeTableHTML() {
+  const canEditBranch = canEditWarehouse(state.profile, 'branch');
+  const canEditMain = canEditWarehouse(state.profile, 'main');
+  const canManageCatalog = hasFullAccess(state.profile);
+
+  const infoBarHTML = categoryInfoBarHTML();
+
+  const toolbarHTML = canManageCatalog
+    ? `
+    <div style="display:flex; gap:8px; margin-bottom:0.75rem;">
+      <button class="btn" id="add-grade-btn">+ إضافة درجة</button>
+      <button class="btn" id="delete-category-btn">حذف الفئة دي</button>
+    </div>`
+    : '';
+
+  const addGradeFormHTML = state.showAddGradeForm
+    ? `
+    <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
+      <form id="add-grade-form" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
+        <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" required /></div>
+        <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="0" /></div>
+        <div class="field" style="margin-bottom:0;"><label>الرئيسي</label><input class="input" style="width:70px;" type="number" id="new-grade-main" value="0" /></div>
+        <button class="btn btn-primary" type="submit">إضافة</button>
+        <button class="btn" type="button" id="cancel-add-grade">إلغاء</button>
+      </form>
+    </div>`
+    : '';
+
+  if (state.grades.length === 0) {
+    return `${infoBarHTML}${toolbarHTML}${addGradeFormHTML}<div style="padding:1rem; color:var(--text-secondary);">لا توجد درجات مضافة في هذه الفئة بعد.</div>`;
+  }
+
+  const rows = state.grades
+    .map(
+      (g) => `
+      <tr class="${rowClassForStatus(g.status)}">
+        <td>${escapeHTML(g.number)}</td>
+        ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
+        ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
+        <td><span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span></td>
+        ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(g.number)}">حذف</button></td>` : ''}
+      </tr>`
+    )
+    .join('');
+
+  return `
+    ${infoBarHTML}${toolbarHTML}${addGradeFormHTML}
+    <div class="card" style="padding:0; overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>الدرجة</th>
+            <th>الفرع</th>
+            <th>الرئيسي</th>
+            <th>الحالة</th>
+            ${canManageCatalog ? '<th></th>' : ''}
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function activityLogHTML() {
+  if (state.activityLog.length === 0) {
+    return `<div style="padding:1rem; color:var(--text-secondary);">لا يوجد أي عمليات مسجّلة بعد.</div>`;
+  }
+
+  const rows = state.activityLog
+    .map((entry) => {
+      const when = entry.timestamp && entry.timestamp.toDate ? entry.timestamp.toDate().toLocaleString('ar-EG') : '—';
+      let itemLabel = '';
+      let detailLabel = '';
+
+      if (entry.action === 'edit') {
+        const fieldLabel = entry.field === 'branchQty' ? 'مخزن الفرع' : entry.field === 'mainQty' ? 'المخزن الرئيسي' : entry.field || '';
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = `${escapeHTML(fieldLabel)}: ${escapeHTML(entry.oldValue)} ← ${escapeHTML(entry.newValue)}`;
+      } else if (entry.action === 'add_category') {
+        itemLabel = escapeHTML(entry.categoryName || '');
+        detailLabel = 'إضافة فئة جديدة';
+      } else if (entry.action === 'delete_category') {
+        itemLabel = escapeHTML(entry.categoryName || '');
+        detailLabel = 'حذف فئة بالكامل';
+      } else if (entry.action === 'add_grade') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'إضافة درجة جديدة';
+      } else if (entry.action === 'delete_grade') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'حذف درجة';
+      } else if (entry.action === 'edit_category_info') {
+        itemLabel = escapeHTML(entry.itemName || '');
+        detailLabel = `تعديل بيانات الصنف (باركود: ${escapeHTML(entry.barcodeNumber || '—')})`;
+      }
+
+      return `
+        <tr>
+          <td>${escapeHTML(when)}</td>
+          <td>${escapeHTML(entry.userName)}</td>
+          <td>${itemLabel}</td>
+          <td>${detailLabel}</td>
+        </tr>`;
+    })
+    .join('');
+
+  return `
+    <div class="card" style="padding:0; overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>الوقت</th>
+            <th>الشخص</th>
+            <th>الصنف/الفئة</th>
+            <th>العملية</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function attachDashboardEvents() {
+  document.querySelectorAll('.tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const categoryId = btn.dataset.categoryId;
+      if (categoryId === state.activeCategoryId) return;
+      state.activeCategoryId = categoryId;
+      state.grades = [];
+      state.showAddGradeForm = false;
+      state.showEditCategoryInfoForm = false;
+      render();
+      subscribeGrades(categoryId);
+    });
+  });
+
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => auth.signOut());
+  }
+
+  const activityLogBtn = document.getElementById('activity-log-btn');
+  if (activityLogBtn) {
+    activityLogBtn.addEventListener('click', () => {
+      state.showActivityLog = !state.showActivityLog;
+      if (state.showActivityLog) {
+        subscribeActivityLog();
+      } else if (unsubActivityLog) {
+        unsubActivityLog();
+        unsubActivityLog = null;
+      }
+      render();
+    });
+  }
+
+  document.querySelectorAll('.qty-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const { categoryId, gradeId, field } = btn.dataset;
+      const delta = btn.dataset.action === 'inc' ? 1 : -1;
+      changeQuantity(categoryId, gradeId, field, delta);
+    });
+  });
+
+  document.querySelectorAll('.qty-input').forEach((input) => {
+    input.addEventListener('change', () => {
+      const { categoryId, gradeId, field } = input.dataset;
+      const newValue = Math.max(0, Number(input.value) || 0);
+      setQuantity(categoryId, gradeId, field, newValue);
+    });
+  });
+
+  const addCategoryTabBtn = document.getElementById('add-category-tab-btn');
+  if (addCategoryTabBtn) {
+    addCategoryTabBtn.addEventListener('click', () => {
+      state.showAddCategoryForm = !state.showAddCategoryForm;
+      render();
+    });
+  }
+
+  const addCategoryForm = document.getElementById('add-category-form');
+  if (addCategoryForm) {
+    addCategoryForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('new-category-name').value.trim();
+      const itemName = document.getElementById('new-category-item-name').value.trim();
+      const barcodeNumber = document.getElementById('new-category-barcode').value.trim();
+      if (!name) return;
+      await addCategory(name, itemName, barcodeNumber);
+      state.showAddCategoryForm = false;
+      render();
+    });
+  }
+
+  const cancelAddCategory = document.getElementById('cancel-add-category');
+  if (cancelAddCategory) {
+    cancelAddCategory.addEventListener('click', () => {
+      state.showAddCategoryForm = false;
+      render();
+    });
+  }
+
+  const addGradeBtn = document.getElementById('add-grade-btn');
+  if (addGradeBtn) {
+    addGradeBtn.addEventListener('click', () => {
+      state.showAddGradeForm = !state.showAddGradeForm;
+      render();
+    });
+  }
+
+  const addGradeForm = document.getElementById('add-grade-form');
+  if (addGradeForm) {
+    addGradeForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const number = Number(document.getElementById('new-grade-number').value);
+      if (!number) return;
+      const branchQty = Number(document.getElementById('new-grade-branch').value) || 0;
+      const mainQty = Number(document.getElementById('new-grade-main').value) || 0;
+      await addGrade(state.activeCategoryId, { number, branchQty, mainQty });
+      state.showAddGradeForm = false;
+      render();
+    });
+  }
+
+  const cancelAddGrade = document.getElementById('cancel-add-grade');
+  if (cancelAddGrade) {
+    cancelAddGrade.addEventListener('click', () => {
+      state.showAddGradeForm = false;
+      render();
+    });
+  }
+
+  const editCategoryInfoBtn = document.getElementById('edit-category-info-btn');
+  if (editCategoryInfoBtn) {
+    editCategoryInfoBtn.addEventListener('click', () => {
+      state.showEditCategoryInfoForm = true;
+      render();
+    });
+  }
+
+  const editCategoryInfoForm = document.getElementById('edit-category-info-form');
+  if (editCategoryInfoForm) {
+    editCategoryInfoForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const itemName = document.getElementById('edit-category-item-name').value.trim();
+      const barcodeNumber = document.getElementById('edit-category-barcode').value.trim();
+      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber);
+      state.showEditCategoryInfoForm = false;
+      render();
+    });
+  }
+
+  const cancelEditCategoryInfo = document.getElementById('cancel-edit-category-info');
+  if (cancelEditCategoryInfo) {
+    cancelEditCategoryInfo.addEventListener('click', () => {
+      state.showEditCategoryInfoForm = false;
+      render();
+    });
+  }
+
+  const deleteCategoryBtn = document.getElementById('delete-category-btn');
+  if (deleteCategoryBtn) {
+    deleteCategoryBtn.addEventListener('click', async () => {
+      const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+      if (!cat) return;
+      if (!confirm(`متأكد إنك عايز تمسح فئة "${cat.name}" بكل درجاتها؟ الخطوة دي مش هترجع.`)) return;
+      await deleteCategory(cat.id, cat.name);
+    });
+  }
+
+  document.querySelectorAll('[data-delete-grade-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const gradeId = btn.dataset.deleteGradeId;
+      const gradeNumber = btn.dataset.deleteGradeNumber;
+      if (!confirm(`متأكد إنك عايز تمسح الدرجة رقم ${gradeNumber}؟`)) return;
+      await deleteGrade(state.activeCategoryId, gradeId, gradeNumber);
+    });
+  });
+}
+
+// ============================================================
+// إدارة الفئات والدرجات (إضافة/حذف)
+// ============================================================
+async function addCategory(name, itemName, barcodeNumber) {
+  const nextOrder = state.categories.reduce((max, c) => Math.max(max, c.order || 0), 0) + 1;
+  const ref = await db.collection('categories').add({
+    name,
+    order: nextOrder,
+    itemName: itemName || '',
+    barcodeNumber: barcodeNumber || '',
+  });
+  await logActivity({ action: 'add_category', categoryId: ref.id, categoryName: name });
+  state.activeCategoryId = ref.id;
+}
+
+async function deleteCategory(categoryId, categoryName) {
+  const gradesSnap = await db.collection('categories').doc(categoryId).collection('grades').get();
+  await Promise.all(gradesSnap.docs.map((d) => d.ref.delete()));
+  await db.collection('categories').doc(categoryId).delete();
+  await logActivity({ action: 'delete_category', categoryId, categoryName });
+  if (state.activeCategoryId === categoryId) {
+    state.activeCategoryId = null;
+    state.grades = [];
+  }
+}
+
+async function addGrade(categoryId, data) {
+  const ref = await db.collection('categories').doc(categoryId).collection('grades').add({
+    number: data.number,
+    branchQty: data.branchQty || 0,
+    mainQty: data.mainQty || 0,
+    status: 'normal',
+  });
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
+  await logActivity({
+    action: 'add_grade',
+    categoryId,
+    categoryName,
+    gradeId: ref.id,
+    gradeNumber: data.number,
+  });
+}
+
+async function updateCategoryInfo(categoryId, itemName, barcodeNumber) {
+  await db.collection('categories').doc(categoryId).update({
+    itemName: itemName || '',
+    barcodeNumber: barcodeNumber || '',
+  });
+  await logActivity({ action: 'edit_category_info', categoryId, itemName, barcodeNumber });
+}
+
+async function deleteGrade(categoryId, gradeId, gradeNumber) {
+  await db.collection('categories').doc(categoryId).collection('grades').doc(gradeId).delete();
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
+  await logActivity({ action: 'delete_grade', categoryId, categoryName, gradeId, gradeNumber });
+}
+
+// ============================================================
+// تعديل الكميات + سجل العمليات
+// ============================================================
+async function changeQuantity(categoryId, gradeId, field, delta) {
+  const gradeRef = db.collection('categories').doc(categoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  const oldValue = snap.data()[field] || 0;
+  const newValue = Math.max(0, oldValue + delta);
+  await applyQuantityChange(gradeRef, snap, field, oldValue, newValue);
+}
+
+async function setQuantity(categoryId, gradeId, field, newValue) {
+  const gradeRef = db.collection('categories').doc(categoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  const oldValue = snap.data()[field] || 0;
+  if (oldValue === newValue) return;
+  await applyQuantityChange(gradeRef, snap, field, oldValue, newValue);
+}
+
+function logActivity(details) {
+  return db.collection('activityLog').add({
+    ...details,
+    userId: state.user.uid,
+    userName: state.profile.name,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
+  await gradeRef.update({ [field]: newValue });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'edit',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId: snap.id,
+    gradeNumber: snap.data().number,
+    field,
+    oldValue,
+    newValue,
+  });
+}
+
+function subscribeActivityLog() {
+  if (unsubActivityLog) unsubActivityLog();
+  unsubActivityLog = db
+    .collection('activityLog')
+    .orderBy('timestamp', 'desc')
+    .limit(50)
+    .onSnapshot((snap) => {
+      state.activityLog = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      render();
+    });
+}
+
+// ============================================================
+// الاشتراك في بيانات Firebase (تسجيل الدخول + الفئات + الدرجات)
+// ============================================================
+function init() {
+  if (!FIREBASE_IS_CONFIGURED) {
+    render();
+    return;
+  }
+
+  // شبكة أمان: لو الشاشة فضلت عالقة على "جارٍ التحميل" أكتر من 8 ثواني،
+  // على الأغلب بيانات Firebase غلط أو المشروع مش شغال، مش بالضرورة خطأ برمجي.
+  setTimeout(() => {
+    if (state.view === 'loading') {
+      document.getElementById('root').innerHTML = `
+        <div class="card" style="max-width:480px; margin:60px auto; text-align:center;">
+          <h2 style="font-size:16px; margin-bottom:10px;">النظام مستني رد من Firebase من غير نتيجة</h2>
+          <p style="font-size:14px; color:var(--text-secondary); line-height:1.7;">
+            على الأغلب بيانات <code>firebase-config.js</code> غير صحيحة، أو مشروع
+            Firebase نفسه فيه مشكلة (Authentication مش مفعّل مثلًا)، أو مفيش اتصال
+            بالإنترنت حاليًا. راجع قسم 2 في README.md.
+          </p>
+        </div>`;
+    }
+  }, 8000);
+
+  auth.onAuthStateChanged((user) => {
+    state.user = user;
+
+    if (unsubProfile) { unsubProfile(); unsubProfile = null; }
+    if (unsubCategories) { unsubCategories(); unsubCategories = null; }
+    if (unsubGrades) { unsubGrades(); unsubGrades = null; }
+    if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
+
+    if (!user) {
+      state.profile = null;
+      state.categories = [];
+      state.grades = [];
+      state.activeCategoryId = null;
+      state.showActivityLog = false;
+      state.activityLog = [];
+      state.showAddCategoryForm = false;
+      state.showAddGradeForm = false;
+      state.showEditCategoryInfoForm = false;
+      state.view = 'login';
+      render();
+      return;
+    }
+
+    state.view = 'loading';
+    render();
+
+    unsubProfile = db.collection('users').doc(user.uid).onSnapshot((snap) => {
+      state.profile = snap.exists ? snap.data() : null;
+
+      if (!state.profile) {
+        state.view = 'no-profile';
+        render();
+        return;
+      }
+
+      state.view = 'dashboard';
+      render();
+      subscribeCategories();
+    });
+  });
+}
+
+function subscribeCategories() {
+  unsubCategories = db
+    .collection('categories')
+    .orderBy('order')
+    .onSnapshot((snap) => {
+      state.categories = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (!state.activeCategoryId && state.categories.length) {
+        state.activeCategoryId = state.categories[0].id;
+      }
+      render();
+      if (state.activeCategoryId) subscribeGrades(state.activeCategoryId);
+    });
+}
+
+function subscribeGrades(categoryId) {
+  if (unsubGrades) unsubGrades();
+  unsubGrades = db
+    .collection('categories')
+    .doc(categoryId)
+    .collection('grades')
+    .orderBy('number')
+    .onSnapshot((snap) => {
+      state.grades = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      render();
+    });
+}
+
+document.addEventListener('DOMContentLoaded', init);

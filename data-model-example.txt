@@ -1,0 +1,74 @@
+هذا مثال لشكل البيانات في Firestore عشان تقدر تدخلها يدويًا من الكونسول
+وتشوف النظام شغال، قبل ما نعمل صفحة "إضافة صنف" في مرحلة لاحقة.
+
+────────────────────────────────────────
+Collection: categories
+────────────────────────────────────────
+Document ID: dobeta-sada  (أو أي id تختاره)
+{
+  "name": "دوبيتا سادة",
+  "order": 1,
+  "itemName": "دوبيتا سادة عادي",
+  "barcodeNumber": "5402903"
+}
+
+ملحوظة: اسم الصنف والباركود بقوا خاصية للفئة كلها (مش لكل درجة لوحدها) —
+كل الدرجات جوه نفس الفئة بيشتركوا في نفس الاسم ونفس الباركود.
+
+────────────────────────────────────────
+Sub-collection: categories/dobeta-sada/grades
+────────────────────────────────────────
+Document 1:
+{
+  "number": 14,
+  "branchQty": 4,
+  "mainQty": 7,
+  "status": "normal"
+}
+
+Document 2:
+{
+  "number": 15,
+  "branchQty": 0,
+  "mainQty": 3,
+  "status": "pending"
+}
+
+Document 3:
+{
+  "number": 16,
+  "branchQty": 0,
+  "mainQty": 0,
+  "status": "out"
+}
+
+────────────────────────────────────────
+Collection: users
+────────────────────────────────────────
+Document ID: لازم يكون نفس الـ UID بتاع الحساب في Authentication
+{
+  "name": "اسم الشخص الحقيقي",
+  "role": "admin",
+  "warehouseAccess": null
+}
+
+قيم role الممكنة: admin | branch_manager | supervisor | warehouse_keeper | user
+قيم warehouseAccess (لأمين المخزن فقط): "branch" | "main" | "both"
+
+────────────────────────────────────────
+Collection: activityLog (يُنشأ تلقائيًا، لا تحتاج تضيفه يدويًا)
+────────────────────────────────────────
+كل تعديل كمية بيضيف مستند هنا تلقائيًا بالشكل:
+{
+  "action": "edit",
+  "categoryId": "dobeta-sada",
+  "gradeId": "...",
+  "gradeNumber": 15,
+  "itemName": "دوبيتا سادة رمادي",
+  "field": "branchQty",
+  "oldValue": 0,
+  "newValue": 3,
+  "userId": "...",
+  "userName": "اسم الشخص",
+  "timestamp": <server timestamp>
+}
