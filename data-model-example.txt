@@ -9,7 +9,9 @@ Document ID: dobeta-sada  (أو أي id تختاره)
   "name": "دوبيتا سادة",
   "order": 1,
   "itemName": "دوبيتا سادة عادي",
-  "barcodeNumber": "5402903"
+  "barcodeNumber": "5402903",
+  "originalPrice": 300,
+  "sellingPrice": 240
 }
 
 ملحوظة: اسم الصنف والباركود بقوا خاصية للفئة كلها (مش لكل درجة لوحدها) —

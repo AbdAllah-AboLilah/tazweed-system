@@ -17,12 +17,18 @@ const state = {
   showAddCategoryForm: false,
   showAddGradeForm: false,
   showEditCategoryInfoForm: false,
+  pendingCount: 0,
+  resolvingGradeId: null,
+  confirmingOutGradeId: null,
+  isOnline: navigator.onLine,
+  hasPendingWrites: false,
 };
 
 let unsubProfile = null;
 let unsubCategories = null;
 let unsubGrades = null;
 let unsubActivityLog = null;
+let unsubPendingCount = null;
 
 // ============================================================
 // أدوات مساعدة
@@ -199,6 +205,14 @@ function dashboardHTML() {
           <label>الباركود</label>
           <input class="input" id="new-category-barcode" />
         </div>
+        <div class="field" style="width:100px; margin-bottom:0;">
+          <label>السعر الأصلي</label>
+          <input class="input" type="number" id="new-category-original-price" />
+        </div>
+        <div class="field" style="width:100px; margin-bottom:0;">
+          <label>سعر البيع</label>
+          <input class="input" type="number" id="new-category-selling-price" />
+        </div>
         <button class="btn btn-primary" type="submit">إضافة</button>
         <button class="btn" type="button" id="cancel-add-category">إلغاء</button>
       </form>
@@ -230,6 +244,8 @@ function dashboardHTML() {
           <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
         </div>
         <div style="display:flex; align-items:center; gap:16px;">
+          ${connectionDotHTML()}
+          ${state.pendingCount > 0 ? `<span class="badge badge-purple">${state.pendingCount} طلب تزويد معلّق</span>` : ''}
           <span style="font-size:13px;">
             ${escapeHTML(APP_NAME)}
             <span style="font-size:11px; color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
@@ -281,6 +297,14 @@ function categoryInfoBarHTML() {
             <label>الباركود</label>
             <input class="input" id="edit-category-barcode" value="${escapeHTML(cat.barcodeNumber || '')}" />
           </div>
+          <div class="field" style="width:100px; margin-bottom:0;">
+            <label>السعر الأصلي</label>
+            <input class="input" type="number" id="edit-category-original-price" value="${escapeHTML(cat.originalPrice || 0)}" />
+          </div>
+          <div class="field" style="width:100px; margin-bottom:0;">
+            <label>سعر البيع</label>
+            <input class="input" type="number" id="edit-category-selling-price" value="${escapeHTML(cat.sellingPrice || 0)}" />
+          </div>
           <button class="btn btn-primary" type="submit">حفظ</button>
           <button class="btn" type="button" id="cancel-edit-category-info">إلغاء</button>
         </form>
@@ -288,11 +312,64 @@ function categoryInfoBarHTML() {
   }
 
   return `
-    <div style="display:flex; align-items:center; gap:16px; margin-bottom:0.75rem; font-size:13px; color:var(--text-secondary);">
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:0.75rem; font-size:13px; color:var(--text-secondary); flex-wrap:wrap;">
       <span>اسم الصنف: <strong style="color:var(--text-primary);">${escapeHTML(cat.itemName || '—')}</strong></span>
       <span>الباركود: <strong style="color:var(--text-primary);">${escapeHTML(cat.barcodeNumber || '—')}</strong></span>
+      <span>السعر: <strong style="color:var(--text-primary);">${cat.sellingPrice ? `<s style="color:var(--text-muted);">${escapeHTML(cat.originalPrice || 0)}</s> ${escapeHTML(cat.sellingPrice)}` : '—'}</strong></span>
       ${canManageCatalog ? `<button class="btn" id="edit-category-info-btn" style="padding:3px 10px; font-size:12px;">تعديل</button>` : ''}
+      <button class="btn" id="print-label-btn" style="padding:3px 10px; font-size:12px;">🏷️ طباعة ملصق</button>
+      <button class="btn" id="print-restock-btn" style="padding:3px 10px; font-size:12px;">🖨️ طباعة ورقة تزويد</button>
     </div>`;
+}
+
+function statusCellHTML(g, canEditBranch, canEditMain) {
+  const badge = `<span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span>`;
+
+  if (g.status === 'normal') {
+    const btn = canEditBranch
+      ? `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-request-shortage-id="${escapeHTML(g.id)}">طلب تزويد</button>`
+      : '';
+    return `<td>${badge}${btn}</td>`;
+  }
+
+  if (g.status === 'pending') {
+    if (canEditMain && state.resolvingGradeId === g.id) {
+      return `
+        <td>
+          <form class="fulfill-form" data-fulfill-id="${escapeHTML(g.id)}" style="display:flex; gap:4px; align-items:center;">
+            <input class="input" type="number" min="1" style="width:60px; padding:4px;" id="fulfill-qty-${escapeHTML(g.id)}" placeholder="كمية" required />
+            <button class="btn btn-primary" type="submit" style="padding:4px 8px; font-size:12px;">تأكيد</button>
+            <button class="btn" type="button" data-cancel-resolve-id="${escapeHTML(g.id)}" style="padding:4px 8px; font-size:12px;">رجوع</button>
+          </form>
+        </td>`;
+    }
+    if (canEditMain && state.confirmingOutGradeId === g.id) {
+      return `
+        <td>
+          <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+            <span style="font-size:12px;">متأكد إنها خلصت من عندك خالص؟</span>
+            <button class="btn" style="padding:4px 8px; font-size:12px; background:var(--danger-bg); color:var(--danger-text);" data-confirm-out-id="${escapeHTML(g.id)}">تأكيد</button>
+            <button class="btn" style="padding:4px 8px; font-size:12px;" data-cancel-confirm-out-id="${escapeHTML(g.id)}">رجوع</button>
+          </div>
+        </td>`;
+    }
+
+    let extra = '';
+    if (canEditBranch) {
+      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-cancel-shortage-id="${escapeHTML(g.id)}">إلغاء الطلب</button>`;
+    }
+    if (canEditMain) {
+      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-open-fulfill-id="${escapeHTML(g.id)}">تزويد</button>`;
+      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-open-confirm-out-id="${escapeHTML(g.id)}">مفيش خالص</button>`;
+    }
+    return `<td>${badge}${extra}</td>`;
+  }
+
+  // status === 'out'
+  const resetBtn = canEditMain
+    ? `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-reset-out-id="${escapeHTML(g.id)}">رجّعها متاحة</button>`
+    : '';
+  return `<td>${badge}${resetBtn}</td>`;
 }
 
 function gradeTableHTML() {
@@ -334,7 +411,7 @@ function gradeTableHTML() {
         <td>${escapeHTML(g.number)}</td>
         ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
         ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
-        <td><span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span></td>
+        ${statusCellHTML(g, canEditBranch, canEditMain)}
         ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(g.number)}">حذف</button></td>` : ''}
       </tr>`
     )
@@ -388,6 +465,21 @@ function activityLogHTML() {
       } else if (entry.action === 'edit_category_info') {
         itemLabel = escapeHTML(entry.itemName || '');
         detailLabel = `تعديل بيانات الصنف (باركود: ${escapeHTML(entry.barcodeNumber || '—')})`;
+      } else if (entry.action === 'request_shortage') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'طلب تزويد (خلصت من الفرع)';
+      } else if (entry.action === 'cancel_shortage') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'إلغاء طلب التزويد';
+      } else if (entry.action === 'fulfill_shortage') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = `تزويد بكمية ${escapeHTML(entry.transferredQty)}`;
+      } else if (entry.action === 'mark_out_of_stock') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'خلصت نهائيًا من الفرع والرئيسي';
+      } else if (entry.action === 'reset_available') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'رجّعت متاحة (وصل تزويد جديد)';
       }
 
       return `
@@ -425,6 +517,8 @@ function attachDashboardEvents() {
       state.grades = [];
       state.showAddGradeForm = false;
       state.showEditCategoryInfoForm = false;
+      state.resolvingGradeId = null;
+      state.confirmingOutGradeId = null;
       render();
       subscribeGrades(categoryId);
     });
@@ -480,8 +574,10 @@ function attachDashboardEvents() {
       const name = document.getElementById('new-category-name').value.trim();
       const itemName = document.getElementById('new-category-item-name').value.trim();
       const barcodeNumber = document.getElementById('new-category-barcode').value.trim();
+      const originalPrice = Number(document.getElementById('new-category-original-price').value) || 0;
+      const sellingPrice = Number(document.getElementById('new-category-selling-price').value) || 0;
       if (!name) return;
-      await addCategory(name, itemName, barcodeNumber);
+      await addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice);
       state.showAddCategoryForm = false;
       render();
     });
@@ -533,13 +629,31 @@ function attachDashboardEvents() {
     });
   }
 
+  const printLabelBtn = document.getElementById('print-label-btn');
+  if (printLabelBtn) {
+    printLabelBtn.addEventListener('click', () => {
+      const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+      if (cat) printLabel(cat);
+    });
+  }
+
+  const printRestockBtn = document.getElementById('print-restock-btn');
+  if (printRestockBtn) {
+    printRestockBtn.addEventListener('click', () => {
+      const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+      if (cat) printRestockPaper(cat, state.grades);
+    });
+  }
+
   const editCategoryInfoForm = document.getElementById('edit-category-info-form');
   if (editCategoryInfoForm) {
     editCategoryInfoForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const itemName = document.getElementById('edit-category-item-name').value.trim();
       const barcodeNumber = document.getElementById('edit-category-barcode').value.trim();
-      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber);
+      const originalPrice = Number(document.getElementById('edit-category-original-price').value) || 0;
+      const sellingPrice = Number(document.getElementById('edit-category-selling-price').value) || 0;
+      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber, originalPrice, sellingPrice);
       state.showEditCategoryInfoForm = false;
       render();
     });
@@ -571,18 +685,84 @@ function attachDashboardEvents() {
       await deleteGrade(state.activeCategoryId, gradeId, gradeNumber);
     });
   });
+
+  // -------- نظام النواقص --------
+  document.querySelectorAll('[data-request-shortage-id]').forEach((btn) => {
+    btn.addEventListener('click', () => requestShortage(btn.dataset.requestShortageId));
+  });
+
+  document.querySelectorAll('[data-cancel-shortage-id]').forEach((btn) => {
+    btn.addEventListener('click', () => cancelShortage(btn.dataset.cancelShortageId));
+  });
+
+  document.querySelectorAll('[data-open-fulfill-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.resolvingGradeId = btn.dataset.openFulfillId;
+      state.confirmingOutGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-cancel-resolve-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.resolvingGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('.fulfill-form').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const gradeId = form.dataset.fulfillId;
+      const qty = Number(document.getElementById(`fulfill-qty-${gradeId}`).value);
+      if (!qty || qty <= 0) return;
+      await fulfillShortage(gradeId, qty);
+      state.resolvingGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-open-confirm-out-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.confirmingOutGradeId = btn.dataset.openConfirmOutId;
+      state.resolvingGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-cancel-confirm-out-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.confirmingOutGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-confirm-out-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const gradeId = btn.dataset.confirmOutId;
+      await markOutOfStock(gradeId);
+      state.confirmingOutGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-reset-out-id]').forEach((btn) => {
+    btn.addEventListener('click', () => resetOutOfStock(btn.dataset.resetOutId));
+  });
 }
 
 // ============================================================
 // إدارة الفئات والدرجات (إضافة/حذف)
 // ============================================================
-async function addCategory(name, itemName, barcodeNumber) {
+async function addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice) {
   const nextOrder = state.categories.reduce((max, c) => Math.max(max, c.order || 0), 0) + 1;
   const ref = await db.collection('categories').add({
     name,
     order: nextOrder,
     itemName: itemName || '',
     barcodeNumber: barcodeNumber || '',
+    originalPrice: originalPrice || 0,
+    sellingPrice: sellingPrice || 0,
   });
   await logActivity({ action: 'add_category', categoryId: ref.id, categoryName: name });
   state.activeCategoryId = ref.id;
@@ -616,12 +796,207 @@ async function addGrade(categoryId, data) {
   });
 }
 
-async function updateCategoryInfo(categoryId, itemName, barcodeNumber) {
+async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalPrice, sellingPrice) {
   await db.collection('categories').doc(categoryId).update({
     itemName: itemName || '',
     barcodeNumber: barcodeNumber || '',
+    originalPrice: originalPrice || 0,
+    sellingPrice: sellingPrice || 0,
   });
   await logActivity({ action: 'edit_category_info', categoryId, itemName, barcodeNumber });
+}
+
+// ============================================================
+// الطباعة: ملصق الباركود (QR) وورقة التزويد
+// ============================================================
+function printLabel(cat) {
+  const win = window.open('', '_blank', 'width=420,height=520');
+  if (!win) {
+    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
+    return;
+  }
+
+  const priceHTML = cat.sellingPrice
+    ? `<div class="prices"><s>${escapeHTML(cat.originalPrice || 0)} ج.م</s>&nbsp;&nbsp;<strong>${escapeHTML(cat.sellingPrice)} ج.م</strong></div>`
+    : '';
+
+  win.document.write(`
+    <!doctype html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <title>ملصق - ${escapeHTML(cat.itemName || cat.name)}</title>
+      <style>
+        body { font-family: Tahoma, Arial, sans-serif; text-align: center; padding: 20px; }
+        .label { width: 220px; border: 1px solid #000; border-radius: 6px; padding: 12px; margin: 0 auto; }
+        #qr { display: flex; justify-content: center; margin-bottom: 8px; }
+        .item-name { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+        .barcode-number { font-size: 12px; letter-spacing: 1px; margin-bottom: 6px; }
+        .prices { font-size: 13px; }
+        .prices s { color: #777; }
+        @media print {
+          body { padding: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="label">
+        <div id="qr"></div>
+        <div class="item-name">${escapeHTML(cat.itemName || cat.name)}</div>
+        <div class="barcode-number">${escapeHTML(cat.barcodeNumber || '')}</div>
+        ${priceHTML}
+      </div>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>
+      <script>
+        new QRCode(document.getElementById('qr'), {
+          text: ${JSON.stringify(cat.barcodeNumber || cat.name)},
+          width: 120,
+          height: 120,
+        });
+        window.onload = function () { setTimeout(function () { window.print(); }, 300); };
+      <\/script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
+
+function printRestockPaper(cat, grades) {
+  const win = window.open('', '_blank', 'width=700,height=800');
+  if (!win) {
+    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
+    return;
+  }
+
+  const now = new Date().toLocaleString('ar-EG');
+  const rowsHTML = grades
+    .map(
+      (g) => `
+      <div class="row ${g.status === 'out' ? 'out' : ''}">
+        <span class="num">${escapeHTML(g.number)}</span>
+        <span class="blank"></span>
+      </div>`
+    )
+    .join('');
+
+  win.document.write(`
+    <!doctype html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <title>ورقة تزويد - ${escapeHTML(cat.itemName || cat.name)}</title>
+      <style>
+        body { font-family: Tahoma, Arial, sans-serif; font-size: 12px; padding: 10px; }
+        .header { text-align: center; margin-bottom: 10px; }
+        .header .name { font-weight: bold; font-size: 15px; }
+        .header .time { font-size: 11px; color: #555; }
+        .grid { column-count: 4; column-gap: 8px; }
+        .row {
+          display: flex; justify-content: space-between; align-items: center;
+          border: 1px solid #000; padding: 2px 6px; margin-bottom: -1px;
+          break-inside: avoid;
+        }
+        .row .num { font-weight: bold; }
+        .row .blank { width: 40px; border-inline-start: 1px solid #000; }
+        .row.out {
+          background-image: repeating-linear-gradient(45deg, #999, #999 2px, #fff 2px, #fff 6px);
+        }
+        @media print {
+          body { padding: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="name">${escapeHTML(cat.itemName || cat.name)}</div>
+        <div class="time">${escapeHTML(now)}</div>
+      </div>
+      <div class="grid">${rowsHTML}</div>
+      <script>
+        window.onload = function () { setTimeout(function () { window.print(); }, 300); };
+      <\/script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
+
+// ============================================================
+// نظام النواقص: طلب تزويد → رد أمين المخزن الرئيسي
+// ============================================================
+async function requestShortage(gradeId) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  await gradeRef.update({ status: 'pending' });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'request_shortage',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: snap.data().number,
+  });
+}
+
+async function cancelShortage(gradeId) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  await gradeRef.update({ status: 'normal' });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'cancel_shortage',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: snap.data().number,
+  });
+}
+
+async function fulfillShortage(gradeId, qty) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  const data = snap.data();
+  const transferQty = Math.min(qty, data.mainQty || 0);
+  const newMainQty = Math.max(0, (data.mainQty || 0) - transferQty);
+  const newBranchQty = (data.branchQty || 0) + transferQty;
+  await gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'fulfill_shortage',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: data.number,
+    transferredQty: transferQty,
+  });
+}
+
+async function markOutOfStock(gradeId) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  await gradeRef.update({ status: 'out' });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'mark_out_of_stock',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: snap.data().number,
+  });
+}
+
+async function resetOutOfStock(gradeId) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  await gradeRef.update({ status: 'normal' });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'reset_available',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: snap.data().number,
+  });
 }
 
 async function deleteGrade(categoryId, gradeId, gradeNumber) {
@@ -717,6 +1092,7 @@ function init() {
     if (unsubCategories) { unsubCategories(); unsubCategories = null; }
     if (unsubGrades) { unsubGrades(); unsubGrades = null; }
     if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
+    if (unsubPendingCount) { unsubPendingCount(); unsubPendingCount = null; }
 
     if (!user) {
       state.profile = null;
@@ -728,6 +1104,9 @@ function init() {
       state.showAddCategoryForm = false;
       state.showAddGradeForm = false;
       state.showEditCategoryInfoForm = false;
+      state.pendingCount = 0;
+      state.resolvingGradeId = null;
+      state.confirmingOutGradeId = null;
       state.view = 'login';
       render();
       return;
@@ -748,8 +1127,22 @@ function init() {
       state.view = 'dashboard';
       render();
       subscribeCategories();
+      if (canEditWarehouse(state.profile, 'main')) {
+        subscribePendingCount();
+      }
     });
   });
+}
+
+function subscribePendingCount() {
+  if (unsubPendingCount) unsubPendingCount();
+  unsubPendingCount = db
+    .collectionGroup('grades')
+    .where('status', '==', 'pending')
+    .onSnapshot((snap) => {
+      state.pendingCount = snap.size;
+      render();
+    });
 }
 
 function subscribeCategories() {
@@ -773,10 +1166,42 @@ function subscribeGrades(categoryId) {
     .doc(categoryId)
     .collection('grades')
     .orderBy('number')
-    .onSnapshot((snap) => {
+    .onSnapshot({ includeMetadataChanges: true }, (snap) => {
       state.grades = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      state.hasPendingWrites = snap.metadata.hasPendingWrites;
       render();
     });
+}
+
+// ============================================================
+// مؤشر حالة الاتصال (أخضر/أحمر/أصفر)
+// ============================================================
+window.addEventListener('online', () => {
+  state.isOnline = true;
+  render();
+});
+window.addEventListener('offline', () => {
+  state.isOnline = false;
+  render();
+});
+
+function connectionDotHTML() {
+  let colorVar, label;
+  if (!state.isOnline) {
+    colorVar = 'var(--danger-text)';
+    label = 'غير متصل بالإنترنت';
+  } else if (state.hasPendingWrites) {
+    colorVar = '#b8860b';
+    label = 'جارٍ رفع البيانات...';
+  } else {
+    colorVar = '#2e7d32';
+    label = 'متصل';
+  }
+  return `
+    <span title="${escapeHTML(label)}" style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary);">
+      <span style="width:9px; height:9px; border-radius:50%; background:${colorVar}; display:inline-block;"></span>
+      ${escapeHTML(label)}
+    </span>`;
 }
 
 document.addEventListener('DOMContentLoaded', init);
