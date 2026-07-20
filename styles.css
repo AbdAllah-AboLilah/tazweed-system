@@ -81,6 +81,7 @@ button, input {
 .badge-normal { background: var(--surface-muted); color: var(--text-secondary); }
 .badge-pending { background: var(--warning-bg); color: var(--warning-text); }
 .badge-out { background: var(--danger-bg); color: var(--danger-text); }
+.badge-purple { background: var(--purple-bg); color: var(--purple-text); font-weight: 500; }
 
 .row-pending { background: var(--warning-bg); }
 .row-out { background: var(--danger-bg); }

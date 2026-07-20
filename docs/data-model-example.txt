@@ -7,8 +7,13 @@ Collection: categories
 Document ID: dobeta-sada  (أو أي id تختاره)
 {
   "name": "دوبيتا سادة",
-  "order": 1
+  "order": 1,
+  "itemName": "دوبيتا سادة عادي",
+  "barcodeNumber": "5402903"
 }
+
+ملحوظة: اسم الصنف والباركود بقوا خاصية للفئة كلها (مش لكل درجة لوحدها) —
+كل الدرجات جوه نفس الفئة بيشتركوا في نفس الاسم ونفس الباركود.
 
 ────────────────────────────────────────
 Sub-collection: categories/dobeta-sada/grades
@@ -16,8 +21,6 @@ Sub-collection: categories/dobeta-sada/grades
 Document 1:
 {
   "number": 14,
-  "itemName": "دوبيتا سادة بيج",
-  "barcodeNumber": "5402903",
   "branchQty": 4,
   "mainQty": 7,
   "status": "normal"
@@ -26,8 +29,6 @@ Document 1:
 Document 2:
 {
   "number": 15,
-  "itemName": "دوبيتا سادة رمادي",
-  "barcodeNumber": "5402904",
   "branchQty": 0,
   "mainQty": 3,
   "status": "pending"
@@ -36,8 +37,6 @@ Document 2:
 Document 3:
 {
   "number": 16,
-  "itemName": "دوبيتا سادة كحلي",
-  "barcodeNumber": "5402905",
   "branchQty": 0,
   "mainQty": 0,
   "status": "out"

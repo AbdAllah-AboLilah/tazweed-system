@@ -1,7 +1,11 @@
 // إشعار "فيه تحديث جديد" — JavaScript عادي، بيضيف بانر مستقل تحت الشاشة
 // (منفصل عن #root عشان الرندر بتاع الداشبورد ميمسحوش).
 
-let waitingWorker = null;
+// تحديث تلقائي بالكامل: أول ما نسخة جديدة تتحمّل في الخلفية، بتتفعّل
+// لوحدها من غير ما تحتاج ضغطة من المستخدم — فقط رسالة صغيرة أثناء
+// التحديث نفسه (لثوانٍ) عشان الشاشة متتغيّرش فجأة من غير أي تنبيه.
+
+let isApplyingUpdate = false;
 
 function initUpdatePrompt() {
   if (!('serviceWorker' in navigator)) return;
@@ -10,8 +14,7 @@ function initUpdatePrompt() {
     .register('./sw.js')
     .then((registration) => {
       if (registration.waiting) {
-        waitingWorker = registration.waiting;
-        showUpdateBanner();
+        applyUpdate(registration.waiting);
       }
 
       registration.addEventListener('updatefound', () => {
@@ -19,8 +22,7 @@ function initUpdatePrompt() {
         if (!newWorker) return;
         newWorker.addEventListener('statechange', () => {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            waitingWorker = newWorker;
-            showUpdateBanner();
+            applyUpdate(newWorker);
           }
         });
       });
@@ -35,23 +37,20 @@ function initUpdatePrompt() {
   });
 }
 
-function showUpdateBanner() {
-  if (document.getElementById('update-banner')) return;
+function applyUpdate(worker) {
+  if (isApplyingUpdate) return;
+  isApplyingUpdate = true;
+  showUpdatingNotice();
+  worker.postMessage({ type: 'SKIP_WAITING' });
+}
 
+function showUpdatingNotice() {
+  if (document.getElementById('update-banner')) return;
   const banner = document.createElement('div');
   banner.id = 'update-banner';
   banner.className = 'update-banner';
-  banner.innerHTML = `
-    <span>فيه تحديث جديد للنظام</span>
-    <button class="btn btn-primary" id="update-now-btn">تحديث الآن</button>
-  `;
+  banner.innerHTML = `<span>جارٍ تحديث النظام...</span>`;
   document.body.appendChild(banner);
-
-  document.getElementById('update-now-btn').addEventListener('click', () => {
-    if (waitingWorker) {
-      waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-    }
-  });
 }
 
 document.addEventListener('DOMContentLoaded', initUpdatePrompt);

@@ -1,8 +1,8 @@
 rules_version = '2';
 
 // قواعد أمان Firestore — طبقًا لملف المواصفات (قسم 4: الأدوار والصلاحيات)
-// المرحلة 2: تعديل الكميات + سجل العمليات — التقييد بقى على مستوى الحقل
-// الواحد فعليًا (أمين مخزن الفرع يقدر يعدّل branchQty بس، مش أي حقل تاني).
+// المرحلة 3: نظام النواقص — إضافة انتقالات حالة status محدّدة لأمين الفرع
+// (طلب/إلغاء تزويد) وأمين الرئيسي (تزويد/تصفير/إرجاع)، فوق تعديل الكميات.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -32,15 +32,44 @@ service cloud.firestore {
       return userProfile().warehouseAccess;
     }
 
+    function isBranchKeeper() {
+      return role() == 'warehouse_keeper' && warehouseAccess() in ['branch', 'both'];
+    }
+
+    function isMainKeeper() {
+      return role() == 'warehouse_keeper' && warehouseAccess() in ['main', 'both'];
+    }
+
     function onlyChangedKeys(keys) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
+    function oldStatus() { return resource.data.status; }
+    function newStatus() { return request.resource.data.status; }
+
+    // أمين مخزن الفرع: يعدّل branchQty، أو يطلب تزويد (عادي → معلّق)،
+    // أو يلغي طلبه (معلّق → عادي).
+    function branchAction() {
+      return isBranchKeeper() && (
+        onlyChangedKeys(['branchQty'])
+        || (onlyChangedKeys(['status']) && oldStatus() == 'normal' && newStatus() == 'pending')
+        || (onlyChangedKeys(['status']) && oldStatus() == 'pending' && newStatus() == 'normal')
+      );
+    }
+
+    // أمين المخزن الرئيسي: يعدّل mainQty، أو يرد على طلب معلّق (تزويد فعلي
+    // بنقل كمية، أو تصفير كامل لو مفيش عنده حاجة)، أو يرجّع درجة خلصت لتبقى متاحة.
+    function mainAction() {
+      return isMainKeeper() && (
+        onlyChangedKeys(['mainQty'])
+        || (onlyChangedKeys(['status', 'mainQty', 'branchQty']) && oldStatus() == 'pending' && newStatus() == 'normal')
+        || (onlyChangedKeys(['status']) && oldStatus() == 'pending' && newStatus() == 'out')
+        || (onlyChangedKeys(['status']) && oldStatus() == 'out' && newStatus() == 'normal')
+      );
+    }
+
     function canUpdateGrade() {
-      return isFullAccess()
-        || (role() == 'warehouse_keeper' && warehouseAccess() == 'branch' && onlyChangedKeys(['branchQty']))
-        || (role() == 'warehouse_keeper' && warehouseAccess() == 'main' && onlyChangedKeys(['mainQty']))
-        || (role() == 'warehouse_keeper' && warehouseAccess() == 'both' && onlyChangedKeys(['branchQty', 'mainQty']));
+      return isFullAccess() || branchAction() || mainAction();
     }
 
     // حسابات المستخدمين: القراءة لأي مستخدم مسجّل دخول (عشان نعرض الاسم/الدور)،

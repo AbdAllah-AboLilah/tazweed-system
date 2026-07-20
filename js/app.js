@@ -16,12 +16,17 @@ const state = {
   activityLog: [],
   showAddCategoryForm: false,
   showAddGradeForm: false,
+  showEditCategoryInfoForm: false,
+  pendingCount: 0,
+  resolvingGradeId: null,
+  confirmingOutGradeId: null,
 };
 
 let unsubProfile = null;
 let unsubCategories = null;
 let unsubGrades = null;
 let unsubActivityLog = null;
+let unsubPendingCount = null;
 
 // ============================================================
 // أدوات مساعدة
@@ -186,9 +191,17 @@ function dashboardHTML() {
     ? `
     <div class="card" style="margin:0 1rem 1rem; padding:1rem;">
       <form id="add-category-form" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
-        <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
-          <label>اسم الفئة الجديدة</label>
+        <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+          <label>اسم الفئة (التاب)</label>
           <input class="input" id="new-category-name" required />
+        </div>
+        <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+          <label>اسم الصنف (زي الكاشير)</label>
+          <input class="input" id="new-category-item-name" />
+        </div>
+        <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+          <label>الباركود</label>
+          <input class="input" id="new-category-barcode" />
         </div>
         <button class="btn btn-primary" type="submit">إضافة</button>
         <button class="btn" type="button" id="cancel-add-category">إلغاء</button>
@@ -221,6 +234,7 @@ function dashboardHTML() {
           <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
         </div>
         <div style="display:flex; align-items:center; gap:16px;">
+          ${state.pendingCount > 0 ? `<span class="badge badge-purple">${state.pendingCount} طلب تزويد معلّق</span>` : ''}
           <span style="font-size:13px;">
             ${escapeHTML(APP_NAME)}
             <span style="font-size:11px; color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
@@ -255,10 +269,93 @@ function qtyCellHTML(categoryId, gradeId, field, value, canEdit) {
     </td>`;
 }
 
+function categoryInfoBarHTML() {
+  const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+  if (!cat) return '';
+  const canManageCatalog = hasFullAccess(state.profile);
+
+  if (state.showEditCategoryInfoForm) {
+    return `
+      <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
+        <form id="edit-category-info-form" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
+          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+            <label>اسم الصنف (زي الكاشير)</label>
+            <input class="input" id="edit-category-item-name" value="${escapeHTML(cat.itemName || '')}" />
+          </div>
+          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+            <label>الباركود</label>
+            <input class="input" id="edit-category-barcode" value="${escapeHTML(cat.barcodeNumber || '')}" />
+          </div>
+          <button class="btn btn-primary" type="submit">حفظ</button>
+          <button class="btn" type="button" id="cancel-edit-category-info">إلغاء</button>
+        </form>
+      </div>`;
+  }
+
+  return `
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:0.75rem; font-size:13px; color:var(--text-secondary);">
+      <span>اسم الصنف: <strong style="color:var(--text-primary);">${escapeHTML(cat.itemName || '—')}</strong></span>
+      <span>الباركود: <strong style="color:var(--text-primary);">${escapeHTML(cat.barcodeNumber || '—')}</strong></span>
+      ${canManageCatalog ? `<button class="btn" id="edit-category-info-btn" style="padding:3px 10px; font-size:12px;">تعديل</button>` : ''}
+    </div>`;
+}
+
+function statusCellHTML(g, canEditBranch, canEditMain) {
+  const badge = `<span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span>`;
+
+  if (g.status === 'normal') {
+    const btn = canEditBranch
+      ? `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-request-shortage-id="${escapeHTML(g.id)}">طلب تزويد</button>`
+      : '';
+    return `<td>${badge}${btn}</td>`;
+  }
+
+  if (g.status === 'pending') {
+    if (canEditMain && state.resolvingGradeId === g.id) {
+      return `
+        <td>
+          <form class="fulfill-form" data-fulfill-id="${escapeHTML(g.id)}" style="display:flex; gap:4px; align-items:center;">
+            <input class="input" type="number" min="1" style="width:60px; padding:4px;" id="fulfill-qty-${escapeHTML(g.id)}" placeholder="كمية" required />
+            <button class="btn btn-primary" type="submit" style="padding:4px 8px; font-size:12px;">تأكيد</button>
+            <button class="btn" type="button" data-cancel-resolve-id="${escapeHTML(g.id)}" style="padding:4px 8px; font-size:12px;">رجوع</button>
+          </form>
+        </td>`;
+    }
+    if (canEditMain && state.confirmingOutGradeId === g.id) {
+      return `
+        <td>
+          <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+            <span style="font-size:12px;">متأكد إنها خلصت من عندك خالص؟</span>
+            <button class="btn" style="padding:4px 8px; font-size:12px; background:var(--danger-bg); color:var(--danger-text);" data-confirm-out-id="${escapeHTML(g.id)}">تأكيد</button>
+            <button class="btn" style="padding:4px 8px; font-size:12px;" data-cancel-confirm-out-id="${escapeHTML(g.id)}">رجوع</button>
+          </div>
+        </td>`;
+    }
+
+    let extra = '';
+    if (canEditBranch) {
+      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-cancel-shortage-id="${escapeHTML(g.id)}">إلغاء الطلب</button>`;
+    }
+    if (canEditMain) {
+      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-open-fulfill-id="${escapeHTML(g.id)}">تزويد</button>`;
+      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-open-confirm-out-id="${escapeHTML(g.id)}">مفيش خالص</button>`;
+    }
+    return `<td>${badge}${extra}</td>`;
+  }
+
+  // status === 'out'
+  const resetBtn = canEditMain
+    ? `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-reset-out-id="${escapeHTML(g.id)}">رجّعها متاحة</button>`
+    : '';
+  return `<td>${badge}${resetBtn}</td>`;
+}
+
 function gradeTableHTML() {
   const canEditBranch = canEditWarehouse(state.profile, 'branch');
   const canEditMain = canEditWarehouse(state.profile, 'main');
   const canManageCatalog = hasFullAccess(state.profile);
+
+  const infoBarHTML = categoryInfoBarHTML();
 
   const toolbarHTML = canManageCatalog
     ? `
@@ -273,8 +370,6 @@ function gradeTableHTML() {
     <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
       <form id="add-grade-form" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
         <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" required /></div>
-        <div class="field" style="margin-bottom:0;"><label>اسم الصنف</label><input class="input" id="new-grade-name" /></div>
-        <div class="field" style="margin-bottom:0;"><label>الباركود</label><input class="input" style="width:130px;" id="new-grade-barcode" /></div>
         <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="0" /></div>
         <div class="field" style="margin-bottom:0;"><label>الرئيسي</label><input class="input" style="width:70px;" type="number" id="new-grade-main" value="0" /></div>
         <button class="btn btn-primary" type="submit">إضافة</button>
@@ -284,7 +379,7 @@ function gradeTableHTML() {
     : '';
 
   if (state.grades.length === 0) {
-    return `${toolbarHTML}${addGradeFormHTML}<div style="padding:1rem; color:var(--text-secondary);">لا توجد درجات مضافة في هذه الفئة بعد.</div>`;
+    return `${infoBarHTML}${toolbarHTML}${addGradeFormHTML}<div style="padding:1rem; color:var(--text-secondary);">لا توجد درجات مضافة في هذه الفئة بعد.</div>`;
   }
 
   const rows = state.grades
@@ -292,25 +387,21 @@ function gradeTableHTML() {
       (g) => `
       <tr class="${rowClassForStatus(g.status)}">
         <td>${escapeHTML(g.number)}</td>
-        <td>${escapeHTML(g.itemName || '—')}</td>
-        <td>${escapeHTML(g.barcodeNumber || '—')}</td>
         ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
         ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
-        <td><span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span></td>
+        ${statusCellHTML(g, canEditBranch, canEditMain)}
         ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(g.number)}">حذف</button></td>` : ''}
       </tr>`
     )
     .join('');
 
   return `
-    ${toolbarHTML}${addGradeFormHTML}
+    ${infoBarHTML}${toolbarHTML}${addGradeFormHTML}
     <div class="card" style="padding:0; overflow-x:auto;">
       <table>
         <thead>
           <tr>
             <th>الدرجة</th>
-            <th>اسم الصنف</th>
-            <th>الباركود</th>
             <th>الفرع</th>
             <th>الرئيسي</th>
             <th>الحالة</th>
@@ -335,7 +426,7 @@ function activityLogHTML() {
 
       if (entry.action === 'edit') {
         const fieldLabel = entry.field === 'branchQty' ? 'مخزن الفرع' : entry.field === 'mainQty' ? 'المخزن الرئيسي' : entry.field || '';
-        itemLabel = `${escapeHTML(entry.gradeNumber)} — ${escapeHTML(entry.itemName || '')}`;
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
         detailLabel = `${escapeHTML(fieldLabel)}: ${escapeHTML(entry.oldValue)} ← ${escapeHTML(entry.newValue)}`;
       } else if (entry.action === 'add_category') {
         itemLabel = escapeHTML(entry.categoryName || '');
@@ -344,11 +435,29 @@ function activityLogHTML() {
         itemLabel = escapeHTML(entry.categoryName || '');
         detailLabel = 'حذف فئة بالكامل';
       } else if (entry.action === 'add_grade') {
-        itemLabel = `${escapeHTML(entry.gradeNumber)} — ${escapeHTML(entry.itemName || '')}`;
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
         detailLabel = 'إضافة درجة جديدة';
       } else if (entry.action === 'delete_grade') {
-        itemLabel = `${escapeHTML(entry.gradeNumber)} — ${escapeHTML(entry.itemName || '')}`;
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
         detailLabel = 'حذف درجة';
+      } else if (entry.action === 'edit_category_info') {
+        itemLabel = escapeHTML(entry.itemName || '');
+        detailLabel = `تعديل بيانات الصنف (باركود: ${escapeHTML(entry.barcodeNumber || '—')})`;
+      } else if (entry.action === 'request_shortage') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'طلب تزويد (خلصت من الفرع)';
+      } else if (entry.action === 'cancel_shortage') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'إلغاء طلب التزويد';
+      } else if (entry.action === 'fulfill_shortage') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = `تزويد بكمية ${escapeHTML(entry.transferredQty)}`;
+      } else if (entry.action === 'mark_out_of_stock') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'خلصت نهائيًا من الفرع والرئيسي';
+      } else if (entry.action === 'reset_available') {
+        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
+        detailLabel = 'رجّعت متاحة (وصل تزويد جديد)';
       }
 
       return `
@@ -384,6 +493,10 @@ function attachDashboardEvents() {
       if (categoryId === state.activeCategoryId) return;
       state.activeCategoryId = categoryId;
       state.grades = [];
+      state.showAddGradeForm = false;
+      state.showEditCategoryInfoForm = false;
+      state.resolvingGradeId = null;
+      state.confirmingOutGradeId = null;
       render();
       subscribeGrades(categoryId);
     });
@@ -437,8 +550,10 @@ function attachDashboardEvents() {
     addCategoryForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const name = document.getElementById('new-category-name').value.trim();
+      const itemName = document.getElementById('new-category-item-name').value.trim();
+      const barcodeNumber = document.getElementById('new-category-barcode').value.trim();
       if (!name) return;
-      await addCategory(name);
+      await addCategory(name, itemName, barcodeNumber);
       state.showAddCategoryForm = false;
       render();
     });
@@ -466,11 +581,9 @@ function attachDashboardEvents() {
       e.preventDefault();
       const number = Number(document.getElementById('new-grade-number').value);
       if (!number) return;
-      const itemName = document.getElementById('new-grade-name').value.trim();
-      const barcodeNumber = document.getElementById('new-grade-barcode').value.trim();
       const branchQty = Number(document.getElementById('new-grade-branch').value) || 0;
       const mainQty = Number(document.getElementById('new-grade-main').value) || 0;
-      await addGrade(state.activeCategoryId, { number, itemName, barcodeNumber, branchQty, mainQty });
+      await addGrade(state.activeCategoryId, { number, branchQty, mainQty });
       state.showAddGradeForm = false;
       render();
     });
@@ -480,6 +593,34 @@ function attachDashboardEvents() {
   if (cancelAddGrade) {
     cancelAddGrade.addEventListener('click', () => {
       state.showAddGradeForm = false;
+      render();
+    });
+  }
+
+  const editCategoryInfoBtn = document.getElementById('edit-category-info-btn');
+  if (editCategoryInfoBtn) {
+    editCategoryInfoBtn.addEventListener('click', () => {
+      state.showEditCategoryInfoForm = true;
+      render();
+    });
+  }
+
+  const editCategoryInfoForm = document.getElementById('edit-category-info-form');
+  if (editCategoryInfoForm) {
+    editCategoryInfoForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const itemName = document.getElementById('edit-category-item-name').value.trim();
+      const barcodeNumber = document.getElementById('edit-category-barcode').value.trim();
+      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber);
+      state.showEditCategoryInfoForm = false;
+      render();
+    });
+  }
+
+  const cancelEditCategoryInfo = document.getElementById('cancel-edit-category-info');
+  if (cancelEditCategoryInfo) {
+    cancelEditCategoryInfo.addEventListener('click', () => {
+      state.showEditCategoryInfoForm = false;
       render();
     });
   }
@@ -499,18 +640,86 @@ function attachDashboardEvents() {
       const gradeId = btn.dataset.deleteGradeId;
       const gradeNumber = btn.dataset.deleteGradeNumber;
       if (!confirm(`متأكد إنك عايز تمسح الدرجة رقم ${gradeNumber}؟`)) return;
-      const grade = state.grades.find((g) => g.id === gradeId);
-      await deleteGrade(state.activeCategoryId, gradeId, gradeNumber, grade?.itemName || '');
+      await deleteGrade(state.activeCategoryId, gradeId, gradeNumber);
     });
+  });
+
+  // -------- نظام النواقص --------
+  document.querySelectorAll('[data-request-shortage-id]').forEach((btn) => {
+    btn.addEventListener('click', () => requestShortage(btn.dataset.requestShortageId));
+  });
+
+  document.querySelectorAll('[data-cancel-shortage-id]').forEach((btn) => {
+    btn.addEventListener('click', () => cancelShortage(btn.dataset.cancelShortageId));
+  });
+
+  document.querySelectorAll('[data-open-fulfill-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.resolvingGradeId = btn.dataset.openFulfillId;
+      state.confirmingOutGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-cancel-resolve-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.resolvingGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('.fulfill-form').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const gradeId = form.dataset.fulfillId;
+      const qty = Number(document.getElementById(`fulfill-qty-${gradeId}`).value);
+      if (!qty || qty <= 0) return;
+      await fulfillShortage(gradeId, qty);
+      state.resolvingGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-open-confirm-out-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.confirmingOutGradeId = btn.dataset.openConfirmOutId;
+      state.resolvingGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-cancel-confirm-out-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.confirmingOutGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-confirm-out-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const gradeId = btn.dataset.confirmOutId;
+      await markOutOfStock(gradeId);
+      state.confirmingOutGradeId = null;
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-reset-out-id]').forEach((btn) => {
+    btn.addEventListener('click', () => resetOutOfStock(btn.dataset.resetOutId));
   });
 }
 
 // ============================================================
 // إدارة الفئات والدرجات (إضافة/حذف)
 // ============================================================
-async function addCategory(name) {
+async function addCategory(name, itemName, barcodeNumber) {
   const nextOrder = state.categories.reduce((max, c) => Math.max(max, c.order || 0), 0) + 1;
-  const ref = await db.collection('categories').add({ name, order: nextOrder });
+  const ref = await db.collection('categories').add({
+    name,
+    order: nextOrder,
+    itemName: itemName || '',
+    barcodeNumber: barcodeNumber || '',
+  });
   await logActivity({ action: 'add_category', categoryId: ref.id, categoryName: name });
   state.activeCategoryId = ref.id;
 }
@@ -529,24 +738,110 @@ async function deleteCategory(categoryId, categoryName) {
 async function addGrade(categoryId, data) {
   const ref = await db.collection('categories').doc(categoryId).collection('grades').add({
     number: data.number,
-    itemName: data.itemName || '',
-    barcodeNumber: data.barcodeNumber || '',
     branchQty: data.branchQty || 0,
     mainQty: data.mainQty || 0,
     status: 'normal',
   });
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   await logActivity({
     action: 'add_grade',
     categoryId,
+    categoryName,
     gradeId: ref.id,
     gradeNumber: data.number,
-    itemName: data.itemName || '',
   });
 }
 
-async function deleteGrade(categoryId, gradeId, gradeNumber, itemName) {
+async function updateCategoryInfo(categoryId, itemName, barcodeNumber) {
+  await db.collection('categories').doc(categoryId).update({
+    itemName: itemName || '',
+    barcodeNumber: barcodeNumber || '',
+  });
+  await logActivity({ action: 'edit_category_info', categoryId, itemName, barcodeNumber });
+}
+
+// ============================================================
+// نظام النواقص: طلب تزويد → رد أمين المخزن الرئيسي
+// ============================================================
+async function requestShortage(gradeId) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  await gradeRef.update({ status: 'pending' });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'request_shortage',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: snap.data().number,
+  });
+}
+
+async function cancelShortage(gradeId) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  await gradeRef.update({ status: 'normal' });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'cancel_shortage',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: snap.data().number,
+  });
+}
+
+async function fulfillShortage(gradeId, qty) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  const data = snap.data();
+  const transferQty = Math.min(qty, data.mainQty || 0);
+  const newMainQty = Math.max(0, (data.mainQty || 0) - transferQty);
+  const newBranchQty = (data.branchQty || 0) + transferQty;
+  await gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'fulfill_shortage',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: data.number,
+    transferredQty: transferQty,
+  });
+}
+
+async function markOutOfStock(gradeId) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  await gradeRef.update({ status: 'out' });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'mark_out_of_stock',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: snap.data().number,
+  });
+}
+
+async function resetOutOfStock(gradeId) {
+  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
+  const snap = await gradeRef.get();
+  await gradeRef.update({ status: 'normal' });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  await logActivity({
+    action: 'reset_available',
+    categoryId: state.activeCategoryId,
+    categoryName,
+    gradeId,
+    gradeNumber: snap.data().number,
+  });
+}
+
+async function deleteGrade(categoryId, gradeId, gradeNumber) {
   await db.collection('categories').doc(categoryId).collection('grades').doc(gradeId).delete();
-  await logActivity({ action: 'delete_grade', categoryId, gradeId, gradeNumber, itemName });
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
+  await logActivity({ action: 'delete_grade', categoryId, categoryName, gradeId, gradeNumber });
 }
 
 // ============================================================
@@ -579,12 +874,13 @@ function logActivity(details) {
 
 async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
   await gradeRef.update({ [field]: newValue });
+  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
   await logActivity({
     action: 'edit',
     categoryId: state.activeCategoryId,
+    categoryName,
     gradeId: snap.id,
     gradeNumber: snap.data().number,
-    itemName: snap.data().itemName || '',
     field,
     oldValue,
     newValue,
@@ -635,6 +931,7 @@ function init() {
     if (unsubCategories) { unsubCategories(); unsubCategories = null; }
     if (unsubGrades) { unsubGrades(); unsubGrades = null; }
     if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
+    if (unsubPendingCount) { unsubPendingCount(); unsubPendingCount = null; }
 
     if (!user) {
       state.profile = null;
@@ -645,6 +942,10 @@ function init() {
       state.activityLog = [];
       state.showAddCategoryForm = false;
       state.showAddGradeForm = false;
+      state.showEditCategoryInfoForm = false;
+      state.pendingCount = 0;
+      state.resolvingGradeId = null;
+      state.confirmingOutGradeId = null;
       state.view = 'login';
       render();
       return;
@@ -665,8 +966,22 @@ function init() {
       state.view = 'dashboard';
       render();
       subscribeCategories();
+      if (canEditWarehouse(state.profile, 'main')) {
+        subscribePendingCount();
+      }
     });
   });
+}
+
+function subscribePendingCount() {
+  if (unsubPendingCount) unsubPendingCount();
+  unsubPendingCount = db
+    .collectionGroup('grades')
+    .where('status', '==', 'pending')
+    .onSnapshot((snap) => {
+      state.pendingCount = snap.size;
+      render();
+    });
 }
 
 function subscribeCategories() {
