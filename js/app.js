@@ -20,6 +20,8 @@ const state = {
   pendingCount: 0,
   resolvingGradeId: null,
   confirmingOutGradeId: null,
+  isOnline: navigator.onLine,
+  hasPendingWrites: false,
 };
 
 let unsubProfile = null;
@@ -234,6 +236,7 @@ function dashboardHTML() {
           <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
         </div>
         <div style="display:flex; align-items:center; gap:16px;">
+          ${connectionDotHTML()}
           ${state.pendingCount > 0 ? `<span class="badge badge-purple">${state.pendingCount} طلب تزويد معلّق</span>` : ''}
           <span style="font-size:13px;">
             ${escapeHTML(APP_NAME)}
@@ -1005,10 +1008,42 @@ function subscribeGrades(categoryId) {
     .doc(categoryId)
     .collection('grades')
     .orderBy('number')
-    .onSnapshot((snap) => {
+    .onSnapshot({ includeMetadataChanges: true }, (snap) => {
       state.grades = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      state.hasPendingWrites = snap.metadata.hasPendingWrites;
       render();
     });
+}
+
+// ============================================================
+// مؤشر حالة الاتصال (أخضر/أحمر/أصفر)
+// ============================================================
+window.addEventListener('online', () => {
+  state.isOnline = true;
+  render();
+});
+window.addEventListener('offline', () => {
+  state.isOnline = false;
+  render();
+});
+
+function connectionDotHTML() {
+  let colorVar, label;
+  if (!state.isOnline) {
+    colorVar = 'var(--danger-text)';
+    label = 'غير متصل بالإنترنت';
+  } else if (state.hasPendingWrites) {
+    colorVar = '#b8860b';
+    label = 'جارٍ رفع البيانات...';
+  } else {
+    colorVar = '#2e7d32';
+    label = 'متصل';
+  }
+  return `
+    <span title="${escapeHTML(label)}" style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary);">
+      <span style="width:9px; height:9px; border-radius:50%; background:${colorVar}; display:inline-block;"></span>
+      ${escapeHTML(label)}
+    </span>`;
 }
 
 document.addEventListener('DOMContentLoaded', init);
