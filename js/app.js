@@ -205,6 +205,14 @@ function dashboardHTML() {
           <label>الباركود</label>
           <input class="input" id="new-category-barcode" />
         </div>
+        <div class="field" style="width:100px; margin-bottom:0;">
+          <label>السعر الأصلي</label>
+          <input class="input" type="number" id="new-category-original-price" />
+        </div>
+        <div class="field" style="width:100px; margin-bottom:0;">
+          <label>سعر البيع</label>
+          <input class="input" type="number" id="new-category-selling-price" />
+        </div>
         <button class="btn btn-primary" type="submit">إضافة</button>
         <button class="btn" type="button" id="cancel-add-category">إلغاء</button>
       </form>
@@ -289,6 +297,14 @@ function categoryInfoBarHTML() {
             <label>الباركود</label>
             <input class="input" id="edit-category-barcode" value="${escapeHTML(cat.barcodeNumber || '')}" />
           </div>
+          <div class="field" style="width:100px; margin-bottom:0;">
+            <label>السعر الأصلي</label>
+            <input class="input" type="number" id="edit-category-original-price" value="${escapeHTML(cat.originalPrice || 0)}" />
+          </div>
+          <div class="field" style="width:100px; margin-bottom:0;">
+            <label>سعر البيع</label>
+            <input class="input" type="number" id="edit-category-selling-price" value="${escapeHTML(cat.sellingPrice || 0)}" />
+          </div>
           <button class="btn btn-primary" type="submit">حفظ</button>
           <button class="btn" type="button" id="cancel-edit-category-info">إلغاء</button>
         </form>
@@ -296,10 +312,13 @@ function categoryInfoBarHTML() {
   }
 
   return `
-    <div style="display:flex; align-items:center; gap:16px; margin-bottom:0.75rem; font-size:13px; color:var(--text-secondary);">
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:0.75rem; font-size:13px; color:var(--text-secondary); flex-wrap:wrap;">
       <span>اسم الصنف: <strong style="color:var(--text-primary);">${escapeHTML(cat.itemName || '—')}</strong></span>
       <span>الباركود: <strong style="color:var(--text-primary);">${escapeHTML(cat.barcodeNumber || '—')}</strong></span>
+      <span>السعر: <strong style="color:var(--text-primary);">${cat.sellingPrice ? `<s style="color:var(--text-muted);">${escapeHTML(cat.originalPrice || 0)}</s> ${escapeHTML(cat.sellingPrice)}` : '—'}</strong></span>
       ${canManageCatalog ? `<button class="btn" id="edit-category-info-btn" style="padding:3px 10px; font-size:12px;">تعديل</button>` : ''}
+      <button class="btn" id="print-label-btn" style="padding:3px 10px; font-size:12px;">🏷️ طباعة ملصق</button>
+      <button class="btn" id="print-restock-btn" style="padding:3px 10px; font-size:12px;">🖨️ طباعة ورقة تزويد</button>
     </div>`;
 }
 
@@ -555,8 +574,10 @@ function attachDashboardEvents() {
       const name = document.getElementById('new-category-name').value.trim();
       const itemName = document.getElementById('new-category-item-name').value.trim();
       const barcodeNumber = document.getElementById('new-category-barcode').value.trim();
+      const originalPrice = Number(document.getElementById('new-category-original-price').value) || 0;
+      const sellingPrice = Number(document.getElementById('new-category-selling-price').value) || 0;
       if (!name) return;
-      await addCategory(name, itemName, barcodeNumber);
+      await addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice);
       state.showAddCategoryForm = false;
       render();
     });
@@ -608,13 +629,31 @@ function attachDashboardEvents() {
     });
   }
 
+  const printLabelBtn = document.getElementById('print-label-btn');
+  if (printLabelBtn) {
+    printLabelBtn.addEventListener('click', () => {
+      const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+      if (cat) printLabel(cat);
+    });
+  }
+
+  const printRestockBtn = document.getElementById('print-restock-btn');
+  if (printRestockBtn) {
+    printRestockBtn.addEventListener('click', () => {
+      const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+      if (cat) printRestockPaper(cat, state.grades);
+    });
+  }
+
   const editCategoryInfoForm = document.getElementById('edit-category-info-form');
   if (editCategoryInfoForm) {
     editCategoryInfoForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const itemName = document.getElementById('edit-category-item-name').value.trim();
       const barcodeNumber = document.getElementById('edit-category-barcode').value.trim();
-      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber);
+      const originalPrice = Number(document.getElementById('edit-category-original-price').value) || 0;
+      const sellingPrice = Number(document.getElementById('edit-category-selling-price').value) || 0;
+      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber, originalPrice, sellingPrice);
       state.showEditCategoryInfoForm = false;
       render();
     });
@@ -715,13 +754,15 @@ function attachDashboardEvents() {
 // ============================================================
 // إدارة الفئات والدرجات (إضافة/حذف)
 // ============================================================
-async function addCategory(name, itemName, barcodeNumber) {
+async function addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice) {
   const nextOrder = state.categories.reduce((max, c) => Math.max(max, c.order || 0), 0) + 1;
   const ref = await db.collection('categories').add({
     name,
     order: nextOrder,
     itemName: itemName || '',
     barcodeNumber: barcodeNumber || '',
+    originalPrice: originalPrice || 0,
+    sellingPrice: sellingPrice || 0,
   });
   await logActivity({ action: 'add_category', categoryId: ref.id, categoryName: name });
   state.activeCategoryId = ref.id;
@@ -755,12 +796,131 @@ async function addGrade(categoryId, data) {
   });
 }
 
-async function updateCategoryInfo(categoryId, itemName, barcodeNumber) {
+async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalPrice, sellingPrice) {
   await db.collection('categories').doc(categoryId).update({
     itemName: itemName || '',
     barcodeNumber: barcodeNumber || '',
+    originalPrice: originalPrice || 0,
+    sellingPrice: sellingPrice || 0,
   });
   await logActivity({ action: 'edit_category_info', categoryId, itemName, barcodeNumber });
+}
+
+// ============================================================
+// الطباعة: ملصق الباركود (QR) وورقة التزويد
+// ============================================================
+function printLabel(cat) {
+  const win = window.open('', '_blank', 'width=420,height=520');
+  if (!win) {
+    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
+    return;
+  }
+
+  const priceHTML = cat.sellingPrice
+    ? `<div class="prices"><s>${escapeHTML(cat.originalPrice || 0)} ج.م</s>&nbsp;&nbsp;<strong>${escapeHTML(cat.sellingPrice)} ج.م</strong></div>`
+    : '';
+
+  win.document.write(`
+    <!doctype html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <title>ملصق - ${escapeHTML(cat.itemName || cat.name)}</title>
+      <style>
+        @page { size: 50mm 30mm; margin: 2mm; }
+        body { font-family: Tahoma, Arial, sans-serif; text-align: center; padding: 20px; }
+        .label { width: 220px; border: 1px solid #000; border-radius: 6px; padding: 12px; margin: 0 auto; }
+        #qr { display: flex; justify-content: center; margin-bottom: 8px; }
+        .item-name { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+        .barcode-number { font-size: 12px; letter-spacing: 1px; margin-bottom: 6px; }
+        .prices { font-size: 13px; }
+        .prices s { color: #777; }
+        @media print {
+          body { padding: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="label">
+        <div id="qr"></div>
+        <div class="item-name">${escapeHTML(cat.itemName || cat.name)}</div>
+        <div class="barcode-number">${escapeHTML(cat.barcodeNumber || '')}</div>
+        ${priceHTML}
+      </div>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>
+      <script>
+        new QRCode(document.getElementById('qr'), {
+          text: ${JSON.stringify(cat.barcodeNumber || cat.name)},
+          width: 120,
+          height: 120,
+        });
+        window.onload = function () { setTimeout(function () { window.print(); }, 300); };
+      <\/script>
+    </body>
+    </html>
+  `);
+  win.document.close();
+}
+
+function printRestockPaper(cat, grades) {
+  const win = window.open('', '_blank', 'width=700,height=800');
+  if (!win) {
+    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
+    return;
+  }
+
+  const now = new Date().toLocaleString('ar-EG');
+  const rowsHTML = grades
+    .map(
+      (g) => `
+      <div class="row ${g.status === 'out' ? 'out' : ''}">
+        <span class="num">${escapeHTML(g.number)}</span>
+        <span class="blank"></span>
+      </div>`
+    )
+    .join('');
+
+  win.document.write(`
+    <!doctype html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <title>ورقة تزويد - ${escapeHTML(cat.itemName || cat.name)}</title>
+      <style>
+        @page { size: 80mm auto; margin: 3mm; }
+        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 0; width: 74mm; }
+        .header { text-align: center; margin-bottom: 6px; }
+        .header .name { font-weight: bold; font-size: 13px; }
+        .header .time { font-size: 9px; color: #555; }
+        .grid { column-count: 4; column-gap: 2mm; }
+        .row {
+          display: flex; justify-content: space-between; align-items: center;
+          border: 1px solid #000; padding: 1px 2px; margin-bottom: -1px;
+          break-inside: avoid;
+        }
+        .row .num { font-weight: bold; }
+        .row .blank { width: 9mm; border-inline-start: 1px solid #000; }
+        .row.out {
+          background-image: repeating-linear-gradient(45deg, #999, #999 2px, #fff 2px, #fff 6px);
+        }
+        @media print {
+          body { padding: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="name">${escapeHTML(cat.itemName || cat.name)}</div>
+        <div class="time">${escapeHTML(now)}</div>
+      </div>
+      <div class="grid">${rowsHTML}</div>
+      <script>
+        window.onload = function () { setTimeout(function () { window.print(); }, 300); };
+      <\/script>
+    </body>
+    </html>
+  `);
+  win.document.close();
 }
 
 // ============================================================
