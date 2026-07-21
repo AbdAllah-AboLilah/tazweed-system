@@ -670,7 +670,7 @@ function attachDashboardEvents() {
   if (printLabelBtn) {
     printLabelBtn.addEventListener('click', () => {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
-      if (cat) printLabel(cat);
+      if (cat) promptLabelSize((pageSize) => printLabel(cat, pageSize));
     });
   }
 
@@ -846,7 +846,35 @@ async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalP
 // ============================================================
 // الطباعة: ملصق الباركود (QR) وورقة التزويد
 // ============================================================
-function printLabel(cat) {
+function promptLabelSize(callback) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:300px; text-align:center;">
+      <div style="margin-bottom:12px; font-size:14px;">اختار مقاس لاصقة الباركود المستخدم فعليًا في الطابعة</div>
+      <div style="display:flex; gap:8px; justify-content:center; margin-bottom:10px;">
+        <button class="btn btn-primary" id="size-3x4">3×4 إنش</button>
+        <button class="btn btn-primary" id="size-2x4">2×4 إنش</button>
+      </div>
+      <button class="btn" id="size-cancel">إلغاء</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('size-3x4').addEventListener('click', () => {
+    document.body.removeChild(overlay);
+    callback({ pageSize: '3in 4in', qrSize: 180, fontScale: 1 });
+  });
+  document.getElementById('size-2x4').addEventListener('click', () => {
+    document.body.removeChild(overlay);
+    callback({ pageSize: '2in 4in', qrSize: 130, fontScale: 0.8 });
+  });
+  document.getElementById('size-cancel').addEventListener('click', () => {
+    document.body.removeChild(overlay);
+  });
+}
+
+function printLabel(cat, sizeOptions) {
+  const { pageSize, qrSize, fontScale } = sizeOptions;
   const win = window.open('', '_blank', 'width=420,height=520');
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
@@ -864,13 +892,14 @@ function printLabel(cat) {
       <meta charset="UTF-8">
       <title>ملصق - ${escapeHTML(cat.itemName || cat.name)}</title>
       <style>
-        @page { size: 3in 4in; margin: 3mm; }
+        @page { size: ${pageSize}; margin: 3mm; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
         body { font-family: Tahoma, Arial, sans-serif; text-align: center; padding: 10px; }
         .label { width: 100%; box-sizing: border-box; padding: 10px; }
         #qr { display: flex; justify-content: center; margin-bottom: 14px; }
-        .item-name { font-weight: bold; font-size: 20px; margin-bottom: 8px; }
-        .barcode-number { font-size: 16px; letter-spacing: 1px; margin-bottom: 12px; }
-        .prices { font-size: 18px; }
+        .item-name { font-weight: bold; font-size: ${Math.round(20 * fontScale)}px; margin-bottom: 8px; }
+        .barcode-number { font-size: ${Math.round(16 * fontScale)}px; letter-spacing: 1px; margin-bottom: 12px; }
+        .prices { font-size: ${Math.round(18 * fontScale)}px; }
         .prices s { color: #777; }
         @media print {
           body { padding: 0; }
@@ -888,8 +917,8 @@ function printLabel(cat) {
       <script>
         new QRCode(document.getElementById('qr'), {
           text: ${JSON.stringify(cat.barcodeNumber || cat.name)},
-          width: 180,
-          height: 180,
+          width: ${qrSize},
+          height: ${qrSize},
         });
         window.onload = function () { setTimeout(function () { window.print(); }, 300); };
       <\/script>
@@ -925,19 +954,26 @@ function printRestockPaper(cat, grades) {
       <title>ورقة تزويد - ${escapeHTML(cat.itemName || cat.name)}</title>
       <style>
         @page { size: 80mm auto; margin: 3mm; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
         body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 0; width: 72.1mm; }
         .header { text-align: center; margin-bottom: 8px; }
-        .header .tab-name { font-weight: bold; font-size: 15px; }
-        .header .item-name { font-size: 12px; color: #333; margin-top: 1px; }
+        .header .tab-name { font-weight: bold; font-size: 16px; }
+        .header .item-name { font-size: 14px; font-weight: bold; color: #000; margin-top: 2px; }
         .header .time { font-size: 11px; font-weight: bold; margin-top: 4px; }
         .grid { column-count: 4; column-gap: 2mm; }
         .row {
-          display: flex; justify-content: space-between; align-items: center;
-          border: 1px solid #000; padding: 1px 2px; margin-bottom: -1px;
-          break-inside: avoid;
+          display: flex; align-items: stretch;
+          border: 1px solid #000; margin-bottom: -1px;
+          break-inside: avoid; min-height: 5mm;
         }
-        .row .num { font-weight: bold; }
-        .row .blank { width: 9mm; border-inline-start: 1px solid #000; }
+        .row .num {
+          font-weight: bold; padding: 1px 3px;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .row .blank {
+          flex: 1;
+          border-inline-start: 1.5px solid #000;
+        }
         .row.out {
           background-image: repeating-linear-gradient(45deg, #999, #999 2px, #fff 2px, #fff 6px);
         }
