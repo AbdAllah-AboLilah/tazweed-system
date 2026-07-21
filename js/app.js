@@ -22,6 +22,7 @@ const state = {
   confirmingOutGradeId: null,
   isOnline: navigator.onLine,
   hasPendingWrites: false,
+  bulkRequestMode: false,
 };
 
 let unsubProfile = null;
@@ -379,13 +380,16 @@ function gradeTableHTML() {
 
   const infoBarHTML = categoryInfoBarHTML();
 
-  const toolbarHTML = canManageCatalog
-    ? `
-    <div style="display:flex; gap:8px; margin-bottom:0.75rem;">
-      <button class="btn" id="add-grade-btn">+ إضافة درجة</button>
-      <button class="btn" id="delete-category-btn">حذف الفئة دي</button>
-    </div>`
+  const bulkToggleBtn = canEditBranch
+    ? `<button class="btn ${state.bulkRequestMode ? 'btn-primary' : ''}" id="toggle-bulk-request-btn">${state.bulkRequestMode ? '✔️ تم' : '📋 طلب تزويد'}</button>`
     : '';
+
+  const toolbarHTML = `
+    <div style="display:flex; gap:8px; margin-bottom:0.75rem; flex-wrap:wrap;">
+      ${bulkToggleBtn}
+      ${canManageCatalog ? `<button class="btn" id="add-grade-btn">+ إضافة درجة</button>` : ''}
+      ${canManageCatalog ? `<button class="btn" id="delete-category-btn">حذف الفئة دي</button>` : ''}
+    </div>`;
 
   const addGradeFormHTML = state.showAddGradeForm
     ? `
@@ -404,6 +408,19 @@ function gradeTableHTML() {
     return `${infoBarHTML}${toolbarHTML}${addGradeFormHTML}<div style="padding:1rem; color:var(--text-secondary);">لا توجد درجات مضافة في هذه الفئة بعد.</div>`;
   }
 
+  const statusColumnHTML = (g) => {
+    if (!state.bulkRequestMode) return statusCellHTML(g, canEditBranch, canEditMain);
+    if (g.status === 'out') {
+      return `<td><span class="badge badge-out">خلصت نهائيًا</span></td>`;
+    }
+    const checked = g.status === 'pending' ? 'checked' : '';
+    const disabled = canEditBranch ? '' : 'disabled';
+    return `
+      <td style="text-align:center;">
+        <input type="checkbox" class="bulk-request-checkbox" data-bulk-toggle-id="${escapeHTML(g.id)}" ${checked} ${disabled} style="width:18px; height:18px;" />
+      </td>`;
+  };
+
   const rows = state.grades
     .map(
       (g) => `
@@ -411,7 +428,7 @@ function gradeTableHTML() {
         <td>${escapeHTML(g.number)}</td>
         ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
         ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
-        ${statusCellHTML(g, canEditBranch, canEditMain)}
+        ${statusColumnHTML(g)}
         ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(g.number)}">حذف</button></td>` : ''}
       </tr>`
     )
@@ -419,15 +436,15 @@ function gradeTableHTML() {
 
   return `
     ${infoBarHTML}${toolbarHTML}${addGradeFormHTML}
-    <div class="card" style="padding:0; overflow-x:auto;">
+    <div class="card" style="padding:0; overflow:auto; max-height:70vh;">
       <table>
         <thead>
           <tr>
-            <th>الدرجة</th>
-            <th>الفرع</th>
-            <th>الرئيسي</th>
-            <th>الحالة</th>
-            ${canManageCatalog ? '<th></th>' : ''}
+            <th class="sticky-th">الدرجة</th>
+            <th class="sticky-th">الفرع</th>
+            <th class="sticky-th">الرئيسي</th>
+            <th class="sticky-th">${state.bulkRequestMode ? 'طلب تزويد' : 'الحالة'}</th>
+            ${canManageCatalog ? '<th class="sticky-th"></th>' : ''}
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -519,8 +536,28 @@ function attachDashboardEvents() {
       state.showEditCategoryInfoForm = false;
       state.resolvingGradeId = null;
       state.confirmingOutGradeId = null;
+      state.bulkRequestMode = false;
       render();
       subscribeGrades(categoryId);
+    });
+  });
+
+  const toggleBulkRequestBtn = document.getElementById('toggle-bulk-request-btn');
+  if (toggleBulkRequestBtn) {
+    toggleBulkRequestBtn.addEventListener('click', () => {
+      state.bulkRequestMode = !state.bulkRequestMode;
+      render();
+    });
+  }
+
+  document.querySelectorAll('.bulk-request-checkbox').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      const gradeId = checkbox.dataset.bulkToggleId;
+      if (checkbox.checked) {
+        requestShortage(gradeId);
+      } else {
+        cancelShortage(gradeId);
+      }
     });
   });
 
@@ -827,13 +864,13 @@ function printLabel(cat) {
       <meta charset="UTF-8">
       <title>ملصق - ${escapeHTML(cat.itemName || cat.name)}</title>
       <style>
-        @page { size: 50mm 30mm; margin: 2mm; }
-        body { font-family: Tahoma, Arial, sans-serif; text-align: center; padding: 20px; }
-        .label { width: 220px; border: 1px solid #000; border-radius: 6px; padding: 12px; margin: 0 auto; }
-        #qr { display: flex; justify-content: center; margin-bottom: 8px; }
-        .item-name { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
-        .barcode-number { font-size: 12px; letter-spacing: 1px; margin-bottom: 6px; }
-        .prices { font-size: 13px; }
+        @page { size: 3in 4in; margin: 3mm; }
+        body { font-family: Tahoma, Arial, sans-serif; text-align: center; padding: 10px; }
+        .label { width: 100%; box-sizing: border-box; padding: 10px; }
+        #qr { display: flex; justify-content: center; margin-bottom: 14px; }
+        .item-name { font-weight: bold; font-size: 20px; margin-bottom: 8px; }
+        .barcode-number { font-size: 16px; letter-spacing: 1px; margin-bottom: 12px; }
+        .prices { font-size: 18px; }
         .prices s { color: #777; }
         @media print {
           body { padding: 0; }
@@ -851,8 +888,8 @@ function printLabel(cat) {
       <script>
         new QRCode(document.getElementById('qr'), {
           text: ${JSON.stringify(cat.barcodeNumber || cat.name)},
-          width: 120,
-          height: 120,
+          width: 180,
+          height: 180,
         });
         window.onload = function () { setTimeout(function () { window.print(); }, 300); };
       <\/script>
@@ -888,10 +925,11 @@ function printRestockPaper(cat, grades) {
       <title>ورقة تزويد - ${escapeHTML(cat.itemName || cat.name)}</title>
       <style>
         @page { size: 80mm auto; margin: 3mm; }
-        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 0; width: 74mm; }
-        .header { text-align: center; margin-bottom: 6px; }
-        .header .name { font-weight: bold; font-size: 13px; }
-        .header .time { font-size: 9px; color: #555; }
+        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 0; width: 72.1mm; }
+        .header { text-align: center; margin-bottom: 8px; }
+        .header .tab-name { font-weight: bold; font-size: 15px; }
+        .header .item-name { font-size: 12px; color: #333; margin-top: 1px; }
+        .header .time { font-size: 11px; font-weight: bold; margin-top: 4px; }
         .grid { column-count: 4; column-gap: 2mm; }
         .row {
           display: flex; justify-content: space-between; align-items: center;
@@ -910,7 +948,8 @@ function printRestockPaper(cat, grades) {
     </head>
     <body>
       <div class="header">
-        <div class="name">${escapeHTML(cat.itemName || cat.name)}</div>
+        <div class="tab-name">${escapeHTML(cat.name)}</div>
+        ${cat.itemName ? `<div class="item-name">${escapeHTML(cat.itemName)}</div>` : ''}
         <div class="time">${escapeHTML(now)}</div>
       </div>
       <div class="grid">${rowsHTML}</div>
@@ -1109,6 +1148,7 @@ function init() {
       state.pendingCount = 0;
       state.resolvingGradeId = null;
       state.confirmingOutGradeId = null;
+      state.bulkRequestMode = false;
       state.view = 'login';
       render();
       return;
