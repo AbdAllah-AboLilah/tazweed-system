@@ -853,20 +853,25 @@ function promptLabelSize(callback) {
   overlay.innerHTML = `
     <div class="card" style="max-width:300px; text-align:center;">
       <div style="margin-bottom:12px; font-size:14px;">اختار مقاس لاصقة الباركود المستخدم فعليًا في الطابعة</div>
-      <div style="display:flex; gap:8px; justify-content:center; margin-bottom:10px;">
+      <div style="display:flex; gap:8px; justify-content:center; margin-bottom:10px; flex-wrap:wrap;">
+        <button class="btn btn-primary" id="size-38x25">38×25 ملم (لفة الملصقات)</button>
         <button class="btn btn-primary" id="size-3x4">3×4 إنش</button>
         <button class="btn btn-primary" id="size-2x4">2×4 إنش</button>
       </div>
       <button class="btn" id="size-cancel">إلغاء</button>
     </div>`;
   document.body.appendChild(overlay);
+  document.getElementById('size-38x25').addEventListener('click', () => {
+    document.body.removeChild(overlay);
+    callback({ pageSize: '38mm 12.5mm', qrSize: 55, fontScale: 0.4, compact: true });
+  });
   document.getElementById('size-3x4').addEventListener('click', () => {
     document.body.removeChild(overlay);
-    callback({ pageSize: '3in 4in', qrSize: 180, fontScale: 1 });
+    callback({ pageSize: '3in 4in', qrSize: 180, fontScale: 1, compact: false });
   });
   document.getElementById('size-2x4').addEventListener('click', () => {
     document.body.removeChild(overlay);
-    callback({ pageSize: '2in 4in', qrSize: 130, fontScale: 0.8 });
+    callback({ pageSize: '2in 4in', qrSize: 95, fontScale: 0.75, compact: true });
   });
   document.getElementById('size-cancel').addEventListener('click', () => {
     document.body.removeChild(overlay);
@@ -874,7 +879,10 @@ function promptLabelSize(callback) {
 }
 
 function printLabel(cat, sizeOptions) {
-  const { pageSize, qrSize, fontScale } = sizeOptions;
+  const { pageSize, qrSize, fontScale, compact } = sizeOptions;
+  const pagePad = compact ? 2 : 10;
+  const qrMargin = compact ? 4 : 14;
+  const lineGap = compact ? 2 : 8;
   const win = window.open('', '_blank', 'width=420,height=520');
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
@@ -892,17 +900,17 @@ function printLabel(cat, sizeOptions) {
       <meta charset="UTF-8">
       <title>ملصق - ${escapeHTML(cat.itemName || cat.name)}</title>
       <style>
-        @page { size: ${pageSize}; margin: 3mm; }
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
-        body { font-family: Tahoma, Arial, sans-serif; text-align: center; padding: 10px; }
-        .label { width: 100%; box-sizing: border-box; padding: 10px; }
-        #qr { display: flex; justify-content: center; margin-bottom: 14px; }
-        .item-name { font-weight: bold; font-size: ${Math.round(20 * fontScale)}px; margin-bottom: 8px; }
-        .barcode-number { font-size: ${Math.round(16 * fontScale)}px; letter-spacing: 1px; margin-bottom: 12px; }
+        @page { size: ${pageSize}; margin: 2mm; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; box-sizing: border-box; }
+        body { font-family: Tahoma, Arial, sans-serif; text-align: center; padding: ${pagePad}px; margin: 0; line-height: 1.15; }
+        .label { width: 100%; }
+        #qr { display: flex; justify-content: center; margin-bottom: ${qrMargin}px; }
+        .item-name { font-weight: bold; font-size: ${Math.round(20 * fontScale)}px; margin-bottom: ${lineGap}px; }
+        .barcode-number { font-size: ${Math.round(16 * fontScale)}px; letter-spacing: 1px; margin-bottom: ${lineGap}px; }
         .prices { font-size: ${Math.round(18 * fontScale)}px; }
         .prices s { color: #777; }
         @media print {
-          body { padding: 0; }
+          body { padding: ${pagePad}px; }
         }
       </style>
     </head>
@@ -953,21 +961,21 @@ function printRestockPaper(cat, grades) {
       <meta charset="UTF-8">
       <title>ورقة تزويد - ${escapeHTML(cat.itemName || cat.name)}</title>
       <style>
-        @page { size: 80mm auto; margin: 3mm; }
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
-        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 0; width: 72.1mm; }
+        @page { size: 80mm auto; margin: 0; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; box-sizing: border-box; }
+        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 1mm; margin: 0; width: 70mm; }
         .header { text-align: center; margin-bottom: 8px; }
         .header .tab-name { font-weight: bold; font-size: 16px; }
         .header .item-name { font-size: 14px; font-weight: bold; color: #000; margin-top: 2px; }
         .header .time { font-size: 11px; font-weight: bold; margin-top: 4px; }
-        .grid { column-count: 4; column-gap: 2mm; }
+        .grid { column-count: 4; column-gap: 1.5mm; }
         .row {
           display: flex; align-items: stretch;
           border: 1px solid #000; margin-bottom: -1px;
           break-inside: avoid; min-height: 5mm;
         }
         .row .num {
-          font-weight: bold; padding: 1px 3px;
+          font-weight: bold; padding: 1px 2px;
           display: flex; align-items: center; justify-content: center;
         }
         .row .blank {
@@ -978,7 +986,7 @@ function printRestockPaper(cat, grades) {
           background-image: repeating-linear-gradient(45deg, #999, #999 2px, #fff 2px, #fff 6px);
         }
         @media print {
-          body { padding: 0; }
+          body { padding: 1mm; }
         }
       </style>
     </head>
