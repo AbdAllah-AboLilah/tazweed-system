@@ -35,3 +35,10 @@ function canManageUsers(profile) {
 function hasFullAccess(profile) {
   return !!profile && FULL_ACCESS_ROLES.includes(profile.role);
 }
+
+// صلاحية جديدة: مستخدمين معينين بس (يُفعَّلها المدير يدويًا في Firestore
+// بحقل canSendRemotePrint: true على حساب المستخدم) يقدروا يبعتوا طلب
+// طباعة لمكان تاني (فرع/رئيسي) غير مكانهم.
+function canSendRemotePrint(profile) {
+  return !!profile && (profile.canSendRemotePrint === true || hasFullAccess(profile));
+}

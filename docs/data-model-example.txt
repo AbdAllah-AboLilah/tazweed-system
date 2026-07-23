@@ -57,6 +57,31 @@ Document ID: لازم يكون نفس الـ UID بتاع الحساب في Auth
 قيم role الممكنة: admin | branch_manager | supervisor | warehouse_keeper | user
 قيم warehouseAccess (لأمين المخزن فقط): "branch" | "main" | "both"
 
+حقل اختياري جديد: canSendRemotePrint: true — لو موجود ومساوي true، الشخص
+ده يقدر يبعت طلب طباعة (ملصق أو ورقة تزويد) لمكان تاني (فرع/رئيسي) غير
+مكانه، حتى لو مش من أصحاب الصلاحية الكاملة. لتفعيلها لشخص معين، ضيف الحقل
+ده يدويًا في مستند users/{uid} بتاعه في Firestore Console.
+
+────────────────────────────────────────
+Collection: printJobs (يُنشأ تلقائيًا، لا تحتاج تضيفه يدويًا)
+────────────────────────────────────────
+كل طلب طباعة لمكان تاني بيضيف مستند هنا تلقائيًا، وبيتشال (يتحول لـ
+status: "printed") أول ما الجهاز المستقبِل يطبعه. مثال لطلب ملصق:
+{
+  "type": "label",
+  "targetLocation": "main",
+  "status": "pending",
+  "categoryName": "دوبيتا سادة",
+  "itemName": "دوبيتا سادة فاخر",
+  "barcodeNumber": "5402903",
+  "originalPrice": 300,
+  "sellingPrice": 240,
+  "sizeOptions": { "pageSize": "2in 4in", "qrSize": 95, "fontScale": 0.75 },
+  "requestedByUid": "...",
+  "requestedByName": "اسم الشخص",
+  "createdAt": <server timestamp>
+}
+
 ────────────────────────────────────────
 Collection: activityLog (يُنشأ تلقائيًا، لا تحتاج تضيفه يدويًا)
 ────────────────────────────────────────

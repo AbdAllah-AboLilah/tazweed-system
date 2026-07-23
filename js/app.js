@@ -670,7 +670,16 @@ function attachDashboardEvents() {
   if (printLabelBtn) {
     printLabelBtn.addEventListener('click', () => {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
-      if (cat) promptLabelSize((pageSize) => printLabel(cat, pageSize));
+      if (!cat) return;
+      promptLabelSize((sizeOptions) => {
+        maybePromptPrintTarget((target) => {
+          if (target === 'local') {
+            printLabel(cat, sizeOptions);
+          } else {
+            sendPrintJob('label', target, { cat, sizeOptions });
+          }
+        });
+      });
     });
   }
 
@@ -678,7 +687,14 @@ function attachDashboardEvents() {
   if (printRestockBtn) {
     printRestockBtn.addEventListener('click', () => {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
-      if (cat) printRestockPaper(cat, state.grades);
+      if (!cat) return;
+      maybePromptPrintTarget((target) => {
+        if (target === 'local') {
+          printRestockPaper(cat, state.grades);
+        } else {
+          sendPrintJob('restock', target, { cat, grades: state.grades });
+        }
+      });
     });
   }
 
@@ -846,6 +862,92 @@ async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalP
 // ============================================================
 // الطباعة: ملصق الباركود (QR) وورقة التزويد
 // ============================================================
+function maybePromptPrintTarget(callback) {
+  if (!canSendRemotePrint(state.profile)) {
+    callback('local');
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:300px; text-align:center;">
+      <div style="margin-bottom:12px; font-size:14px;">تطبع فين؟</div>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
+        <button class="btn btn-primary" id="target-local">🖨️ هنا (الجهاز ده)</button>
+        <button class="btn btn-primary" id="target-branch">📤 إرسال لطابعة الفرع</button>
+        <button class="btn btn-primary" id="target-main">📤 إرسال لطابعة المخزن الرئيسي</button>
+      </div>
+      <button class="btn" id="target-cancel">إلغاء</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => document.body.removeChild(overlay);
+  document.getElementById('target-local').addEventListener('click', () => { close(); callback('local'); });
+  document.getElementById('target-branch').addEventListener('click', () => { close(); callback('branch'); });
+  document.getElementById('target-main').addEventListener('click', () => { close(); callback('main'); });
+  document.getElementById('target-cancel').addEventListener('click', close);
+}
+
+async function sendPrintJob(type, targetLocation, data) {
+  const payload = { type, targetLocation, status: 'pending', requestedByUid: state.user.uid, requestedByName: state.profile.name, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+
+  if (type === 'label') {
+    payload.categoryName = data.cat.name;
+    payload.itemName = data.cat.itemName || '';
+    payload.barcodeNumber = data.cat.barcodeNumber || '';
+    payload.originalPrice = data.cat.originalPrice || 0;
+    payload.sellingPrice = data.cat.sellingPrice || 0;
+    payload.sizeOptions = data.sizeOptions;
+  } else {
+    payload.categoryName = data.cat.name;
+    payload.itemName = data.cat.itemName || '';
+    payload.gradesSnapshot = data.grades.map((g) => ({ number: g.number, status: g.status }));
+  }
+
+  await db.collection('printJobs').add(payload);
+  alert('اتبعت طلب الطباعة. الجهاز التاني هيطبعه أول ما يستقبله.');
+}
+
+// ============================================================
+// استقبال طلبات الطباعة القادمة من مكان تاني وتنفيذها تلقائيًا
+// ============================================================
+const handledPrintJobIds = new Set();
+let unsubPrintJobs = null;
+
+function subscribePrintJobs(location) {
+  if (unsubPrintJobs) unsubPrintJobs();
+  unsubPrintJobs = db
+    .collection('printJobs')
+    .where('targetLocation', '==', location)
+    .where('status', '==', 'pending')
+    .onSnapshot((snap) => {
+      snap.docs.forEach((doc) => {
+        if (handledPrintJobIds.has(doc.id)) return;
+        handledPrintJobIds.add(doc.id);
+        executePrintJob(doc.id, doc.data());
+      });
+    });
+}
+
+function executePrintJob(jobId, job) {
+  let html;
+  if (job.type === 'label') {
+    html = buildLabelHTML(
+      { name: job.categoryName, itemName: job.itemName, barcodeNumber: job.barcodeNumber, originalPrice: job.originalPrice, sellingPrice: job.sellingPrice },
+      job.sizeOptions
+    );
+  } else {
+    html = buildRestockHTML({ name: job.categoryName, itemName: job.itemName }, job.gradesSnapshot);
+  }
+  printHTMLSilently(html);
+  db.collection('printJobs').doc(jobId).update({
+    status: 'printed',
+    printedByUid: state.user.uid,
+    printedByName: state.profile.name,
+    printedAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
 function promptLabelSize(callback) {
   const overlay = document.createElement('div');
   overlay.style.cssText =
@@ -878,22 +980,17 @@ function promptLabelSize(callback) {
   });
 }
 
-function printLabel(cat, sizeOptions) {
+function buildLabelHTML(cat, sizeOptions) {
   const { pageSize, qrSize, fontScale, compact } = sizeOptions;
   const pagePad = compact ? 2 : 10;
   const qrMargin = compact ? 4 : 14;
   const lineGap = compact ? 2 : 8;
-  const win = window.open('', '_blank', 'width=420,height=520');
-  if (!win) {
-    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
-    return;
-  }
 
   const priceHTML = cat.sellingPrice
     ? `<div class="prices"><s>${escapeHTML(cat.originalPrice || 0)} ج.م</s>&nbsp;&nbsp;<strong>${escapeHTML(cat.sellingPrice)} ج.م</strong></div>`
     : '';
 
-  win.document.write(`
+  return `
     <!doctype html>
     <html dir="rtl" lang="ar">
     <head>
@@ -932,17 +1029,20 @@ function printLabel(cat, sizeOptions) {
       <\/script>
     </body>
     </html>
-  `);
-  win.document.close();
+  `;
 }
 
-function printRestockPaper(cat, grades) {
-  const win = window.open('', '_blank', 'width=700,height=800');
+function printLabel(cat, sizeOptions) {
+  const win = window.open('', '_blank', 'width=420,height=520');
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
     return;
   }
+  win.document.write(buildLabelHTML(cat, sizeOptions));
+  win.document.close();
+}
 
+function buildRestockHTML(cat, grades) {
   const now = new Date().toLocaleString('ar-EG');
   const rowsHTML = grades
     .map(
@@ -954,7 +1054,7 @@ function printRestockPaper(cat, grades) {
     )
     .join('');
 
-  win.document.write(`
+  return `
     <!doctype html>
     <html dir="rtl" lang="ar">
     <head>
@@ -1002,8 +1102,37 @@ function printRestockPaper(cat, grades) {
       <\/script>
     </body>
     </html>
-  `);
+  `;
+}
+
+function printRestockPaper(cat, grades) {
+  const win = window.open('', '_blank', 'width=700,height=800');
+  if (!win) {
+    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
+    return;
+  }
+  win.document.write(buildRestockHTML(cat, grades));
   win.document.close();
+}
+
+// ============================================================
+// الطباعة الصامتة (بدون نافذة منبثقة) — تُستخدم لطباعة طلبات وصلت من
+// مكان تاني، لأن فتح نافذة (window.open) من غير ضغطة مستخدم مباشرة ممكن
+// المتصفح يمنعه كـ Popup. الـ iframe المخفي ده حل معروف بيلف الحاجز ده.
+// ملحوظة: نافذة الطباعة القياسية للمتصفح هتفتح لوحدها تلقائيًا، لكن
+// المستخدم لسه محتاج ضغطة "طباعة" الأخيرة جوه النافذة دي نفسها — المتصفح
+// مش بيسمح بطباعة فعلية 100% صامتة من صفحة ويب عادية.
+function printHTMLSilently(htmlContent) {
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden;';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(htmlContent);
+  doc.close();
+  setTimeout(() => {
+    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+  }, 15000);
 }
 
 // ============================================================
@@ -1178,6 +1307,7 @@ function init() {
     if (unsubGrades) { unsubGrades(); unsubGrades = null; }
     if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
     if (unsubPendingCount) { unsubPendingCount(); unsubPendingCount = null; }
+    if (unsubPrintJobs) { unsubPrintJobs(); unsubPrintJobs = null; }
 
     if (!user) {
       state.profile = null;
@@ -1193,6 +1323,8 @@ function init() {
       state.resolvingGradeId = null;
       state.confirmingOutGradeId = null;
       state.bulkRequestMode = false;
+      state.loginBusy = false;
+      state.loginError = '';
       state.view = 'login';
       render();
       return;
@@ -1215,6 +1347,11 @@ function init() {
       subscribeCategories();
       if (canEditWarehouse(state.profile, 'main')) {
         subscribePendingCount();
+      }
+      // استقبال طلبات الطباعة عن بُعد: بس لأمين مخزن مربوط بمكان واحد
+      // محدد (فرع أو رئيسي)، لأنه ده اللي بيمثّل "جهاز الطابعة" فعليًا.
+      if (state.profile.role === 'warehouse_keeper' && ['branch', 'main'].includes(state.profile.warehouseAccess)) {
+        subscribePrintJobs(state.profile.warehouseAccess);
       }
     });
   });

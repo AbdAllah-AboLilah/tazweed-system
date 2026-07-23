@@ -3,6 +3,7 @@ rules_version = '2';
 // قواعد أمان Firestore — طبقًا لملف المواصفات (قسم 4: الأدوار والصلاحيات)
 // المرحلة 3: نظام النواقص — إضافة انتقالات حالة status محدّدة لأمين الفرع
 // (طلب/إلغاء تزويد) وأمين الرئيسي (تزويد/تصفير/إرجاع)، فوق تعديل الكميات.
+// + إضافة أحدث: طلبات الطباعة عن بُعد (printJobs) لإرسال طباعة لمكان تاني.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -96,6 +97,22 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // طلبات الطباعة عن بُعد: الإنشاء بس لمستخدمين معينين (canSendRemotePrint)
+    // أو أصحاب الصلاحية الكاملة. أي مستخدم مسجّل دخول يقدر "يستلم" الطلب
+    // ويعلّمه كـ printed (الجهاز المستقبِل)، لكن مش يغيّر حاجة تانية غير كده.
+    function canSendPrintJob() {
+      return isFullAccess() || userProfile().canSendRemotePrint == true;
+    }
+
+    match /printJobs/{jobId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && canSendPrintJob() && request.resource.data.requestedByUid == request.auth.uid;
+      allow update: if isSignedIn()
+        && onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt'])
+        && oldStatus() == 'pending' && newStatus() == 'printed';
+      allow delete: if isFullAccess();
     }
   }
 }
