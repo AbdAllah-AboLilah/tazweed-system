@@ -954,15 +954,20 @@ function promptLabelSize(callback) {
     'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
   overlay.innerHTML = `
     <div class="card" style="max-width:300px; text-align:center;">
-      <div style="margin-bottom:12px; font-size:14px;">اختار مقاس لاصقة الباركود المستخدم فعليًا في الطابعة</div>
-      <div style="display:flex; gap:8px; justify-content:center; margin-bottom:10px; flex-wrap:wrap;">
-        <button class="btn btn-primary" id="size-38x25">38×25 ملم (لفة الملصقات)</button>
-        <button class="btn btn-primary" id="size-3x4">3×4 إنش</button>
-        <button class="btn btn-primary" id="size-2x4">2×4 إنش</button>
+      <div style="margin-bottom:12px; font-size:14px;">اختار مقاس لاصقة الباركود</div>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
+        <button class="btn btn-primary" id="size-measured">38×18 ملم (المقاس اللي قسته)</button>
+        <button class="btn" id="size-38x25">38×25 ملم</button>
+        <button class="btn" id="size-3x4">3×4 إنش</button>
+        <button class="btn" id="size-2x4">2×4 إنش</button>
       </div>
       <button class="btn" id="size-cancel">إلغاء</button>
     </div>`;
   document.body.appendChild(overlay);
+  document.getElementById('size-measured').addEventListener('click', () => {
+    document.body.removeChild(overlay);
+    callback({ pageSize: '38mm 18mm', qrSize: 60, fontScale: 0.42, compact: true });
+  });
   document.getElementById('size-38x25').addEventListener('click', () => {
     document.body.removeChild(overlay);
     callback({ pageSize: '38mm 12.5mm', qrSize: 55, fontScale: 0.4, compact: true });
@@ -1077,13 +1082,19 @@ function buildRestockHTML(cat, grades) {
         .row .num {
           font-weight: bold; padding: 1px 2px;
           display: flex; align-items: center; justify-content: center;
+          position: relative; z-index: 1;
         }
         .row .blank {
           flex: 1;
           border-inline-start: 1.5px solid #000;
         }
         .row.out {
-          background-image: repeating-linear-gradient(45deg, #999, #999 2px, #fff 2px, #fff 6px);
+          background-image: repeating-linear-gradient(45deg, #000 0, #000 2.5px, #fff 2.5px, #fff 6px);
+        }
+        .row.out .num {
+          color: #000;
+          -webkit-text-stroke: 3px #fff;
+          paint-order: stroke fill;
         }
         @media print {
           body { padding: 1mm; }
