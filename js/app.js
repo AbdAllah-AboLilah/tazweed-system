@@ -320,6 +320,7 @@ function categoryInfoBarHTML() {
       ${canManageCatalog ? `<button class="btn" id="edit-category-info-btn" style="padding:3px 10px; font-size:12px;">تعديل</button>` : ''}
       <button class="btn" id="print-label-btn" style="padding:3px 10px; font-size:12px;">🏷️ طباعة ملصق</button>
       <button class="btn" id="print-restock-btn" style="padding:3px 10px; font-size:12px;">🖨️ طباعة ورقة تزويد</button>
+      <button class="btn" id="printer-settings-btn" style="padding:3px 10px; font-size:12px;" title="إعدادات طابعات هذا الجهاز">⚙️ إعدادات الطابعة</button>
     </div>`;
 }
 
@@ -698,6 +699,13 @@ function attachDashboardEvents() {
     });
   }
 
+  const printerSettingsBtn = document.getElementById('printer-settings-btn');
+  if (printerSettingsBtn) {
+    printerSettingsBtn.addEventListener('click', () => {
+      openPrinterSettings();
+    });
+  }
+
   const editCategoryInfoForm = document.getElementById('edit-category-info-form');
   if (editCategoryInfoForm) {
     editCategoryInfoForm.addEventListener('submit', async (e) => {
@@ -929,7 +937,7 @@ function subscribePrintJobs(location) {
     });
 }
 
-function executePrintJob(jobId, job) {
+async function executePrintJob(jobId, job) {
   let html;
   if (job.type === 'label') {
     html = buildLabelHTML(
@@ -939,7 +947,15 @@ function executePrintJob(jobId, job) {
   } else {
     html = buildRestockHTML({ name: job.categoryName, itemName: job.itemName }, job.gradesSnapshot);
   }
-  printHTMLSilently(html);
+
+  // نجرب QZ Tray الأول (طباعة صامتة فعليًا 100%، من غير أي نافذة أو ضغطة
+  // خالص)، ولو مش متاح على الجهاز ده، نرجع لطريقة الـiframe المخفي القديمة
+  // (اللي لسه محتاجة ضغطة "طباعة" أخيرة جوه نافذة المتصفح).
+  const printedViaQZ = await tryPrintViaQZ(job.type, html, job.sizeOptions);
+  if (!printedViaQZ) {
+    printHTMLSilently(html);
+  }
+
   db.collection('printJobs').doc(jobId).update({
     status: 'printed',
     printedByUid: state.user.uid,
@@ -1037,13 +1053,17 @@ function buildLabelHTML(cat, sizeOptions) {
   `;
 }
 
-function printLabel(cat, sizeOptions) {
+async function printLabel(cat, sizeOptions) {
+  const html = buildLabelHTML(cat, sizeOptions);
+  const printedViaQZ = await tryPrintViaQZ('label', html, sizeOptions);
+  if (printedViaQZ) return;
+
   const win = window.open('', '_blank', 'width=420,height=520');
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
     return;
   }
-  win.document.write(buildLabelHTML(cat, sizeOptions));
+  win.document.write(html);
   win.document.close();
 }
 
@@ -1116,13 +1136,17 @@ function buildRestockHTML(cat, grades) {
   `;
 }
 
-function printRestockPaper(cat, grades) {
+async function printRestockPaper(cat, grades) {
+  const html = buildRestockHTML(cat, grades);
+  const printedViaQZ = await tryPrintViaQZ('restock', html, { pageSize: '80mm auto' });
+  if (printedViaQZ) return;
+
   const win = window.open('', '_blank', 'width=700,height=800');
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
     return;
   }
-  win.document.write(buildRestockHTML(cat, grades));
+  win.document.write(html);
   win.document.close();
 }
 
@@ -1144,6 +1168,176 @@ function printHTMLSilently(htmlContent) {
   setTimeout(() => {
     if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
   }, 15000);
+}
+
+// ============================================================
+// تكامل QZ Tray: طباعة مباشرة لطابعة مختارة ومحفوظة على الجهاز نفسه.
+// ============================================================
+// ملحوظة معمارية مهمة: اختيار الطابعة بيتحفظ محليًا على **هذا الجهاز بس**
+// (localStorage)، مش في حساب المستخدم على السحابة — لأن الطابعة فعليًا
+// موصولة بجهاز معيّن، مش بشخص معيّن. لو نفس الحساب اتفتح من جهاز تاني،
+// هيحتاج يختار طابعاته هو تاني.
+const QZ_LABEL_PRINTER_KEY = 'tazweed_qz_label_printer';
+const QZ_RESTOCK_PRINTER_KEY = 'tazweed_qz_restock_printer';
+
+let qzConnected = false;
+let qzConnecting = null;
+
+function isQZAvailable() {
+  return typeof qz !== 'undefined';
+}
+
+async function ensureQZConnected() {
+  if (!isQZAvailable()) return false;
+  if (qzConnected) return true;
+  if (qzConnecting) return qzConnecting;
+  qzConnecting = qz.websocket
+    .connect()
+    .then(() => {
+      qzConnected = true;
+      return true;
+    })
+    .catch((err) => {
+      console.warn('تعذّر الاتصال بـ QZ Tray (على الأغلب مش مثبّت على الجهاز ده):', err);
+      return false;
+    })
+    .finally(() => {
+      qzConnecting = null;
+    });
+  return qzConnecting;
+}
+
+async function getAvailableQZPrinters() {
+  const ok = await ensureQZConnected();
+  if (!ok) return [];
+  try {
+    return await qz.printers.find();
+  } catch (err) {
+    console.error('تعذّر جلب قائمة الطابعات من QZ Tray:', err);
+    return [];
+  }
+}
+
+function getSavedPrinter(type) {
+  const key = type === 'label' ? QZ_LABEL_PRINTER_KEY : QZ_RESTOCK_PRINTER_KEY;
+  try {
+    return localStorage.getItem(key) || '';
+  } catch (err) {
+    return '';
+  }
+}
+
+function saveSelectedPrinter(type, printerName) {
+  const key = type === 'label' ? QZ_LABEL_PRINTER_KEY : QZ_RESTOCK_PRINTER_KEY;
+  try {
+    localStorage.setItem(key, printerName);
+  } catch (err) {
+    console.error('تعذّر حفظ اختيار الطابعة محليًا:', err);
+  }
+}
+
+// بيرجع true لو نجحت الطباعة عبر QZ Tray، false لو محتاج نرجع للطريقة
+// العادية (نافذة المتصفح / iframe).
+async function tryPrintViaQZ(type, htmlContent, sizeOptions) {
+  const printerName = getSavedPrinter(type);
+  if (!printerName) return false;
+
+  const ok = await ensureQZConnected();
+  if (!ok) return false;
+
+  try {
+    // اللاصقة مقاسها ثابت فمفروض نفرضه، لكن ورقة التزويد رول مستمر
+    // (زي @page 80mm auto في الكود العادي) فمنسيبهاش على الطابعة تتحكم
+    // في الارتفاع بنفسها بدل ما نفرض رقم غلط.
+    const widthMm = type === 'label' && sizeOptions ? parseSizeToMm(sizeOptions.pageSize) : null;
+    const config = qz.configs.create(printerName, widthMm ? { size: widthMm, units: 'mm' } : {});
+    await qz.print(config, [{ type: 'pixel', format: 'html', flavor: 'plain', data: htmlContent }]);
+    return true;
+  } catch (err) {
+    console.error('فشلت الطباعة عبر QZ Tray:', err);
+    return false;
+  }
+}
+
+// بيحوّل صيغة الحجم بتاعتنا ("3in 4in" أو "38mm 18mm") لعرض/ارتفاع بالملم.
+// بيرجع null لو مش قادر يفهم الصيغة (زي "80mm auto" اللي بتستخدم للرول
+// المستمر، مش لاصقة بمقاس ثابت).
+function parseSizeToMm(sizeStr) {
+  if (!sizeStr) return null;
+  const parts = sizeStr.trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  if (parts[1] === 'auto') return null;
+  const toMm = (v) => {
+    const num = parseFloat(v);
+    return v.includes('in') ? num * 25.4 : num;
+  };
+  const width = toMm(parts[0]);
+  const height = toMm(parts[1]);
+  if (Number.isNaN(width) || Number.isNaN(height)) return null;
+  return { width, height };
+}
+
+// ============================================================
+// شاشة إعدادات طابعات الجهاز (تظهر لأي حد يقدر يطبع)
+// ============================================================
+async function openPrinterSettings() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:340px; width:100%;">
+      <div style="font-size:14px; font-weight:500; margin-bottom:4px;">إعدادات طابعات هذا الجهاز</div>
+      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;" id="qz-status-line">جارٍ البحث عن QZ Tray...</div>
+      <div id="qz-printer-fields" style="display:none;">
+        <div class="field">
+          <label>طابعة الملصق (باركود)</label>
+          <select class="input" id="qz-label-printer-select"></select>
+        </div>
+        <div class="field">
+          <label>طابعة ورقة التزويد</label>
+          <select class="input" id="qz-restock-printer-select"></select>
+        </div>
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn" id="qz-settings-close">إغلاق</button>
+        <button class="btn btn-primary" id="qz-settings-save" style="display:none;">حفظ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('qz-settings-close').addEventListener('click', () => document.body.removeChild(overlay));
+
+  const printers = await getAvailableQZPrinters();
+  const statusLine = document.getElementById('qz-status-line');
+  const fields = document.getElementById('qz-printer-fields');
+  const saveBtn = document.getElementById('qz-settings-save');
+
+  if (!isQZAvailable() || printers.length === 0) {
+    statusLine.innerHTML = isQZAvailable()
+      ? 'تعذّر الاتصال بـ QZ Tray. تأكد إنه مشغّل على الجهاز ده.'
+      : 'برنامج QZ Tray مش مثبّت على الجهاز ده. بدونه، الطباعة هتشتغل بالطريقة العادية (نافذة المتصفح) وهتحتاج تختار الطابعة يدويًا كل مرة.';
+    return;
+  }
+
+  statusLine.textContent = `متصل بـ QZ Tray — ${printers.length} طابعة موجودة`;
+  fields.style.display = 'block';
+  saveBtn.style.display = 'inline-block';
+
+  const labelSelect = document.getElementById('qz-label-printer-select');
+  const restockSelect = document.getElementById('qz-restock-printer-select');
+  const savedLabel = getSavedPrinter('label');
+  const savedRestock = getSavedPrinter('restock');
+
+  [labelSelect, restockSelect].forEach((select) => {
+    select.innerHTML = `<option value="">— اختار طابعة —</option>` + printers.map((p) => `<option value="${escapeHTML(p)}">${escapeHTML(p)}</option>`).join('');
+  });
+  labelSelect.value = savedLabel;
+  restockSelect.value = savedRestock;
+
+  saveBtn.addEventListener('click', () => {
+    saveSelectedPrinter('label', labelSelect.value);
+    saveSelectedPrinter('restock', restockSelect.value);
+    document.body.removeChild(overlay);
+  });
 }
 
 // ============================================================

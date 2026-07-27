@@ -52,6 +52,20 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
+    <!--
+      QZ Tray: بيسمح للنظام يشوف طابعاتك الحقيقية المتصلة بالجهاز ده
+      ويطبع عليها مباشرة بمقاس دقيق، من غير المرور بنافذة طباعة المتصفح
+      وقيود قايمة المقاسات المحفوظة في تعريف الطابعة. يحتاج تثبيت برنامج
+      QZ Tray على الجهاز (خطوات في README قسم 2ب). لو غير متثبّت، النظام
+      يرجع تلقائيًا لطريقة الطباعة العادية (نافذة المتصفح) من غير أي مشكلة.
+    -->
+    <script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js"></script>
+
+    <!-- QZ Tray: مكتبة اختيارية، بتشتغل بس لو المستخدم مثبّت عنده برنامج
+         QZ Tray على جهازه. لو مش موجود، النظام بيرجع تلقائيًا لطريقة
+         الطباعة العادية (نافذة المتصفح). -->
+    <script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js"></script>
+
     <!-- إعداداتنا ومنطقنا: كل الملفات دي JavaScript عادي 100%، مفيش JSX
          ومفيش أي أداة تحويل — بالظبط زي أي نظام HTML عادي. -->
     <script src="./firebase-config.js"></script>
