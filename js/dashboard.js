@@ -96,12 +96,22 @@ function subscribeOverview() {
 // بنفلتر على الجهاز حسب حد كل فئة. كده استعلام واحد بسيط من غير أي فهرس
 // مركّب محتاج إعداد يدوي في Firebase — ولو مفيش أي فئة مفعّلة، مبنعملش
 // الاستعلام أصلًا (تكلفة صفر).
+let lowStockThreshold = null; // آخر حد اتبني عليه الاستعلام
+
 function subscribeLowStock() {
+  const maxThreshold = state.categories.reduce((m, c) => Math.max(m, Number(c.minQty) || 0), 0);
+
+  // الدالة دي بتتنادى مع كل تحديث للفئات. من غير الشرط ده كانت بتلغي
+  // وتعيد بناء الاشتراك في كل مرة من غير أي داعي — وكتر إلغاء وإعادة
+  // بناء الاشتراكات هو اللي بيطلّع خطأ Firestore الداخلي.
+  if (maxThreshold === lowStockThreshold) return;
+  lowStockThreshold = maxThreshold;
+
   if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
 
-  const maxThreshold = state.categories.reduce((m, c) => Math.max(m, Number(c.minQty) || 0), 0);
   if (!maxThreshold) {
     state.lowStockByCategory = {};
+    state.lowStockCount = 0;
     if (state.screen === 'home') render();
     return;
   }
@@ -136,6 +146,7 @@ function stopOverview() {
   if (unsubPendingOverview) { unsubPendingOverview(); unsubPendingOverview = null; }
   if (unsubOutOverview) { unsubOutOverview(); unsubOutOverview = null; }
   if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
+  lowStockThreshold = null;
   stopPresenceHeartbeat();
 }
 

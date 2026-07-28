@@ -17,6 +17,9 @@
       مباشرة بالنص الأحمر تحت الصفحة، من غير ما تحتاج تفتح أدوات المطوّرين.
     -->
     <script>
+      // الرسالة الواحدة بتتعرض مرة واحدة بس ومعاها عدّاد تكرار — قبل كده
+      // كان الخطأ المتكرر بيملا الشاشة كلها ويخفي النظام تحته.
+      var seenErrors = {};
       function showFatalError(msg) {
         var el = document.getElementById('fatal-error-box');
         if (!el) {
@@ -25,13 +28,32 @@
           el.style.cssText =
             'position:fixed;bottom:0;left:0;right:0;background:#fcebeb;color:#791f1f;' +
             'padding:12px;font-family:sans-serif;font-size:13px;direction:rtl;text-align:right;' +
-            'z-index:9999;max-height:45vh;overflow:auto;border-top:3px solid #791f1f;';
+            'z-index:9999;max-height:35vh;overflow:auto;border-top:3px solid #791f1f;';
+          var close = document.createElement('button');
+          close.textContent = '✕ إخفاء';
+          close.style.cssText =
+            'float:left;border:1px solid #791f1f;background:transparent;color:#791f1f;' +
+            'border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;';
+          close.onclick = function () { el.remove(); };
+          el.appendChild(close);
           document.body.appendChild(el);
         }
+
+        var entry = seenErrors[msg];
+        if (entry) {
+          entry.count++;
+          entry.node.textContent = 'خطأ (×' + entry.count + '): ' + msg;
+          return;
+        }
+
+        // سقف أمان: لو ظهرت أنواع أخطاء كتير، منزوّدش أكتر من كده.
+        if (Object.keys(seenErrors).length >= 8) return;
+
         var line = document.createElement('div');
         line.style.marginBottom = '6px';
         line.textContent = 'خطأ: ' + msg;
         el.appendChild(line);
+        seenErrors[msg] = { count: 1, node: line };
       }
       window.addEventListener(
         'error',
