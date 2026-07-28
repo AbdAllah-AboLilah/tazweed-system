@@ -7,7 +7,7 @@
 // ببايت مع النسخة القديمة المسجّلة عنده. لازم نغيّر رقم SW_VERSION هنا في
 // كل مرة نرفع فيها تحديث فعلي (حتى لو التحديث نفسه في app.js مش هنا) —
 // وإلا المتصفح مش هيحس إن فيه حاجة اتغيّرت، والإشعار مش هيظهر خالص.
-const SW_VERSION = '0.11.0';
+const SW_VERSION = '0.13.0';
 
 const CACHE_NAME = 'tazweed-' + SW_VERSION;
 
@@ -21,6 +21,9 @@ const APP_SHELL = [
   './js/app-info.js',
   './js/permissions.js',
   './js/qz-signing.js',
+  './js/barcode-scan.js',
+  './js/import-export.js',
+  './js/user-admin.js',
   './js/app.js',
   './js/update-prompt.js',
   './icon-192.png',
