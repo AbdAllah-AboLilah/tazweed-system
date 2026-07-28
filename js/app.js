@@ -3,6 +3,10 @@
 // ============================================================
 // الحالة العامة للتطبيق
 // ============================================================
+// لازم يساوي نفس الرقم في styles.css (@media max-width) عشان الجدول
+// والكارتس ما يظهروش مع بعض أو يختفوا الاتنين.
+const NARROW_BREAKPOINT = 640;
+
 const state = {
   view: 'loading', // loading | not-configured | login | no-profile | dashboard
   user: null,
@@ -28,7 +32,18 @@ const state = {
   canInstallApp: false, // المتصفح عرض إنه يثبّت النظام كأيقونة
   gradeLabelMode: false, // وضع اختيار درجات لطباعة ملصقاتها
   gradeLabelQty: {}, // { gradeId: عدد الملصقات المطلوبة }
+  isNarrow: window.innerWidth <= NARROW_BREAKPOINT, // موبايل؟ (كارتس بدل جدول)
 };
+
+// بنعيد الرسم بس لما الشاشة تعدّي الحد فعليًا (مش مع كل بكسل أثناء تغيير
+// حجم النافذة) — عشان الكتابة في خانة ماتضيعش من تحت إيد المستخدم.
+window.addEventListener('resize', () => {
+  const narrow = window.innerWidth <= NARROW_BREAKPOINT;
+  if (narrow !== state.isNarrow) {
+    state.isNarrow = narrow;
+    render();
+  }
+});
 
 // ============================================================
 // تثبيت النظام كأيقونة على الشاشة الرئيسية (PWA)
@@ -374,54 +389,130 @@ function categoryInfoBarHTML() {
     </div>`;
 }
 
-function statusCellHTML(g, canEditBranch, canEditMain) {
+// محتوى عمود الحالة من غير <td> — عشان نقدر نستخدمه في الجدول (كمبيوتر)
+// وفي الكارت (موبايل) من غير ما نكرر المنطق.
+function statusContentHTML(g, canEditBranch, canEditMain) {
   const badge = `<span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span>`;
+  const smallBtn = 'padding:4px 10px; font-size:12px; margin-inline-start:6px;';
 
   if (g.status === 'normal') {
     const btn = canEditBranch
-      ? `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-request-shortage-id="${escapeHTML(g.id)}">طلب تزويد</button>`
+      ? `<button class="btn" style="${smallBtn}" data-request-shortage-id="${escapeHTML(g.id)}">طلب تزويد</button>`
       : '';
-    return `<td>${badge}${btn}</td>`;
+    return `${badge}${btn}`;
   }
 
   if (g.status === 'pending') {
     if (canEditMain && state.resolvingGradeId === g.id) {
       return `
-        <td>
-          <form class="fulfill-form" data-fulfill-id="${escapeHTML(g.id)}" style="display:flex; gap:4px; align-items:center;">
-            <input class="input" type="number" min="1" style="width:60px; padding:4px;" id="fulfill-qty-${escapeHTML(g.id)}" placeholder="كمية" required />
-            <button class="btn btn-primary" type="submit" style="padding:4px 8px; font-size:12px;">تأكيد</button>
-            <button class="btn" type="button" data-cancel-resolve-id="${escapeHTML(g.id)}" style="padding:4px 8px; font-size:12px;">رجوع</button>
-          </form>
-        </td>`;
+        <form class="fulfill-form" data-fulfill-id="${escapeHTML(g.id)}" style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+          <input class="input" type="number" min="1" style="width:60px; padding:4px;" id="fulfill-qty-${escapeHTML(g.id)}" placeholder="كمية" required />
+          <button class="btn btn-primary" type="submit" style="padding:4px 8px; font-size:12px;">تأكيد</button>
+          <button class="btn" type="button" data-cancel-resolve-id="${escapeHTML(g.id)}" style="padding:4px 8px; font-size:12px;">رجوع</button>
+        </form>`;
     }
     if (canEditMain && state.confirmingOutGradeId === g.id) {
       return `
-        <td>
-          <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
-            <span style="font-size:12px;">متأكد إنها خلصت من عندك خالص؟</span>
-            <button class="btn" style="padding:4px 8px; font-size:12px; background:var(--danger-bg); color:var(--danger-text);" data-confirm-out-id="${escapeHTML(g.id)}">تأكيد</button>
-            <button class="btn" style="padding:4px 8px; font-size:12px;" data-cancel-confirm-out-id="${escapeHTML(g.id)}">رجوع</button>
-          </div>
-        </td>`;
+        <div style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
+          <span style="font-size:12px;">متأكد إنها خلصت من عندك خالص؟</span>
+          <button class="btn" style="padding:4px 8px; font-size:12px; background:var(--danger-bg); color:var(--danger-text);" data-confirm-out-id="${escapeHTML(g.id)}">تأكيد</button>
+          <button class="btn" style="padding:4px 8px; font-size:12px;" data-cancel-confirm-out-id="${escapeHTML(g.id)}">رجوع</button>
+        </div>`;
     }
 
     let extra = '';
     if (canEditBranch) {
-      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-cancel-shortage-id="${escapeHTML(g.id)}">إلغاء الطلب</button>`;
+      extra += `<button class="btn" style="${smallBtn}" data-cancel-shortage-id="${escapeHTML(g.id)}">إلغاء الطلب</button>`;
     }
     if (canEditMain) {
-      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-open-fulfill-id="${escapeHTML(g.id)}">تزويد</button>`;
-      extra += `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-open-confirm-out-id="${escapeHTML(g.id)}">مفيش خالص</button>`;
+      extra += `<button class="btn" style="${smallBtn}" data-open-fulfill-id="${escapeHTML(g.id)}">تزويد</button>`;
+      extra += `<button class="btn" style="${smallBtn}" data-open-confirm-out-id="${escapeHTML(g.id)}">مفيش خالص</button>`;
     }
-    return `<td>${badge}${extra}</td>`;
+    return `${badge}${extra}`;
   }
 
   // status === 'out'
   const resetBtn = canEditMain
-    ? `<button class="btn" style="padding:4px 10px; font-size:12px; margin-inline-start:6px;" data-reset-out-id="${escapeHTML(g.id)}">رجّعها متاحة</button>`
+    ? `<button class="btn" style="${smallBtn}" data-reset-out-id="${escapeHTML(g.id)}">رجّعها متاحة</button>`
     : '';
-  return `<td>${badge}${resetBtn}</td>`;
+  return `${badge}${resetBtn}`;
+}
+
+function statusCellHTML(g, canEditBranch, canEditMain) {
+  return `<td>${statusContentHTML(g, canEditBranch, canEditMain)}</td>`;
+}
+
+// أزرار الكمية من غير <td> — نفس السبب اللي فوق.
+function qtyControlsHTML(categoryId, gradeId, field, value, canEdit) {
+  if (!canEdit) return `<span class="qty-readonly">${escapeHTML(value ?? 0)}</span>`;
+  const attrs = `data-category-id="${escapeHTML(categoryId)}" data-grade-id="${escapeHTML(gradeId)}" data-field="${field}"`;
+  return `
+    <div class="qty-cell">
+      <button class="qty-btn" data-action="dec" ${attrs}>−</button>
+      <input class="qty-input" type="number" value="${escapeHTML(value ?? 0)}" ${attrs} />
+      <button class="qty-btn" data-action="inc" ${attrs}>+</button>
+    </div>`;
+}
+
+// ------------------------------------------------------------
+// عرض الدرجات على الموبايل: كارت لكل درجة بدل صف جدول
+// ------------------------------------------------------------
+// السبب: خمس أعمدة بمساحات لمس محترمة مش بيدخلوا في عرض 360px — الجدول
+// بيطلع 425px ويحتاج سحب أفقي، وعمود الحالة (أهم عمود في الشغل) بيختفي
+// بره الشاشة. الكارت بيحل ده: كل حاجة تحت بعضها، مفيش أي سحب.
+function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
+  return `
+    <div class="grade-cards">
+      ${state.grades
+        .map((g) => {
+          const middle = state.gradeLabelMode
+            ? `
+            <div class="gc-line">
+              <span class="gc-label">اطبع كام؟</span>
+              <span style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" class="grade-label-check" data-grade-label-id="${escapeHTML(g.id)}"
+                       ${(state.gradeLabelQty || {})[g.id] > 0 ? 'checked' : ''} />
+                <input type="number" class="input grade-label-qty" data-grade-qty-id="${escapeHTML(g.id)}"
+                       value="${(state.gradeLabelQty || {})[g.id] || ''}" min="0" max="200" placeholder="عدد"
+                       inputmode="numeric" style="width:72px; padding:6px;" />
+              </span>
+            </div>`
+            : state.bulkRequestMode
+              ? `
+            <div class="gc-line">
+              <span class="gc-label">طلب تزويد</span>
+              ${
+                g.status === 'out'
+                  ? `<span class="badge badge-out">خلصت نهائيًا</span>`
+                  : `<input type="checkbox" class="bulk-request-checkbox" data-bulk-toggle-id="${escapeHTML(g.id)}"
+                       ${g.status === 'pending' ? 'checked' : ''} ${canEditBranch ? '' : 'disabled'} />`
+              }
+            </div>`
+              : `<div class="gc-status">${statusContentHTML(g, canEditBranch, canEditMain)}</div>`;
+
+          return `
+          <div class="grade-card ${rowClassForStatus(g.status)}">
+            <div class="gc-head">
+              <span class="gc-num">درجة ${escapeHTML(g.number)}</span>
+              ${
+                canManageCatalog
+                  ? `<button class="btn gc-del" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(g.number)}">حذف</button>`
+                  : ''
+              }
+            </div>
+            <div class="gc-line">
+              <span class="gc-label">الفرع</span>
+              ${qtyControlsHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
+            </div>
+            <div class="gc-line">
+              <span class="gc-label">الرئيسي</span>
+              ${qtyControlsHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
+            </div>
+            ${middle}
+          </div>`;
+        })
+        .join('')}
+    </div>`;
 }
 
 function gradeTableHTML() {
@@ -520,6 +611,12 @@ function gradeTableHTML() {
       </tr>`
     )
     .join('');
+
+  // على الموبايل بنرسم كارتس بدل الجدول (مش الاتنين) — عشان منضاعفش
+  // عدد العناصر في الصفحة لما الفئة يكون فيها مئات الدرجات.
+  if (state.isNarrow) {
+    return `${infoBarHTML}${toolbarHTML}${labelBarHTML}${addGradeFormHTML}${gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog)}`;
+  }
 
   return `
     ${infoBarHTML}${toolbarHTML}${labelBarHTML}${addGradeFormHTML}

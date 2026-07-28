@@ -271,6 +271,71 @@ th {
 }
 
 /* ============================================================
+   كارتس الدرجات (الموبايل) — بديل الجدول
+   ============================================================ */
+.grade-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.grade-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.gc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.gc-num {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.gc-del {
+  padding: 4px 12px;
+  font-size: 12px;
+  min-height: 32px;
+  color: var(--danger-text);
+}
+
+.gc-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.gc-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.qty-readonly {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.gc-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* ============================================================
    الشاشات الصغيرة — لازم تفضل في آخر الملف عشان تغلب القواعد فوق
    ============================================================ */
 @media (max-width: 900px) {
