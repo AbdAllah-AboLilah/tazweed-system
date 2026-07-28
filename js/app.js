@@ -22,6 +22,10 @@ const state = {
   pendingByCategory: {}, // { categoryId: [أرقام الدرجات المعلّقة] }
   outByCategory: {}, // { categoryId: [أرقام الدرجات اللي خلصت] }
   outCount: 0,
+  lowStockByCategory: {}, // { categoryId: [درجات وصلت الحد الأدنى] }
+  lowStockCount: 0,
+  presence: [], // المستخدمين وآخر ظهور لكل واحد
+  stockTotals: null, // { branch, main, grades, at } — بيتحسب بالطلب بس
   showAddCategoryForm: false,
   showAddGradeForm: false,
   showEditCategoryInfoForm: false,
@@ -274,6 +278,10 @@ function dashboardHTML() {
           <label>سعر البيع</label>
           <input class="input" type="number" id="new-category-selling-price" />
         </div>
+        <div class="field" style="width:110px; margin-bottom:0;">
+          <label>الحد الأدنى</label>
+          <input class="input" type="number" id="new-category-min-qty" min="0" placeholder="0 = مقفول" />
+        </div>
         <button class="btn btn-primary" type="submit">إضافة</button>
         <button class="btn" type="button" id="cancel-add-category">إلغاء</button>
       </form>
@@ -378,6 +386,11 @@ function categoryInfoBarHTML() {
           <div class="field" style="width:100px; margin-bottom:0;">
             <label>سعر البيع</label>
             <input class="input" type="number" id="edit-category-selling-price" value="${escapeHTML(cat.sellingPrice || 0)}" />
+          </div>
+          <div class="field" style="width:120px; margin-bottom:0;">
+            <label>الحد الأدنى للتنبيه</label>
+            <input class="input" type="number" id="edit-category-min-qty" min="0" value="${escapeHTML(cat.minQty || 0)}" />
+            <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">0 = من غير تنبيه</div>
           </div>
           <button class="btn btn-primary" type="submit">حفظ</button>
           <button class="btn" type="button" id="cancel-edit-category-info">إلغاء</button>
@@ -926,8 +939,9 @@ function attachDashboardEvents() {
       const barcodeNumber = document.getElementById('new-category-barcode').value.trim();
       const originalPrice = Number(document.getElementById('new-category-original-price').value) || 0;
       const sellingPrice = Number(document.getElementById('new-category-selling-price').value) || 0;
+      const minQty = Number(document.getElementById('new-category-min-qty').value) || 0;
       if (!name) return;
-      await addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice);
+      await addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice, minQty);
       state.showAddCategoryForm = false;
       render();
     });
@@ -1013,7 +1027,8 @@ function attachDashboardEvents() {
       const barcodeNumber = document.getElementById('edit-category-barcode').value.trim();
       const originalPrice = Number(document.getElementById('edit-category-original-price').value) || 0;
       const sellingPrice = Number(document.getElementById('edit-category-selling-price').value) || 0;
-      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber, originalPrice, sellingPrice);
+      const minQty = Number(document.getElementById('edit-category-min-qty').value) || 0;
+      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber, originalPrice, sellingPrice, minQty);
       state.showEditCategoryInfoForm = false;
       render();
     });
@@ -1114,7 +1129,7 @@ function attachDashboardEvents() {
 // ============================================================
 // إدارة الفئات والدرجات (إضافة/حذف)
 // ============================================================
-async function addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice) {
+async function addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice, minQty) {
   const nextOrder = state.categories.reduce((max, c) => Math.max(max, c.order || 0), 0) + 1;
   // doc() بيولّد المعرّف على الجهاز فورًا، فمش محتاجين نستنى رد السيرفر
   // عشان نعرفه — وده اللي بيخلي الإضافة تشتغل وانت أوفلاين.
@@ -1127,6 +1142,7 @@ async function addCategory(name, itemName, barcodeNumber, originalPrice, selling
       barcodeNumber: barcodeNumber || '',
       originalPrice: originalPrice || 0,
       sellingPrice: sellingPrice || 0,
+      minQty: Number(minQty) || 0,
     }),
     'إضافة فئة'
   );
@@ -1166,13 +1182,14 @@ async function addGrade(categoryId, data) {
   });
 }
 
-async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalPrice, sellingPrice) {
+async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalPrice, sellingPrice, minQty) {
   fireWrite(
     db.collection('categories').doc(categoryId).update({
       itemName: itemName || '',
       barcodeNumber: barcodeNumber || '',
       originalPrice: originalPrice || 0,
       sellingPrice: sellingPrice || 0,
+      minQty: Number(minQty) || 0,
     }),
     'تعديل بيانات الفئة'
   );
@@ -2381,6 +2398,10 @@ function init() {
       state.outCount = 0;
       state.pendingByCategory = {};
       state.outByCategory = {};
+      state.lowStockByCategory = {};
+      state.lowStockCount = 0;
+      state.presence = [];
+      state.stockTotals = null;
       state.resolvingGradeId = null;
       state.confirmingOutGradeId = null;
       state.bulkRequestMode = false;
@@ -2415,6 +2436,7 @@ function init() {
       // نفس البيانات اللي العدّاد البنفسجي بيستخدمها — فاشتراك واحد يكفي.
       subscribeOverview();
       subscribeActivityLog();
+      startPresenceHeartbeat();
 
       // أي جهاز (مش أمين مخزن بس) ممكن يبقى نقطة طباعة، طالما عليه
       // QZ Tray وطابعة محفوظة — لأن الطابعات كلها في مكتب الكاشير.
@@ -2437,6 +2459,9 @@ function subscribeCategories() {
           state.activeCategoryId = state.categories[0].id;
         }
         render();
+        // حدود التنبيه محفوظة على الفئات نفسها، فأي تغيير فيها لازم يعيد
+        // بناء استعلام "قرّبت تخلص".
+        subscribeLowStock();
         if (state.activeCategoryId) subscribeGrades(state.activeCategoryId);
       },
       (err) => console.warn('تعذّر قراءة الفئات:', err)
