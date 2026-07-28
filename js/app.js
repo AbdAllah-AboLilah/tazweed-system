@@ -26,6 +26,8 @@ const state = {
   printStations: [], // الأجهزة المسجّلة كنقاط طباعة (اللي عليها QZ Tray وطابعة)
   users: [], // حسابات المستخدمين (بتتحمّل بس وقت فتح شاشة الحسابات)
   canInstallApp: false, // المتصفح عرض إنه يثبّت النظام كأيقونة
+  gradeLabelMode: false, // وضع اختيار درجات لطباعة ملصقاتها
+  gradeLabelQty: {}, // { gradeId: عدد الملصقات المطلوبة }
 };
 
 // ============================================================
@@ -430,12 +432,37 @@ function gradeTableHTML() {
     ? `<button class="btn ${state.bulkRequestMode ? 'btn-primary' : ''}" id="toggle-bulk-request-btn">${state.bulkRequestMode ? '✔️ تم' : '📋 طلب تزويد'}</button>`
     : '';
 
+  const labelModeBtn = `<button class="btn ${state.gradeLabelMode ? 'btn-primary' : ''}" id="toggle-grade-label-btn">${
+    state.gradeLabelMode ? '✔️ تم' : '🏷️ طباعة ملصقات درجات'
+  }</button>`;
+
   const toolbarHTML = `
     <div style="display:flex; gap:8px; margin-bottom:0.75rem; flex-wrap:wrap;">
       ${bulkToggleBtn}
+      ${labelModeBtn}
       ${canManageCatalog ? `<button class="btn" id="add-grade-btn">+ إضافة درجة</button>` : ''}
+      ${canManageCatalog ? `<button class="btn" id="add-grade-range-btn">+ إضافة درجات دفعة</button>` : ''}
       ${canManageCatalog ? `<button class="btn" id="delete-category-btn">حذف الفئة دي</button>` : ''}
     </div>`;
+
+  // شريط ملخّص بيفضل ظاهر وانت بتعلّم على الدرجات، عشان تعرف انت اخترت
+  // كام وبتطبع كام من غير ما تعد بنفسك.
+  const selected = Object.entries(state.gradeLabelQty || {}).filter(([, n]) => n > 0);
+  const totalLabels = selected.reduce((s, [, n]) => s + n, 0);
+  const labelBarHTML = state.gradeLabelMode
+    ? `
+    <div class="card" style="margin-bottom:0.75rem; padding:0.75rem; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <span style="font-size:13px;">
+        محدّد <strong>${selected.length}</strong> درجة —
+        إجمالي <strong>${totalLabels}</strong> ملصق
+      </span>
+      <button class="btn btn-primary" id="print-grade-labels-btn" ${totalLabels ? '' : 'disabled'}>🏷️ اطبع المحدّد</button>
+      <button class="btn" id="clear-grade-labels-btn">مسح التحديد</button>
+      <span style="font-size:11px; color:var(--text-secondary);">
+        كل ملصق هيطلع عليه اسم الصنف ورقم الدرجة
+      </span>
+    </div>`
+    : '';
 
   const addGradeFormHTML = state.showAddGradeForm
     ? `
@@ -455,6 +482,17 @@ function gradeTableHTML() {
   }
 
   const statusColumnHTML = (g) => {
+    if (state.gradeLabelMode) {
+      const qty = (state.gradeLabelQty || {})[g.id] || 0;
+      return `
+        <td style="text-align:center; white-space:nowrap;">
+          <input type="checkbox" class="grade-label-check" data-grade-label-id="${escapeHTML(g.id)}"
+                 ${qty > 0 ? 'checked' : ''} style="width:18px; height:18px; vertical-align:middle;" />
+          <input type="number" class="input grade-label-qty" data-grade-qty-id="${escapeHTML(g.id)}"
+                 value="${qty || ''}" min="0" max="200" placeholder="عدد" inputmode="numeric"
+                 style="width:62px; display:inline-block; margin-inline-start:6px; padding:3px 6px; font-size:12px;" />
+        </td>`;
+    }
     if (!state.bulkRequestMode) return statusCellHTML(g, canEditBranch, canEditMain);
     if (g.status === 'out') {
       return `<td><span class="badge badge-out">خلصت نهائيًا</span></td>`;
@@ -481,7 +519,7 @@ function gradeTableHTML() {
     .join('');
 
   return `
-    ${infoBarHTML}${toolbarHTML}${addGradeFormHTML}
+    ${infoBarHTML}${toolbarHTML}${labelBarHTML}${addGradeFormHTML}
     <div class="card" style="padding:0; overflow:auto; max-height:70vh;">
       <table>
         <thead>
@@ -489,7 +527,7 @@ function gradeTableHTML() {
             <th class="sticky-th">الدرجة</th>
             <th class="sticky-th">الفرع</th>
             <th class="sticky-th">الرئيسي</th>
-            <th class="sticky-th">${state.bulkRequestMode ? 'طلب تزويد' : 'الحالة'}</th>
+            <th class="sticky-th">${state.gradeLabelMode ? 'اطبع كام؟' : state.bulkRequestMode ? 'طلب تزويد' : 'الحالة'}</th>
             ${canManageCatalog ? '<th class="sticky-th"></th>' : ''}
           </tr>
         </thead>
@@ -583,6 +621,10 @@ function attachDashboardEvents() {
       state.resolvingGradeId = null;
       state.confirmingOutGradeId = null;
       state.bulkRequestMode = false;
+      // التحديد مرتبط بدرجات الفئة اللي كنا فيها، فلازم يتصفّر مع التبديل
+      // عشان مايتطبعش بالغلط على فئة تانية.
+      state.gradeLabelMode = false;
+      state.gradeLabelQty = {};
       render();
       subscribeGrades(categoryId);
     });
@@ -606,6 +648,72 @@ function attachDashboardEvents() {
       }
     });
   });
+
+  // ---- وضع طباعة ملصقات الدرجات ----
+  const toggleGradeLabelBtn = document.getElementById('toggle-grade-label-btn');
+  if (toggleGradeLabelBtn) {
+    toggleGradeLabelBtn.addEventListener('click', () => {
+      state.gradeLabelMode = !state.gradeLabelMode;
+      if (!state.gradeLabelMode) state.gradeLabelQty = {};
+      // الوضعين مايشتغلوش مع بعض — عمود الحالة واحد.
+      if (state.gradeLabelMode) state.bulkRequestMode = false;
+      render();
+    });
+  }
+
+  // علامة الصح بتحط 1 كعدد افتراضي، وشيلها بتصفّر — عشان أسرع حالة
+  // استخدام (ملصق واحد لكل درجة) تبقى ضغطة واحدة بس.
+  document.querySelectorAll('.grade-label-check').forEach((box) => {
+    box.addEventListener('change', () => {
+      const id = box.dataset.gradeLabelId;
+      state.gradeLabelQty = state.gradeLabelQty || {};
+      if (box.checked) {
+        if (!state.gradeLabelQty[id]) state.gradeLabelQty[id] = 1;
+      } else {
+        delete state.gradeLabelQty[id];
+      }
+      render();
+    });
+  });
+
+  document.querySelectorAll('.grade-label-qty').forEach((input) => {
+    // بنستنى لحد ما يخلص كتابة (blur/Enter) بدل ما نعيد الرسم على كل حرف
+    // ويضيع تركيز الخانة من تحت إيده.
+    const commit = () => {
+      const id = input.dataset.gradeQtyId;
+      const n = Math.max(0, Math.min(200, parseInt(input.value, 10) || 0));
+      state.gradeLabelQty = state.gradeLabelQty || {};
+      if (n > 0) state.gradeLabelQty[id] = n;
+      else delete state.gradeLabelQty[id];
+      render();
+    };
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    });
+  });
+
+  const clearGradeLabelsBtn = document.getElementById('clear-grade-labels-btn');
+  if (clearGradeLabelsBtn) {
+    clearGradeLabelsBtn.addEventListener('click', () => {
+      state.gradeLabelQty = {};
+      render();
+    });
+  }
+
+  const printGradeLabelsBtn = document.getElementById('print-grade-labels-btn');
+  if (printGradeLabelsBtn) {
+    printGradeLabelsBtn.addEventListener('click', () => {
+      const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+      if (!cat) return;
+      promptLabelSize((sizeOptions) => printGradeLabels(cat, sizeOptions), true);
+    });
+  }
+
+  const addGradeRangeBtn = document.getElementById('add-grade-range-btn');
+  if (addGradeRangeBtn) {
+    addGradeRangeBtn.addEventListener('click', () => openAddGradeRangeDialog(state.activeCategoryId));
+  }
 
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) {
@@ -1192,14 +1300,16 @@ async function executePrintJob(jobId, job) {
     .catch((err) => console.warn('تعذّر تعليم طلب الطباعة كمنفّذ:', err));
 }
 
-function promptLabelSize(callback) {
+// hideCopies: بنخفي خانة "عدد اللاصقات" في وضع ملصقات الدرجات، لأن العدد
+// هناك متحدّد لكل درجة على حدة في الجدول — فخانة واحدة عامة هتلخبط.
+function promptLabelSize(callback, hideCopies) {
   const overlay = document.createElement('div');
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
   overlay.innerHTML = `
     <div class="card" style="max-width:300px; text-align:center;">
       <div style="margin-bottom:12px; font-size:14px; font-weight:500;">طباعة ملصق</div>
-      <div class="field" style="text-align:start;">
+      <div class="field" style="text-align:start; ${hideCopies ? 'display:none;' : ''}">
         <label>عدد اللاصقات</label>
         <input class="input" type="number" id="label-copies" value="1" min="1" max="200" inputmode="numeric" />
       </div>
@@ -1294,9 +1404,25 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   // عن دقة الشاشة أو محرك العرض اللي بيرسمها.
   const pad = 0.7;
   const qrBox = Math.min(halfHeight - pad * 2, 12);
-  const nameSize = Math.min(halfHeight * 0.21, 2.7);
-  const codeSize = Math.min(halfHeight * 0.19, 2.4);
-  const priceSize = Math.min(halfHeight * 0.2, 2.6);
+  const hasGrade = cat.gradeNumber !== undefined && cat.gradeNumber !== null;
+  const hasPrice = !!cat.sellingPrice;
+
+  let nameSize = Math.min(halfHeight * 0.21, 2.7);
+  let codeSize = Math.min(halfHeight * 0.19, 2.4);
+  let priceSize = Math.min(halfHeight * 0.2, 2.6);
+
+  // ملصق الدرجة فيه سطر زيادة (رقم الدرجة)، والسطور ممكن تفيض من ارتفاع
+  // نص اللاصقة. بنحسب الارتفاع المطلوب فعليًا، ولو زاد بنصغّر الكل
+  // بالنسبة نفسها — بدل ما السطر الأخير يتقطع زي ما كان بيحصل قبل كده.
+  const LINE = 1.15;
+  const available = halfHeight - pad * 2;
+  const needed = (nameSize + codeSize + priceSize * (hasPrice ? 1 : 0) + (hasGrade ? nameSize : 0)) * LINE;
+  if (needed > available) {
+    const k = available / needed;
+    nameSize *= k;
+    codeSize *= k;
+    priceSize *= k;
+  }
 
   const priceHTML = cat.sellingPrice
     ? `<div class="price"><s>${escapeHTML(cat.originalPrice || 0)} L.E</s><b>${escapeHTML(cat.sellingPrice)} L.E</b></div>`
@@ -1304,11 +1430,20 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
 
   const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '<div class="qr"></div>';
 
+  // لو الملصق لدرجة معيّنة، بيبان رقمها تحت اسم الصنف عشان تعرف الطبعة
+  // من غير ما تفتح النظام. رقم الباركود نفسه بيفضل زي ما هو — عشان
+  // الكاشير يقرا نفس الصنف بنفس السعر.
+  const gradeHTML =
+    cat.gradeNumber !== undefined && cat.gradeNumber !== null
+      ? `<div class="grade">درجة ${escapeHTML(cat.gradeNumber)}</div>`
+      : '';
+
   const halfHTML = `
       <div class="half">
         ${qrHTML}
         <div class="txt">
           <div class="name">${escapeHTML(cat.itemName || cat.name)}</div>
+          ${gradeHTML}
           <div class="code">${escapeHTML(cat.barcodeNumber || '')}</div>
           ${priceHTML}
         </div>
@@ -1347,6 +1482,7 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
           font-size: ${nameSize}mm; font-weight: bold;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
+        .grade { font-size: ${nameSize}mm; font-weight: bold; }
         .code { font-size: ${codeSize}mm; letter-spacing: 0.2mm; }
         .price { font-size: ${priceSize}mm; display: flex; justify-content: center; gap: ${pad * 2}mm; }
         .price s { font-weight: normal; }
@@ -1371,6 +1507,148 @@ async function printLabel(cat, sizeOptions) {
 
   const html = buildLabelHTML(cat, sizeOptions, qrDataUrl, copies);
   await deliverPrint('label', html, sizeOptions, 'width=420,height=320');
+}
+
+// ------------------------------------------------------------
+// طباعة ملصقات لدرجات محدّدة
+// ------------------------------------------------------------
+// الفرق عن ملصق الفئة العادي: كل درجة بتاخد ملصقاتها هي، وبيظهر عليها
+// رقم الدرجة تحت اسم الصنف. رقم الباركود بيفضل نفسه لكل الدرجات — لأنه
+// ده اللي الكاشير بيقرا بيه السعر، وتغييره هيبوّظ الكاشير.
+async function printGradeLabels(cat, sizeOptions) {
+  const picks = state.grades
+    .map((g) => ({ grade: g, qty: (state.gradeLabelQty || {})[g.id] || 0 }))
+    .filter((p) => p.qty > 0);
+
+  if (!picks.length) return;
+
+  const qrPx = Math.round((sizeOptions.pageHeightMm / (sizeOptions.halves || 1)) * 16);
+  const qrDataUrl = await generateQRDataURL(cat.barcodeNumber || cat.name, qrPx);
+
+  // المعاينة بتوري أول درجة محدّدة كنموذج
+  const sample = { ...cat, gradeNumber: picks[0].grade.number };
+  const previewHTML = buildLabelHTML(sample, sizeOptions, qrDataUrl, 1);
+  const total = picks.reduce((s, p) => s + p.qty, 0);
+  const approved = await showPrintPreview(previewHTML, sizeOptions, total);
+  if (!approved) return;
+
+  // بنلزق ملصقات كل الدرجات في مستند واحد — طبعة واحدة بدل ما نفتح
+  // نافذة طباعة لكل درجة لوحدها.
+  const bodies = picks.map((p) =>
+    extractLabelBody(buildLabelHTML({ ...cat, gradeNumber: p.grade.number }, sizeOptions, qrDataUrl, p.qty))
+  );
+  const shell = buildLabelHTML({ ...cat, gradeNumber: picks[0].grade.number }, sizeOptions, qrDataUrl, 1);
+  const html = shell.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
+
+  await deliverPrint('label', html, sizeOptions, 'width=420,height=320');
+}
+
+function extractLabelBody(fullHTML) {
+  const match = fullHTML.match(/<body>([\s\S]*)<\/body>/);
+  return match ? match[1] : '';
+}
+
+// ------------------------------------------------------------
+// إضافة درجات دفعة واحدة (من رقم إلى رقم)
+// ------------------------------------------------------------
+function openAddGradeRangeDialog(categoryId) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:320px; width:100%;">
+      <div style="font-size:15px; font-weight:500; margin-bottom:4px;">إضافة درجات دفعة واحدة</div>
+      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; line-height:1.7;">
+        اكتب من رقم كام لرقم كام، والنظام هيضيفهم كلهم مرة واحدة.
+        الأرقام الموجودة عندك خلاص هيتخطّاها.
+      </div>
+      <div style="display:flex; gap:8px;">
+        <div class="field" style="flex:1;"><label>من</label>
+          <input class="input" type="number" id="range-from" min="1" inputmode="numeric" /></div>
+        <div class="field" style="flex:1;"><label>إلى</label>
+          <input class="input" type="number" id="range-to" min="1" inputmode="numeric" /></div>
+      </div>
+      <div id="range-status" style="font-size:12px; margin-bottom:10px; min-height:16px;"></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn" id="range-cancel">إلغاء</button>
+        <button class="btn btn-primary" id="range-add">إضافة</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
+  document.getElementById('range-cancel').addEventListener('click', close);
+
+  const statusEl = document.getElementById('range-status');
+  const addBtn = document.getElementById('range-add');
+
+  addBtn.addEventListener('click', async () => {
+    const from = parseInt(document.getElementById('range-from').value, 10);
+    const to = parseInt(document.getElementById('range-to').value, 10);
+
+    statusEl.style.color = 'var(--danger-text)';
+    if (Number.isNaN(from) || Number.isNaN(to)) {
+      statusEl.textContent = 'اكتب الرقمين الأول.';
+      return;
+    }
+    if (from < 1 || to < 1) {
+      statusEl.textContent = 'الأرقام لازم تبدأ من 1.';
+      return;
+    }
+    if (to < from) {
+      statusEl.textContent = '"إلى" لازم يكون أكبر من أو يساوي "من".';
+      return;
+    }
+    if (to - from + 1 > 2000) {
+      statusEl.textContent = 'المدى كبير جدًا (أكتر من 2000 درجة). قسّمه على مرّات.';
+      return;
+    }
+
+    const existing = new Set(state.grades.map((g) => Number(g.number)));
+    const toAdd = [];
+    for (let n = from; n <= to; n++) if (!existing.has(n)) toAdd.push(n);
+
+    if (!toAdd.length) {
+      statusEl.style.color = 'var(--text-secondary)';
+      statusEl.textContent = 'كل الأرقام دي موجودة عندك خلاص.';
+      return;
+    }
+
+    addBtn.disabled = true;
+    statusEl.style.color = 'var(--text-secondary)';
+    statusEl.textContent = `جارٍ إضافة ${toAdd.length} درجة...`;
+
+    try {
+      const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
+      // دفعات من 400 — الحد الأقصى للدفعة الواحدة في Firestore هو 500.
+      for (let i = 0; i < toAdd.length; i += 400) {
+        const batch = db.batch();
+        toAdd.slice(i, i + 400).forEach((number) => {
+          batch.set(gradesRef.doc(), { number, branchQty: 0, mainQty: 0, status: 'normal' });
+        });
+        await batch.commit();
+      }
+
+      const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
+      await logActivity({
+        action: 'add_grade_range',
+        categoryId,
+        categoryName,
+        oldValue: `${from}-${to}`,
+        newValue: toAdd.length,
+      });
+
+      const skipped = to - from + 1 - toAdd.length;
+      statusEl.style.color = '#2e7d32';
+      statusEl.textContent = `✅ اتضافت ${toAdd.length} درجة${skipped ? ` (${skipped} كانوا موجودين)` : ''}.`;
+      setTimeout(close, 1200);
+    } catch (err) {
+      console.error(err);
+      statusEl.style.color = 'var(--danger-text)';
+      statusEl.textContent = 'تعذّرت الإضافة: ' + (err.message || err);
+      addBtn.disabled = false;
+    }
+  });
 }
 
 // معاينة قبل الطباعة (للملصق بس) — بتوري شكل الملصق الحقيقي جوه النظام
