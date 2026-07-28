@@ -23,6 +23,7 @@ const state = {
   isOnline: navigator.onLine,
   hasPendingWrites: false,
   bulkRequestMode: false,
+  printStations: [], // الأجهزة المسجّلة كنقاط طباعة (اللي عليها QZ Tray وطابعة)
 };
 
 let unsubProfile = null;
@@ -672,15 +673,8 @@ function attachDashboardEvents() {
     printLabelBtn.addEventListener('click', () => {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
       if (!cat) return;
-      promptLabelSize((sizeOptions) => {
-        maybePromptPrintTarget((target) => {
-          if (target === 'local') {
-            printLabel(cat, sizeOptions);
-          } else {
-            sendPrintJob('label', target, { cat, sizeOptions });
-          }
-        });
-      });
+      // المقاس ← المعاينة ← اختيار الجهاز ← الطباعة (كلها جوه printLabel).
+      promptLabelSize((sizeOptions) => printLabel(cat, sizeOptions));
     });
   }
 
@@ -689,13 +683,7 @@ function attachDashboardEvents() {
     printRestockBtn.addEventListener('click', () => {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
       if (!cat) return;
-      maybePromptPrintTarget((target) => {
-        if (target === 'local') {
-          printRestockPaper(cat, state.grades);
-        } else {
-          sendPrintJob('restock', target, { cat, grades: state.grades });
-        }
-      });
+      printRestockPaper(cat, state.grades);
     });
   }
 
@@ -870,83 +858,250 @@ async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalP
 // ============================================================
 // الطباعة: ملصق الباركود (QR) وورقة التزويد
 // ============================================================
-function maybePromptPrintTarget(callback) {
-  if (!canSendRemotePrint(state.profile)) {
-    callback('local');
-    return;
+// ------------------------------------------------------------
+// نقاط الطباعة (Print Stations)
+// ------------------------------------------------------------
+// المنطق القديم كان بيسأل "تبعت للفرع ولا للرئيسي؟" — وده كان مبني على
+// افتراض إن فيه طابعة في كل مكان. الواقع إن الطابعات كلها في مكتب الكاشير
+// في الفرع بس، فالسؤال ده مالوش معنى.
+//
+// المنطق الجديد: أي جهاز عليه QZ Tray وطابعة محفوظة بيسجّل نفسه كـ"نقطة
+// طباعة" وبيبعت نبضة كل شوية. اللي بيطبع بيشوف الأجهزة **المتصلة دلوقتي
+// فعلًا** بالاسم، ويختار الجهاز نفسه — مش المكان.
+const DEVICE_ID_KEY = 'tazweed_device_id';
+const DEVICE_NAME_KEY = 'tazweed_device_name';
+const STATION_HEARTBEAT_MS = 45000;
+const STATION_ONLINE_WINDOW_MS = 120000;
+
+let stationHeartbeatTimer = null;
+let unsubPrintStations = null;
+
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = 'dev-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch (err) {
+    return '';
   }
-  const overlay = document.createElement('div');
-  overlay.style.cssText =
-    'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
-  overlay.innerHTML = `
-    <div class="card" style="max-width:300px; text-align:center;">
-      <div style="margin-bottom:12px; font-size:14px;">تطبع فين؟</div>
-      <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
-        <button class="btn btn-primary" id="target-local">🖨️ هنا (الجهاز ده)</button>
-        <button class="btn btn-primary" id="target-branch">📤 إرسال لطابعة الفرع</button>
-        <button class="btn btn-primary" id="target-main">📤 إرسال لطابعة المخزن الرئيسي</button>
-      </div>
-      <button class="btn" id="target-cancel">إلغاء</button>
-    </div>`;
-  document.body.appendChild(overlay);
-  const close = () => document.body.removeChild(overlay);
-  document.getElementById('target-local').addEventListener('click', () => { close(); callback('local'); });
-  document.getElementById('target-branch').addEventListener('click', () => { close(); callback('branch'); });
-  document.getElementById('target-main').addEventListener('click', () => { close(); callback('main'); });
-  document.getElementById('target-cancel').addEventListener('click', close);
 }
 
-async function sendPrintJob(type, targetLocation, data) {
-  const payload = { type, targetLocation, status: 'pending', requestedByUid: state.user.uid, requestedByName: state.profile.name, createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+function getDeviceName() {
+  try {
+    return localStorage.getItem(DEVICE_NAME_KEY) || '';
+  } catch (err) {
+    return '';
+  }
+}
 
-  if (type === 'label') {
-    payload.categoryName = data.cat.name;
-    payload.itemName = data.cat.itemName || '';
-    payload.barcodeNumber = data.cat.barcodeNumber || '';
-    payload.originalPrice = data.cat.originalPrice || 0;
-    payload.sellingPrice = data.cat.sellingPrice || 0;
-    payload.sizeOptions = data.sizeOptions;
-  } else {
-    payload.categoryName = data.cat.name;
-    payload.itemName = data.cat.itemName || '';
-    payload.gradesSnapshot = data.grades.map((g) => ({ number: g.number, status: g.status }));
+function saveDeviceName(name) {
+  try {
+    localStorage.setItem(DEVICE_NAME_KEY, name);
+  } catch (err) {
+    console.error('تعذّر حفظ اسم الجهاز محليًا:', err);
+  }
+}
+
+function isStationOnline(station) {
+  if (!station || !station.lastSeen || !station.lastSeen.toMillis) return false;
+  return Date.now() - station.lastSeen.toMillis() < STATION_ONLINE_WINDOW_MS;
+}
+
+// بيسجّل الجهاز ده كنقطة طباعة (وبيحدّث النبضة) — بس لو فعلًا يقدر يطبع:
+// يعني QZ Tray شغال وفيه طابعة واحدة على الأقل محفوظة. من غير كده الجهاز
+// مايظهرش في القايمة أصلًا عشان محدش يبعتله طباعة مش هتتنفذ.
+async function registerPrintStation() {
+  if (!state.user || !state.profile) return;
+  const deviceId = getDeviceId();
+  if (!deviceId) return;
+
+  const labelPrinter = getSavedPrinter('label');
+  const restockPrinter = getSavedPrinter('restock');
+  if (!labelPrinter && !restockPrinter) return;
+  if (!(await ensureQZConnected())) return;
+
+  try {
+    await db.collection('printStations').doc(deviceId).set(
+      {
+        deviceName: getDeviceName() || 'جهاز بدون اسم',
+        labelPrinter,
+        restockPrinter,
+        lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedByUid: state.user.uid,
+        updatedByName: state.profile.name || '',
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('تعذّر تسجيل الجهاز كنقطة طباعة:', err);
+  }
+}
+
+function startStationHeartbeat() {
+  stopStationHeartbeat();
+  registerPrintStation();
+  stationHeartbeatTimer = setInterval(registerPrintStation, STATION_HEARTBEAT_MS);
+}
+
+function stopStationHeartbeat() {
+  if (stationHeartbeatTimer) {
+    clearInterval(stationHeartbeatTimer);
+    stationHeartbeatTimer = null;
+  }
+}
+
+function subscribePrintStations() {
+  if (unsubPrintStations) unsubPrintStations();
+  unsubPrintStations = db.collection('printStations').onSnapshot(
+    (snap) => {
+      state.printStations = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    (err) => console.warn('تعذّر قراءة قائمة أجهزة الطباعة:', err)
+  );
+}
+
+// ------------------------------------------------------------
+// اختيار وجهة الطباعة
+// ------------------------------------------------------------
+// بيرجّع 'local' للطباعة على الجهاز ده، أو deviceId لجهاز تاني، أو null
+// لو المستخدم ألغى.
+function choosePrintTarget() {
+  return new Promise((resolve) => {
+    const myId = getDeviceId();
+    const others = (state.printStations || []).filter((s) => s.id !== myId && isStationOnline(s));
+
+    // لو مفيش أجهزة تانية متصلة، أو المستخدم أصلًا مش مخوّل يبعت لغيره،
+    // مفيش داعي لأي سؤال — نطبع هنا على طول.
+    if (!others.length || !canSendRemotePrint(state.profile)) {
+      resolve('local');
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+    overlay.innerHTML = `
+      <div class="card" style="max-width:320px; width:100%; text-align:center;">
+        <div style="margin-bottom:4px; font-size:14px; font-weight:500;">تطبع على أنهي جهاز؟</div>
+        <div style="margin-bottom:12px; font-size:11px; color:var(--text-secondary);">
+          الأجهزة المتصلة دلوقتي بس هي اللي بتظهر هنا
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+          <button class="btn btn-primary" data-target="local">🖨️ هنا (الجهاز ده)</button>
+          ${others
+            .map(
+              (s) => `
+            <button class="btn btn-primary" data-target="${escapeHTML(s.id)}">
+              🟢 ${escapeHTML(s.deviceName || 'جهاز بدون اسم')}
+            </button>`
+            )
+            .join('')}
+        </div>
+        <button class="btn" data-target="cancel">إلغاء</button>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    overlay.querySelectorAll('[data-target]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = btn.getAttribute('data-target');
+        document.body.removeChild(overlay);
+        resolve(target === 'cancel' ? null : target);
+      });
+    });
+  });
+}
+
+// بيوصّل الطباعة لوجهتها: يا إما الجهاز ده مباشرة، يا إما بيبعتها لجهاز تاني.
+async function deliverPrint(type, html, sizeOptions, winFeatures) {
+  const target = await choosePrintTarget();
+  if (target === null) return;
+
+  if (target !== 'local') {
+    await sendPrintJob(type, target, html, sizeOptions);
+    return;
   }
 
-  await db.collection('printJobs').add(payload);
-  alert('اتبعت طلب الطباعة. الجهاز التاني هيطبعه أول ما يستقبله.');
+  const printedViaQZ = await tryPrintViaQZ(type, html, sizeOptions);
+  if (printedViaQZ) return;
+
+  const win = window.open('', '_blank', winFeatures);
+  if (!win) {
+    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
+    return;
+  }
+  win.document.write(html);
+  win.document.close();
+}
+
+// بنبعت الـHTML جاهز بالكامل (بما فيه صورة الـQR) بدل ما الجهاز المستقبِل
+// يعيد بناءه — كده اللي بيتطبع هناك هو **بالظبط** اللي شوفته في المعاينة.
+async function sendPrintJob(type, targetDeviceId, html, sizeOptions) {
+  const station = (state.printStations || []).find((s) => s.id === targetDeviceId);
+  const payload = {
+    type,
+    targetDeviceId,
+    html,
+    sizeOptions: sizeOptions || null,
+    status: 'pending',
+    requestedByUid: state.user.uid,
+    requestedByName: state.profile.name || '',
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const ref = await db.collection('printJobs').add(payload);
+  const deviceLabel = station ? station.deviceName : 'الجهاز التاني';
+  alert(`اتبعت طلب الطباعة لـ"${deviceLabel}". هيوصلك تأكيد أول ما يطبع.`);
+
+  // بنتابع الطلب شوية عشان نأكّد للي بعته إنه اتطبع فعلًا (أو فشل)، بدل
+  // ما يفضل مستني من غير ما يعرف حصل إيه.
+  const stop = ref.onSnapshot((snap) => {
+    const data = snap.data();
+    if (!data) return;
+    if (data.status === 'printed') {
+      stop();
+      alert(`✅ اتطبع على "${deviceLabel}"${data.printedByName ? ` (${data.printedByName})` : ''}.`);
+    } else if (data.status === 'failed') {
+      stop();
+      alert(`⚠️ "${deviceLabel}" استلم الطلب لكن الطباعة فشلت عنده. اتأكد إن QZ Tray شغال والطابعة متوصلة.`);
+    }
+  });
+  setTimeout(stop, 180000);
 }
 
 // ============================================================
-// استقبال طلبات الطباعة القادمة من مكان تاني وتنفيذها تلقائيًا
+// استقبال طلبات الطباعة القادمة من جهاز تاني وتنفيذها تلقائيًا
 // ============================================================
 const handledPrintJobIds = new Set();
 let unsubPrintJobs = null;
 
-function subscribePrintJobs(location) {
+function subscribePrintJobs() {
+  const deviceId = getDeviceId();
+  if (!deviceId) return;
   if (unsubPrintJobs) unsubPrintJobs();
   unsubPrintJobs = db
     .collection('printJobs')
-    .where('targetLocation', '==', location)
+    .where('targetDeviceId', '==', deviceId)
     .where('status', '==', 'pending')
-    .onSnapshot((snap) => {
-      snap.docs.forEach((doc) => {
-        if (handledPrintJobIds.has(doc.id)) return;
-        handledPrintJobIds.add(doc.id);
-        executePrintJob(doc.id, doc.data());
-      });
-    });
+    .onSnapshot(
+      (snap) => {
+        snap.docs.forEach((doc) => {
+          if (handledPrintJobIds.has(doc.id)) return;
+          handledPrintJobIds.add(doc.id);
+          executePrintJob(doc.id, doc.data());
+        });
+      },
+      (err) => console.warn('تعذّر استقبال طلبات الطباعة:', err)
+    );
 }
 
 async function executePrintJob(jobId, job) {
-  let html;
-  if (job.type === 'label') {
-    html = buildLabelHTML(
-      { name: job.categoryName, itemName: job.itemName, barcodeNumber: job.barcodeNumber, originalPrice: job.originalPrice, sellingPrice: job.sellingPrice },
-      job.sizeOptions
-    );
-  } else {
-    html = buildRestockHTML({ name: job.categoryName, itemName: job.itemName }, job.gradesSnapshot);
-  }
+  // الـHTML بيوصل جاهز من الجهاز الباعت (بما فيه صورة الـQR)، فاللي بيتطبع
+  // هنا هو بالظبط اللي هو شافه في المعاينة عنده.
+  const html = job.html;
+  if (!html) return;
 
   // نجرب QZ Tray الأول (طباعة صامتة فعليًا 100%، من غير أي نافذة أو ضغطة
   // خالص)، ولو مش متاح على الجهاز ده، نرجع لطريقة الـiframe المخفي القديمة
@@ -956,12 +1111,15 @@ async function executePrintJob(jobId, job) {
     printHTMLSilently(html);
   }
 
-  db.collection('printJobs').doc(jobId).update({
-    status: 'printed',
-    printedByUid: state.user.uid,
-    printedByName: state.profile.name,
-    printedAt: firebase.firestore.FieldValue.serverTimestamp(),
-  });
+  db.collection('printJobs')
+    .doc(jobId)
+    .update({
+      status: 'printed',
+      printedByUid: state.user.uid,
+      printedByName: state.profile.name || '',
+      printedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    })
+    .catch((err) => console.warn('تعذّر تعليم طلب الطباعة كمنفّذ:', err));
 }
 
 function promptLabelSize(callback) {
@@ -970,101 +1128,216 @@ function promptLabelSize(callback) {
     'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
   overlay.innerHTML = `
     <div class="card" style="max-width:300px; text-align:center;">
-      <div style="margin-bottom:12px; font-size:14px;">اختار مقاس لاصقة الباركود</div>
+      <div style="margin-bottom:4px; font-size:14px; font-weight:500;">اختار مقاس لاصقة الباركود</div>
+      <div style="margin-bottom:12px; font-size:11px; color:var(--text-secondary);">
+        اللاصقة المقسومة نصين = مقاس واحد، والمحتوى بيتكرر في النصين
+      </div>
       <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
-        <button class="btn btn-primary" id="size-measured">38×18 ملم (المقاس اللي قسته)</button>
-        <button class="btn" id="size-38x25">38×25 ملم</button>
-        <button class="btn" id="size-3x4">3×4 إنش</button>
+        <button class="btn btn-primary" id="size-measured">38×25 ملم — مقسومة نصين ✅</button>
+        <button class="btn" id="size-38x25">38×25 ملم — قطعة واحدة</button>
+        <button class="btn" id="size-38x18">38×18 ملم</button>
         <button class="btn" id="size-2x4">2×4 إنش</button>
       </div>
       <button class="btn" id="size-cancel">إلغاء</button>
     </div>`;
   document.body.appendChild(overlay);
-  document.getElementById('size-measured').addEventListener('click', () => {
-    document.body.removeChild(overlay);
-    callback({ pageSize: '38mm 18mm', qrSize: 60, fontScale: 0.42, compact: true });
-  });
-  document.getElementById('size-38x25').addEventListener('click', () => {
-    document.body.removeChild(overlay);
-    callback({ pageSize: '38mm 12.5mm', qrSize: 55, fontScale: 0.4, compact: true });
-  });
-  document.getElementById('size-3x4').addEventListener('click', () => {
-    document.body.removeChild(overlay);
-    callback({ pageSize: '3in 4in', qrSize: 180, fontScale: 1, compact: false });
-  });
-  document.getElementById('size-2x4').addEventListener('click', () => {
-    document.body.removeChild(overlay);
-    callback({ pageSize: '2in 4in', qrSize: 95, fontScale: 0.75, compact: true });
-  });
+  const pick = (id, opts) =>
+    document.getElementById(id).addEventListener('click', () => {
+      document.body.removeChild(overlay);
+      callback(opts);
+    });
+
+  // halves = عدد الأقسام اللي اللاصقة الواحدة مقسومة لها والماكينة بتحسبهم
+  // لاصقة واحدة. المحتوى بيتكرر في كل قسم.
+  pick('size-measured', { pageWidthMm: 38, pageHeightMm: 25, halves: 2 });
+  pick('size-38x25', { pageWidthMm: 38, pageHeightMm: 25, halves: 1 });
+  pick('size-38x18', { pageWidthMm: 38, pageHeightMm: 18, halves: 1 });
+  pick('size-2x4', { pageWidthMm: 50.8, pageHeightMm: 101.6, halves: 1 });
   document.getElementById('size-cancel').addEventListener('click', () => {
     document.body.removeChild(overlay);
   });
 }
 
-function buildLabelHTML(cat, sizeOptions) {
-  const { pageSize, qrSize, fontScale, compact } = sizeOptions;
-  const pagePad = compact ? 2 : 10;
-  const qrMargin = compact ? 4 : 14;
-  const lineGap = compact ? 2 : 8;
+// توليد الـQR كصورة جاهزة (data URI) **في الصفحة الرئيسية**، مش جوه صفحة
+// الطباعة. السبب: لما QZ Tray بياخد الـHTML، هو بيرسمه بمحرك داخلي بتاع
+// Java، ومش مضمون إنه يستنى سكريبت خارجي يتحمّل ويولّد الكود قبل ما يطبع.
+// الصورة الجاهزة بتشيل الاحتمال ده خالص (وكمان بتخلي المعاينة فورية).
+function generateQRDataURL(text, sizePx) {
+  return new Promise((resolve) => {
+    if (typeof QRCode === 'undefined') {
+      resolve('');
+      return;
+    }
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed; left:-9999px; top:-9999px;';
+    document.body.appendChild(holder);
+    try {
+      new QRCode(holder, { text: String(text || ''), width: sizePx, height: sizePx, correctLevel: QRCode.CorrectLevel.M });
+    } catch (err) {
+      document.body.removeChild(holder);
+      resolve('');
+      return;
+    }
+    // المكتبة بترسم على canvas فورًا في المتصفحات الحديثة، وبتقع على img
+    // في القديمة — بنتعامل مع الحالتين.
+    setTimeout(() => {
+      let dataUrl = '';
+      const canvas = holder.querySelector('canvas');
+      const img = holder.querySelector('img');
+      try {
+        if (canvas) dataUrl = canvas.toDataURL('image/png');
+        else if (img && img.src) dataUrl = img.src;
+      } catch (err) {
+        dataUrl = '';
+      }
+      document.body.removeChild(holder);
+      resolve(dataUrl);
+    }, 60);
+  });
+}
+
+// شكل الملصق مأخوذ من صورة الملصق الحقيقي (Crepe Sadda Luxe) اللي بعتها:
+//   [ QR ]   اسم الصنف
+//            رقم الباركود
+//            السعر الأصلي مشطوب   السعر الفعلي
+//
+// نقطة جوهرية اتصلحت هنا: الشكل القديم كان بيحط الـQR **فوق** التلات سطور،
+// وده مستحيل فيزيائيًا يدخل — نص اللاصقة ارتفاعه 12.5مم والـQR لوحده عايز
+// ~11مم، فالسعر كان بيتقطع بره حدود الورق. لما الـQR بقى **جنب** النص،
+// الـ11مم بتاعته بتاخد الارتفاع كله والسطور بتاخد العرض الباقي.
+//
+// نقطة تانية: اللاصقة مقسومة نصين والماكينة بتحسبهم لاصقة واحدة، فبنطبع
+// **نفس المحتوى مرتين، مرة في كل نص** — بالظبط زي لفة الملصقات الأصلية.
+function buildLabelHTML(cat, sizeOptions, qrDataUrl) {
+  const { pageWidthMm, pageHeightMm, halves } = sizeOptions;
+  const halfHeight = pageHeightMm / (halves || 1);
+
+  // كل المقاسات بالملم عشان تطلع مظبوطة على الطابعة الحرارية بغض النظر
+  // عن دقة الشاشة أو محرك العرض اللي بيرسمها.
+  const pad = 0.7;
+  const qrBox = Math.min(halfHeight - pad * 2, 12);
+  const nameSize = Math.min(halfHeight * 0.21, 2.7);
+  const codeSize = Math.min(halfHeight * 0.19, 2.4);
+  const priceSize = Math.min(halfHeight * 0.2, 2.6);
 
   const priceHTML = cat.sellingPrice
-    ? `<div class="prices"><s>${escapeHTML(cat.originalPrice || 0)} ج.م</s>&nbsp;&nbsp;<strong>${escapeHTML(cat.sellingPrice)} ج.م</strong></div>`
+    ? `<div class="price"><s>${escapeHTML(cat.originalPrice || 0)} L.E</s><b>${escapeHTML(cat.sellingPrice)} L.E</b></div>`
     : '';
+
+  const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '<div class="qr"></div>';
+
+  const halfHTML = `
+      <div class="half">
+        ${qrHTML}
+        <div class="txt">
+          <div class="name">${escapeHTML(cat.itemName || cat.name)}</div>
+          <div class="code">${escapeHTML(cat.barcodeNumber || '')}</div>
+          ${priceHTML}
+        </div>
+      </div>`;
 
   return `
     <!doctype html>
-    <html dir="rtl" lang="ar">
+    <html dir="ltr" lang="en">
     <head>
       <meta charset="UTF-8">
       <title>ملصق - ${escapeHTML(cat.itemName || cat.name)}</title>
       <style>
-        @page { size: ${pageSize}; margin: 2mm; }
-        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; box-sizing: border-box; }
-        body { font-family: Tahoma, Arial, sans-serif; text-align: center; padding: ${pagePad}px; margin: 0; line-height: 1.15; }
-        .label { width: 100%; }
-        #qr { display: flex; justify-content: center; margin-bottom: ${qrMargin}px; }
-        .item-name { font-weight: bold; font-size: ${Math.round(20 * fontScale)}px; margin-bottom: ${lineGap}px; }
-        .barcode-number { font-size: ${Math.round(16 * fontScale)}px; letter-spacing: 1px; margin-bottom: ${lineGap}px; }
-        .prices { font-size: ${Math.round(18 * fontScale)}px; }
-        .prices s { color: #777; }
-        @media print {
-          body { padding: ${pagePad}px; }
+        @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: Arial, Helvetica, Tahoma, sans-serif;
+          width: ${pageWidthMm}mm; height: ${pageHeightMm}mm;
+          color: #000; line-height: 1.15;
         }
+        .half {
+          height: ${halfHeight}mm; width: 100%;
+          display: flex; align-items: center; gap: ${pad}mm;
+          padding: ${pad}mm;
+          overflow: hidden;
+        }
+        .qr { width: ${qrBox}mm; height: ${qrBox}mm; flex: 0 0 ${qrBox}mm; display: block; }
+        .txt { flex: 1; min-width: 0; text-align: center; }
+        .name {
+          font-size: ${nameSize}mm; font-weight: bold;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .code { font-size: ${codeSize}mm; letter-spacing: 0.2mm; }
+        .price { font-size: ${priceSize}mm; display: flex; justify-content: center; gap: ${pad * 2}mm; }
+        .price s { font-weight: normal; }
+        .price b { font-weight: bold; }
       </style>
     </head>
-    <body>
-      <div class="label">
-        <div id="qr"></div>
-        <div class="item-name">${escapeHTML(cat.itemName || cat.name)}</div>
-        <div class="barcode-number">${escapeHTML(cat.barcodeNumber || '')}</div>
-        ${priceHTML}
-      </div>
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"><\/script>
-      <script>
-        new QRCode(document.getElementById('qr'), {
-          text: ${JSON.stringify(cat.barcodeNumber || cat.name)},
-          width: ${qrSize},
-          height: ${qrSize},
-        });
-        window.onload = function () { setTimeout(function () { window.print(); }, 300); };
-      <\/script>
-    </body>
+    <body>${halfHTML.repeat(halves || 1)}</body>
     </html>
   `;
 }
 
 async function printLabel(cat, sizeOptions) {
-  const html = buildLabelHTML(cat, sizeOptions);
-  const printedViaQZ = await tryPrintViaQZ('label', html, sizeOptions);
-  if (printedViaQZ) return;
+  const qrPx = Math.round((sizeOptions.pageHeightMm / (sizeOptions.halves || 1)) * 16);
+  const qrDataUrl = await generateQRDataURL(cat.barcodeNumber || cat.name, qrPx);
+  const html = buildLabelHTML(cat, sizeOptions, qrDataUrl);
 
-  const win = window.open('', '_blank', 'width=420,height=520');
-  if (!win) {
-    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
-    return;
+  const approved = await showPrintPreview(html, sizeOptions);
+  if (!approved) return;
+
+  await deliverPrint('label', html, sizeOptions, 'width=420,height=320');
+}
+
+// معاينة قبل الطباعة (للملصق بس) — بتوري شكل الملصق الحقيقي جوه النظام
+// نفسه قبل ما يروح للطابعة، مع تكبير مرئي عشان يبان على الموبايل.
+// بترجّع true لو المستخدم ضغط "طباعة"، false لو ألغى.
+function showPrintPreview(html, sizeOptions) {
+  return new Promise((resolve) => {
+    const scale = 4;
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+    overlay.innerHTML = `
+      <div class="card" style="max-width:360px; width:100%; text-align:center;">
+        <div style="font-size:14px; font-weight:500; margin-bottom:10px;">معاينة الملصق قبل الطباعة</div>
+        <div style="overflow:auto; margin-bottom:12px;">
+          <div style="width:${sizeOptions.pageWidthMm * scale}px; height:${sizeOptions.pageHeightMm * scale}px; margin:0 auto; border:1px solid var(--border); background:#fff;">
+            <iframe id="preview-frame" style="width:${sizeOptions.pageWidthMm}mm; height:${sizeOptions.pageHeightMm}mm; border:0; transform:scale(${(sizeOptions.pageWidthMm * scale) / (sizeOptions.pageWidthMm * 3.7795)}); transform-origin:top left;"></iframe>
+          </div>
+        </div>
+        <div style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
+          ${sizeOptions.pageWidthMm}×${sizeOptions.pageHeightMm} ملم — المحتوى بيتكرر في نصّي اللاصقة
+        </div>
+        <div style="display:flex; gap:8px; justify-content:center;">
+          <button class="btn" id="preview-cancel">إلغاء</button>
+          <button class="btn btn-primary" id="preview-print">🖨️ طباعة</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const frame = document.getElementById('preview-frame');
+    const doc = frame.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    const close = (result) => {
+      if (overlay.parentNode) document.body.removeChild(overlay);
+      resolve(result);
+    };
+    document.getElementById('preview-cancel').addEventListener('click', () => close(false));
+    document.getElementById('preview-print').addEventListener('click', () => close(true));
+  });
+}
+
+// خطوط التظليل بترسم كـ SVG **محتوى** مش خلفية CSS.
+// السبب الجذري: QZ Tray مش بيستخدم Chrome في الطباعة — بيستخدم محرك عرض
+// داخلي بتاع Java (JavaFX WebView) قديم، ومش بيدعم repeating-linear-gradient
+// ولا -webkit-text-stroke. فإصلاح print-color-adjust القديم (v0.8.3) كان
+// صح لكن مالوش لازمة في مسار QZ. الخطوط دي "رسم" مش "خلفية"، فأي محرك
+// بيرسمها إجباري ومفيش إعداد طباعة يقدر يشيلها.
+function hatchSVG() {
+  const lines = [];
+  for (let x = -20; x <= 100; x += 5) {
+    lines.push(`<line x1="${x}" y1="20" x2="${x + 20}" y2="0" stroke="#000" stroke-width="2.2" />`);
   }
-  win.document.write(html);
-  win.document.close();
+  return `<svg class="hatch" viewBox="0 0 100 20" preserveAspectRatio="none">${lines.join('')}</svg>`;
 }
 
 function buildRestockHTML(cat, grades) {
@@ -1072,9 +1345,9 @@ function buildRestockHTML(cat, grades) {
   const rowsHTML = grades
     .map(
       (g) => `
-      <div class="row ${g.status === 'out' ? 'out' : ''}">
+      <div class="row">
         <span class="num">${escapeHTML(g.number)}</span>
-        <span class="blank"></span>
+        <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
       </div>`
     )
     .join('');
@@ -1107,14 +1380,15 @@ function buildRestockHTML(cat, grades) {
         .row .blank {
           flex: 1;
           border-inline-start: 1.5px solid #000;
+          position: relative;
+          overflow: hidden;
         }
-        .row.out {
-          background-image: repeating-linear-gradient(45deg, #000 0, #000 2.5px, #fff 2.5px, #fff 6px);
-        }
-        .row.out .num {
-          color: #000;
-          -webkit-text-stroke: 3px #fff;
-          paint-order: stroke fill;
+        /* الخطوط بتغطي خانة الكتابة بس — رقم الدرجة بيفضل نضيف وواضح
+           تمامًا، عشان تقدر تقراه بسرعة وانت ماشي على الرف. */
+        .hatch {
+          position: absolute;
+          top: 0; left: 0; width: 100%; height: 100%;
+          display: block;
         }
         @media print {
           body { padding: 1mm; }
@@ -1138,16 +1412,8 @@ function buildRestockHTML(cat, grades) {
 
 async function printRestockPaper(cat, grades) {
   const html = buildRestockHTML(cat, grades);
-  const printedViaQZ = await tryPrintViaQZ('restock', html, { pageSize: '80mm auto' });
-  if (printedViaQZ) return;
-
-  const win = window.open('', '_blank', 'width=700,height=800');
-  if (!win) {
-    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
-    return;
-  }
-  win.document.write(html);
-  win.document.close();
+  // ورقة التزويد رول مستمر (الارتفاع مفتوح)، فمش بنفرض مقاس على QZ.
+  await deliverPrint('restock', html, null, 'width=700,height=800');
 }
 
 // ============================================================
@@ -1246,35 +1512,20 @@ async function tryPrintViaQZ(type, htmlContent, sizeOptions) {
   if (!ok) return false;
 
   try {
-    // اللاصقة مقاسها ثابت فمفروض نفرضه، لكن ورقة التزويد رول مستمر
-    // (زي @page 80mm auto في الكود العادي) فمنسيبهاش على الطابعة تتحكم
-    // في الارتفاع بنفسها بدل ما نفرض رقم غلط.
-    const widthMm = type === 'label' && sizeOptions ? parseSizeToMm(sizeOptions.pageSize) : null;
-    const config = qz.configs.create(printerName, widthMm ? { size: widthMm, units: 'mm' } : {});
+    // اللاصقة مقاسها ثابت فبنفرضه على محرك الطباعة بتاع QZ مباشرة (وده
+    // اللي بيلف مشكلة قايمة المقاسات المحفوظة في تعريف الطابعة). ورقة
+    // التزويد رول مستمر بارتفاع مفتوح، فبنسيب الطابعة تتحكم في الارتفاع.
+    const size =
+      sizeOptions && sizeOptions.pageWidthMm
+        ? { width: sizeOptions.pageWidthMm, height: sizeOptions.pageHeightMm }
+        : null;
+    const config = qz.configs.create(printerName, size ? { size, units: 'mm' } : {});
     await qz.print(config, [{ type: 'pixel', format: 'html', flavor: 'plain', data: htmlContent }]);
     return true;
   } catch (err) {
     console.error('فشلت الطباعة عبر QZ Tray:', err);
     return false;
   }
-}
-
-// بيحوّل صيغة الحجم بتاعتنا ("3in 4in" أو "38mm 18mm") لعرض/ارتفاع بالملم.
-// بيرجع null لو مش قادر يفهم الصيغة (زي "80mm auto" اللي بتستخدم للرول
-// المستمر، مش لاصقة بمقاس ثابت).
-function parseSizeToMm(sizeStr) {
-  if (!sizeStr) return null;
-  const parts = sizeStr.trim().split(/\s+/);
-  if (parts.length < 2) return null;
-  if (parts[1] === 'auto') return null;
-  const toMm = (v) => {
-    const num = parseFloat(v);
-    return v.includes('in') ? num * 25.4 : num;
-  };
-  const width = toMm(parts[0]);
-  const height = toMm(parts[1]);
-  if (Number.isNaN(width) || Number.isNaN(height)) return null;
-  return { width, height };
 }
 
 // ============================================================
@@ -1289,6 +1540,13 @@ async function openPrinterSettings() {
       <div style="font-size:14px; font-weight:500; margin-bottom:4px;">إعدادات طابعات هذا الجهاز</div>
       <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;" id="qz-status-line">جارٍ البحث عن QZ Tray...</div>
       <div id="qz-printer-fields" style="display:none;">
+        <div class="field">
+          <label>اسم الجهاز ده</label>
+          <input class="input" id="qz-device-name" placeholder="مثال: كمبيوتر الكاشير — الفرع" />
+          <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">
+            الاسم ده اللي هيظهر لزمايلك لما يبعتوا طباعة للجهاز ده
+          </div>
+        </div>
         <div class="field">
           <label>طابعة الملصق (باركود)</label>
           <select class="input" id="qz-label-printer-select"></select>
@@ -1324,19 +1582,24 @@ async function openPrinterSettings() {
 
   const labelSelect = document.getElementById('qz-label-printer-select');
   const restockSelect = document.getElementById('qz-restock-printer-select');
-  const savedLabel = getSavedPrinter('label');
-  const savedRestock = getSavedPrinter('restock');
+  const deviceNameInput = document.getElementById('qz-device-name');
 
   [labelSelect, restockSelect].forEach((select) => {
     select.innerHTML = `<option value="">— اختار طابعة —</option>` + printers.map((p) => `<option value="${escapeHTML(p)}">${escapeHTML(p)}</option>`).join('');
   });
-  labelSelect.value = savedLabel;
-  restockSelect.value = savedRestock;
+  labelSelect.value = getSavedPrinter('label');
+  restockSelect.value = getSavedPrinter('restock');
+  deviceNameInput.value = getDeviceName();
 
   saveBtn.addEventListener('click', () => {
     saveSelectedPrinter('label', labelSelect.value);
     saveSelectedPrinter('restock', restockSelect.value);
+    saveDeviceName(deviceNameInput.value.trim());
     document.body.removeChild(overlay);
+    // نسجّل الجهاز فورًا بالاسم والطابعات الجديدة، عشان يظهر لزمايله
+    // على طول من غير ما يستنى النبضة الجاية.
+    startStationHeartbeat();
+    subscribePrintJobs();
   });
 }
 
@@ -1473,10 +1736,13 @@ function subscribeActivityLog() {
     .collection('activityLog')
     .orderBy('timestamp', 'desc')
     .limit(50)
-    .onSnapshot((snap) => {
-      state.activityLog = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      render();
-    });
+    .onSnapshot(
+      (snap) => {
+        state.activityLog = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        render();
+      },
+      (err) => console.warn('تعذّر قراءة سجل العمليات:', err)
+    );
 }
 
 // ============================================================
@@ -1513,8 +1779,11 @@ function init() {
     if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
     if (unsubPendingCount) { unsubPendingCount(); unsubPendingCount = null; }
     if (unsubPrintJobs) { unsubPrintJobs(); unsubPrintJobs = null; }
+    if (unsubPrintStations) { unsubPrintStations(); unsubPrintStations = null; }
+    stopStationHeartbeat();
 
     if (!user) {
+      state.printStations = [];
       state.profile = null;
       state.categories = [];
       state.grades = [];
@@ -1549,42 +1818,59 @@ function init() {
 
       state.view = 'dashboard';
       render();
+
+      // ⚠️ الـsnapshot ده بيتنفّذ أكتر من مرة (مرة من الذاكرة المحلية ومرة
+      // من السحابة). قبل كده كان بيعيد الاشتراك في كل مرة من غير ما يلغي
+      // القديم، فكان بيتعمل اشتراكين على نفس البيانات وأي خطأ كان بيظهر
+      // مرتين. دلوقتي كل دالة اشتراك بتلغي القديم عندها الأول.
       subscribeCategories();
       if (canEditWarehouse(state.profile, 'main')) {
         subscribePendingCount();
       }
-      // استقبال طلبات الطباعة عن بُعد: بس لأمين مخزن مربوط بمكان واحد
-      // محدد (فرع أو رئيسي)، لأنه ده اللي بيمثّل "جهاز الطابعة" فعليًا.
-      if (state.profile.role === 'warehouse_keeper' && ['branch', 'main'].includes(state.profile.warehouseAccess)) {
-        subscribePrintJobs(state.profile.warehouseAccess);
-      }
+
+      // أي جهاز (مش أمين مخزن بس) ممكن يبقى نقطة طباعة، طالما عليه
+      // QZ Tray وطابعة محفوظة — لأن الطابعات كلها في مكتب الكاشير.
+      subscribePrintStations();
+      subscribePrintJobs();
+      startStationHeartbeat();
     });
   });
 }
 
+// ⚠️ الاستعلام ده من نوع collectionGroup (بيقرا كل الدرجات في كل الفئات
+// مرة واحدة). Firestore بيرفضه لو مفيش قاعدة أمان بالمسار الشامل
+// ({path=**}) في firestore.rules — وده اللي كان بيسبب الخطأ الأحمر
+// "Missing or insufficient permissions" وبيخلي العدّاد معطّل بصمت.
 function subscribePendingCount() {
   if (unsubPendingCount) unsubPendingCount();
   unsubPendingCount = db
     .collectionGroup('grades')
     .where('status', '==', 'pending')
-    .onSnapshot((snap) => {
-      state.pendingCount = snap.size;
-      render();
-    });
+    .onSnapshot(
+      (snap) => {
+        state.pendingCount = snap.size;
+        render();
+      },
+      (err) => console.warn('تعذّر حساب الطلبات المعلّقة:', err)
+    );
 }
 
 function subscribeCategories() {
+  if (unsubCategories) unsubCategories();
   unsubCategories = db
     .collection('categories')
     .orderBy('order')
-    .onSnapshot((snap) => {
-      state.categories = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (!state.activeCategoryId && state.categories.length) {
-        state.activeCategoryId = state.categories[0].id;
-      }
-      render();
-      if (state.activeCategoryId) subscribeGrades(state.activeCategoryId);
-    });
+    .onSnapshot(
+      (snap) => {
+        state.categories = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        if (!state.activeCategoryId && state.categories.length) {
+          state.activeCategoryId = state.categories[0].id;
+        }
+        render();
+        if (state.activeCategoryId) subscribeGrades(state.activeCategoryId);
+      },
+      (err) => console.warn('تعذّر قراءة الفئات:', err)
+    );
 }
 
 function subscribeGrades(categoryId) {
@@ -1594,11 +1880,15 @@ function subscribeGrades(categoryId) {
     .doc(categoryId)
     .collection('grades')
     .orderBy('number')
-    .onSnapshot({ includeMetadataChanges: true }, (snap) => {
-      state.grades = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      state.hasPendingWrites = snap.metadata.hasPendingWrites;
-      render();
-    });
+    .onSnapshot(
+      { includeMetadataChanges: true },
+      (snap) => {
+        state.grades = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        state.hasPendingWrites = snap.metadata.hasPendingWrites;
+        render();
+      },
+      (err) => console.warn('تعذّر قراءة الدرجات:', err)
+    );
 }
 
 // ============================================================

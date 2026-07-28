@@ -61,16 +61,22 @@
     -->
     <script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js"></script>
 
-    <!-- QZ Tray: مكتبة اختيارية، بتشتغل بس لو المستخدم مثبّت عنده برنامج
-         QZ Tray على جهازه. لو مش موجود، النظام بيرجع تلقائيًا لطريقة
-         الطباعة العادية (نافذة المتصفح). -->
-    <script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js"></script>
+    <!-- jsrsasign: بتوقّع طلبات الطباعة لـ QZ Tray عشان الطباعة تبقى صامتة
+         100% من غير مربّع "Allow / Block" في كل مرة. تفاصيل في
+         js/qz-signing.js وفي README. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/10.8.6/jsrsasign-all-min.js"></script>
+
+    <!-- توليد QR: بيتحمّل في الصفحة الرئيسية (مش جوه صفحة الطباعة) عشان
+         الكود يتولّد كصورة جاهزة قبل ما نبعتها للطابعة — ده بيمنع مشكلة
+         "الطابعة طبعت قبل ما الـQR يظهر". -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <!-- إعداداتنا ومنطقنا: كل الملفات دي JavaScript عادي 100%، مفيش JSX
          ومفيش أي أداة تحويل — بالظبط زي أي نظام HTML عادي. -->
     <script src="./firebase-config.js"></script>
     <script src="./js/app-info.js"></script>
     <script src="./js/permissions.js"></script>
+    <script src="./js/qz-signing.js"></script>
     <script src="./js/app.js"></script>
     <script src="./js/update-prompt.js"></script>
   </body>
