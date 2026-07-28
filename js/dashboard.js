@@ -9,6 +9,47 @@
 
 let unsubPendingOverview = null;
 let unsubOutOverview = null;
+let unsubLowStock = null;
+let unsubPresence = null;
+let presenceTimer = null;
+
+// ------------------------------------------------------------
+// مين شغّال دلوقتي
+// ------------------------------------------------------------
+// كل مستخدم بيحدّث حقل lastSeen بتاعه كل 5 دقايق. قواعد الأمان بتسمح له
+// يعدّل **الحقل ده بس وعلى حسابه هو بس** — مايقدرش يغيّر رتبته ولا يلمس
+// حساب حد تاني.
+const PRESENCE_INTERVAL_MS = 5 * 60 * 1000;
+const ONLINE_WINDOW_MS = 8 * 60 * 1000; // أطول شوية من النبضة عشان ما يومضش
+
+function touchPresence() {
+  if (!state.user) return;
+  fireWrite(
+    db.collection('users').doc(state.user.uid).update({
+      lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+    }),
+    'آخر ظهور'
+  );
+}
+
+function startPresenceHeartbeat() {
+  stopPresenceHeartbeat();
+  touchPresence();
+  presenceTimer = setInterval(touchPresence, PRESENCE_INTERVAL_MS);
+
+  unsubPresence = db.collection('users').onSnapshot(
+    (snap) => {
+      state.presence = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (state.screen === 'home') render();
+    },
+    (err) => console.warn('تعذّر قراءة حالة المستخدمين:', err)
+  );
+}
+
+function stopPresenceHeartbeat() {
+  if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
+  if (unsubPresence) { unsubPresence(); unsubPresence = null; }
+}
 
 // بيرجّع معرّف الفئة من مسار الدرجة: categories/{catId}/grades/{gradeId}
 function categoryIdOfGrade(doc) {
@@ -45,9 +86,75 @@ function subscribeOverview() {
     );
 }
 
+// ------------------------------------------------------------
+// تنبيه "قرب يخلص"
+// ------------------------------------------------------------
+// الحد الأدنى بيتحدد **لكل فئة على حدة** (حقل minQty في الفئة، صفر = مقفول).
+// لكن Firestore مايقدرش يقارن كل درجة بحد مختلف حسب فئتها في استعلام واحد.
+//
+// الحل: بنستعلم بأكبر حد أدنى موجود في كل الفئات (رقم صغير عادة)، وبعدين
+// بنفلتر على الجهاز حسب حد كل فئة. كده استعلام واحد بسيط من غير أي فهرس
+// مركّب محتاج إعداد يدوي في Firebase — ولو مفيش أي فئة مفعّلة، مبنعملش
+// الاستعلام أصلًا (تكلفة صفر).
+function subscribeLowStock() {
+  if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
+
+  const maxThreshold = state.categories.reduce((m, c) => Math.max(m, Number(c.minQty) || 0), 0);
+  if (!maxThreshold) {
+    state.lowStockByCategory = {};
+    if (state.screen === 'home') render();
+    return;
+  }
+
+  unsubLowStock = db
+    .collectionGroup('grades')
+    .where('branchQty', '<=', maxThreshold)
+    .onSnapshot(
+      (snap) => {
+        const map = {};
+        snap.docs.forEach((d) => {
+          const g = d.data();
+          // اللي معلّق أو خلص ليهم أقسامهم — مش تنبيه "قرب يخلص"
+          if (g.status !== 'normal') return;
+          const catId = categoryIdOfGrade(d);
+          const cat = state.categories.find((c) => c.id === catId);
+          const limit = Number(cat && cat.minQty) || 0;
+          if (!limit || (g.branchQty || 0) > limit) return;
+          if (!map[catId]) map[catId] = [];
+          map[catId].push(g.number);
+        });
+        Object.values(map).forEach((arr) => arr.sort((a, b) => a - b));
+        state.lowStockByCategory = map;
+        state.lowStockCount = Object.values(map).reduce((s, a) => s + a.length, 0);
+        if (state.screen === 'home') render();
+      },
+      (err) => console.warn('تعذّر قراءة الدرجات اللي قرّبت تخلص:', err)
+    );
+}
+
 function stopOverview() {
   if (unsubPendingOverview) { unsubPendingOverview(); unsubPendingOverview = null; }
   if (unsubOutOverview) { unsubOutOverview(); unsubOutOverview = null; }
+  if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
+  stopPresenceHeartbeat();
+}
+
+// ------------------------------------------------------------
+// إجمالي الكميات في كل مخزن
+// ------------------------------------------------------------
+// ده محتاج قراءة **كل** الدرجات (~2000)، فمش منطقي يتحسب تلقائيًا مع كل
+// فتحة للشاشة. بيتحسب بالضغط على زرار بس، والنتيجة بتفضل معروضة بوقتها.
+async function computeStockTotals() {
+  const snap = await db.collectionGroup('grades').get();
+  let branch = 0;
+  let main = 0;
+  snap.docs.forEach((d) => {
+    const g = d.data();
+    branch += Number(g.branchQty) || 0;
+    main += Number(g.mainQty) || 0;
+  });
+  state.stockTotals = { branch, main, grades: snap.size, at: new Date() };
+  render();
 }
 
 function groupByCategory(snap) {
@@ -150,6 +257,7 @@ function dashboardHomeHTML() {
     <div class="home-wrap">
       <div class="stat-row">
         ${statTileHTML(pendingTotal, 'طلب تزويد معلّق', 'var(--purple-text)')}
+        ${statTileHTML(state.lowStockCount || 0, 'درجة قرّبت تخلص', 'var(--warning-text)')}
         ${statTileHTML(outTotal, 'درجة خلصت نهائيًا', 'var(--danger-text)')}
         ${statTileHTML(state.categories.length, 'فئة (شيت)', 'var(--accent)')}
       </div>
@@ -172,13 +280,119 @@ function dashboardHomeHTML() {
       </div>
 
       <div class="home-card">
+        <div class="home-title">🟠 قرّبت تخلص <span class="home-hint">قبل ما تخلص خالص</span></div>
+        ${lowStockHTML()}
+      </div>
+
+      <div class="home-card">
+        <div class="home-title">📦 إجمالي الكميات</div>
+        ${stockTotalsHTML()}
+      </div>
+
+      <div class="home-card">
+        <div class="home-title">👥 مين شغّال دلوقتي</div>
+        ${presenceHTML()}
+      </div>
+
+      <div class="home-card">
         <div class="home-title">⏱️ آخر الحركات</div>
         ${recentActivityHTML()}
       </div>
     </div>`;
 }
 
+function lowStockHTML() {
+  const anyThreshold = state.categories.some((c) => Number(c.minQty) > 0);
+  if (!anyThreshold) {
+    return `
+      <div class="home-empty">
+        لسه ما حددتش حد أدنى لأي فئة.<br>
+        افتح أي فئة ← <strong>تعديل</strong> ← اكتب رقم في خانة
+        <strong>"الحد الأدنى للتنبيه"</strong>، وأي درجة توصله هتظهر هنا.
+      </div>`;
+  }
+  return categoryBreakdownHTML(
+    state.lowStockByCategory,
+    'مفيش أي درجة قرّبت تخلص. كله فوق الحد الأدنى ✅',
+    'افتح'
+  );
+}
+
+function stockTotalsHTML() {
+  const t = state.stockTotals;
+  if (!t) {
+    return `
+      <div class="home-empty" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span>الحساب بيقرا كل الدرجات، فبيتعمل لما تطلبه بس.</span>
+        <button class="btn" id="calc-totals-btn">احسب الإجمالي</button>
+      </div>`;
+  }
+  const when = t.at.toLocaleString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+  return `
+    <div class="stat-row" style="margin-bottom:8px;">
+      ${statTileHTML(t.branch, 'قطعة في مخزن الفرع', '#2e7d32')}
+      ${statTileHTML(t.main, 'قطعة في المخزن الرئيسي', '#1565c0')}
+      ${statTileHTML(t.branch + t.main, 'الإجمالي', 'var(--text-secondary)')}
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <span class="home-hint">محسوب من ${escapeHTML(t.grades)} درجة — الساعة ${escapeHTML(when)}</span>
+      <button class="btn" id="calc-totals-btn" style="padding:4px 12px; font-size:12px;">حدّث</button>
+    </div>`;
+}
+
+function presenceHTML() {
+  const users = (state.presence || []).slice();
+  if (!users.length) return `<div class="home-empty">جارٍ التحميل...</div>`;
+
+  const now = Date.now();
+  const withTime = users.map((u) => {
+    const ms = u.lastSeen && u.lastSeen.toMillis ? u.lastSeen.toMillis() : 0;
+    return { ...u, ms, online: ms && now - ms < ONLINE_WINDOW_MS };
+  });
+  // المتصلين الأول، وبعدين الأحدث ظهورًا
+  withTime.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0) || b.ms - a.ms);
+
+  const ago = (ms) => {
+    if (!ms) return 'ما دخلش من النسخة دي';
+    const mins = Math.floor((now - ms) / 60000);
+    if (mins < 60) return `من ${mins} دقيقة`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `من ${hrs} ساعة`;
+    return `من ${Math.floor(hrs / 24)} يوم`;
+  };
+
+  return withTime
+    .map(
+      (u) => `
+      <div class="home-row">
+        <span style="width:9px; height:9px; border-radius:50%; flex:0 0 9px;
+                     background:${u.online ? '#2e7d32' : 'var(--text-muted)'};"></span>
+        <div style="flex:1; min-width:0;">
+          <div class="home-row-title">${escapeHTML(u.name || '؟')}</div>
+          <div class="home-row-sub">${escapeHTML(ROLE_LABELS_AR[u.role] || u.role || '')}</div>
+        </div>
+        <span class="home-time">${escapeHTML(u.online ? 'متصل الآن' : ago(u.ms))}</span>
+      </div>`
+    )
+    .join('');
+}
+
 function attachHomeEvents() {
+  const calcBtn = document.getElementById('calc-totals-btn');
+  if (calcBtn) {
+    calcBtn.addEventListener('click', async () => {
+      calcBtn.disabled = true;
+      calcBtn.textContent = 'جارٍ الحساب...';
+      try {
+        await computeStockTotals();
+      } catch (err) {
+        console.error(err);
+        calcBtn.disabled = false;
+        calcBtn.textContent = 'حاول تاني';
+      }
+    });
+  }
+
   document.querySelectorAll('[data-open-category]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const catId = btn.getAttribute('data-open-category');

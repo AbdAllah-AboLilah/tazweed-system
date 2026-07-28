@@ -78,6 +78,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+
+      // استثناء ضيّق: أي مستخدم يقدر يحدّث **حقل lastSeen بتاعه هو بس**
+      // (بيتحدّث كل 5 دقايق) عشان لوحة التحكم توري مين شغّال دلوقتي.
+      // مايقدرش يغيّر رتبته ولا صلاحياته ولا يلمس حساب حد تاني — القاعدة
+      // بترفض أي تعديل بيمس أي حقل غير lastSeen.
+      allow update: if isSignedIn()
+        && request.auth.uid == userId
+        && onlyChangedKeys(['lastSeen']);
     }
 
     match /categories/{categoryId} {
