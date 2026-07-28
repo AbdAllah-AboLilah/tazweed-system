@@ -202,6 +202,16 @@ function openImportDialog() {
   });
 
   confirmBtn.addEventListener('click', async () => {
+    // الاستيراد بيكتب آلاف المستندات على دفعات، وبيستنى تأكيد السيرفر بعد
+    // كل دفعة عشان يوريك التقدّم ويوقف بأمان لو حصلت مشكلة. من غير نت،
+    // الدفعة الأولى مش هتخلص خالص — فبنقول ده صراحة بدل ما الشاشة تعلّق.
+    if (!state.isOnline) {
+      statusEl.innerHTML =
+        '⚠️ الاستيراد محتاج إنترنت (بيرفع آلاف السطور). اتصل بالنت وحاول تاني.<br>' +
+        '<span style="color:var(--text-muted);">باقي النظام شغّال عادي من غير نت.</span>';
+      return;
+    }
+
     const existing = new Set(state.categories.map((c) => c.name));
     const toAdd = parsed.filter((g) => !existing.has(g.name));
 

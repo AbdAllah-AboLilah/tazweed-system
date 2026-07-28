@@ -2,4 +2,4 @@
 // عند كل تحديث فعلي، ارفع رقم الإصدار هنا.
 
 const APP_NAME = 'نظام التزويد';
-const APP_VERSION = '0.13.1';
+const APP_VERSION = '0.14.0';

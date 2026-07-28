@@ -286,20 +286,23 @@ function dashboardHTML() {
           <div style="font-size:14px; font-weight:500;">${escapeHTML(state.profile?.name)}</div>
           <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
         </div>
-        <div style="display:flex; align-items:center; gap:16px;">
+        <div class="topbar-meta">
           ${connectionDotHTML()}
-          ${state.pendingCount > 0 ? `<span class="badge badge-purple">${state.pendingCount} طلب تزويد معلّق</span>` : ''}
-          <span style="font-size:13px;">
+          ${state.pendingCount > 0 ? `<span class="badge badge-purple">${state.pendingCount} طلب معلّق</span>` : ''}
+          <span>
             ${escapeHTML(APP_NAME)}
-            <span style="font-size:11px; color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
+            <span style="color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
           </span>
-          ${isBarcodeScanSupported() ? `<button class="btn" id="scan-barcode-btn" title="مسح باركود بالكاميرا">📷 مسح باركود</button>` : ''}
-          ${canManageCatalog ? `<button class="btn" id="import-btn" title="استيراد من ملف إكسل">📥 استيراد</button>` : ''}
-          <button class="btn" id="export-btn" title="تصدير نسخة احتياطية لإكسل">📤 تصدير</button>
-          ${canManageUsers(state.profile) ? `<button class="btn" id="users-btn" title="حسابات المستخدمين">👥 الحسابات</button>` : ''}
-          ${state.canInstallApp ? `<button class="btn" id="install-app-btn" title="تثبيت النظام كأيقونة">⬇️ تثبيت التطبيق</button>` : ''}
-          <button class="btn" id="activity-log-btn">${state.showActivityLog ? 'رجوع للشيتات' : 'سجل العمليات'}</button>
-          <button class="btn" id="logout-btn">تسجيل خروج</button>
+          <button class="btn menu-toggle" id="menu-toggle-btn" title="القائمة" aria-label="القائمة">☰</button>
+          <div class="menu-panel" id="menu-panel">
+            ${isBarcodeScanSupported() ? `<button class="btn" id="scan-barcode-btn">📷 مسح باركود</button>` : ''}
+            ${canManageCatalog ? `<button class="btn" id="import-btn">📥 استيراد من إكسل</button>` : ''}
+            <button class="btn" id="export-btn">📤 تصدير نسخة احتياطية</button>
+            ${canManageUsers(state.profile) ? `<button class="btn" id="users-btn">👥 الحسابات</button>` : ''}
+            ${state.canInstallApp ? `<button class="btn" id="install-app-btn">⬇️ تثبيت التطبيق</button>` : ''}
+            <button class="btn" id="activity-log-btn">${state.showActivityLog ? '📋 رجوع للشيتات' : '📋 سجل العمليات'}</button>
+            <button class="btn" id="logout-btn">🚪 تسجيل خروج</button>
+          </div>
         </div>
       </div>
       ${tabsRowHTML}
@@ -726,6 +729,19 @@ function attachDashboardEvents() {
     const el = document.getElementById(id);
     if (el) el.addEventListener('click', handler);
   };
+
+  // قايمة الشريط العلوي على الموبايل: بتفتح بالضغط على ☰، وبتقفل لما
+  // تضغط أي حاجة جواها أو في أي مكان بره.
+  const menuToggle = document.getElementById('menu-toggle-btn');
+  const menuPanel = document.getElementById('menu-panel');
+  if (menuToggle && menuPanel) {
+    menuToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menuPanel.classList.toggle('open');
+    });
+    menuPanel.addEventListener('click', () => menuPanel.classList.remove('open'));
+    document.addEventListener('click', () => menuPanel.classList.remove('open'), { once: true });
+  }
   wire('scan-barcode-btn', () => openBarcodeScanner());
   wire('import-btn', () => openImportDialog());
   wire('users-btn', () => openUserAdmin());
@@ -983,23 +999,29 @@ function attachDashboardEvents() {
 // ============================================================
 async function addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice) {
   const nextOrder = state.categories.reduce((max, c) => Math.max(max, c.order || 0), 0) + 1;
-  const ref = await db.collection('categories').add({
-    name,
-    order: nextOrder,
-    itemName: itemName || '',
-    barcodeNumber: barcodeNumber || '',
-    originalPrice: originalPrice || 0,
-    sellingPrice: sellingPrice || 0,
-  });
-  await logActivity({ action: 'add_category', categoryId: ref.id, categoryName: name });
+  // doc() بيولّد المعرّف على الجهاز فورًا، فمش محتاجين نستنى رد السيرفر
+  // عشان نعرفه — وده اللي بيخلي الإضافة تشتغل وانت أوفلاين.
+  const ref = db.collection('categories').doc();
+  fireWrite(
+    ref.set({
+      name,
+      order: nextOrder,
+      itemName: itemName || '',
+      barcodeNumber: barcodeNumber || '',
+      originalPrice: originalPrice || 0,
+      sellingPrice: sellingPrice || 0,
+    }),
+    'إضافة فئة'
+  );
+  logActivity({ action: 'add_category', categoryId: ref.id, categoryName: name });
   state.activeCategoryId = ref.id;
 }
 
 async function deleteCategory(categoryId, categoryName) {
   const gradesSnap = await db.collection('categories').doc(categoryId).collection('grades').get();
-  await Promise.all(gradesSnap.docs.map((d) => d.ref.delete()));
-  await db.collection('categories').doc(categoryId).delete();
-  await logActivity({ action: 'delete_category', categoryId, categoryName });
+  gradesSnap.docs.forEach((d) => fireWrite(d.ref.delete(), 'حذف درجة'));
+  fireWrite(db.collection('categories').doc(categoryId).delete(), 'حذف فئة');
+  logActivity({ action: 'delete_category', categoryId, categoryName });
   if (state.activeCategoryId === categoryId) {
     state.activeCategoryId = null;
     state.grades = [];
@@ -1007,14 +1029,18 @@ async function deleteCategory(categoryId, categoryName) {
 }
 
 async function addGrade(categoryId, data) {
-  const ref = await db.collection('categories').doc(categoryId).collection('grades').add({
-    number: data.number,
-    branchQty: data.branchQty || 0,
-    mainQty: data.mainQty || 0,
-    status: 'normal',
-  });
+  const ref = db.collection('categories').doc(categoryId).collection('grades').doc();
+  fireWrite(
+    ref.set({
+      number: data.number,
+      branchQty: data.branchQty || 0,
+      mainQty: data.mainQty || 0,
+      status: 'normal',
+    }),
+    'إضافة درجة'
+  );
   const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
-  await logActivity({
+  logActivity({
     action: 'add_grade',
     categoryId,
     categoryName,
@@ -1024,13 +1050,16 @@ async function addGrade(categoryId, data) {
 }
 
 async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalPrice, sellingPrice) {
-  await db.collection('categories').doc(categoryId).update({
-    itemName: itemName || '',
-    barcodeNumber: barcodeNumber || '',
-    originalPrice: originalPrice || 0,
-    sellingPrice: sellingPrice || 0,
-  });
-  await logActivity({ action: 'edit_category_info', categoryId, itemName, barcodeNumber });
+  fireWrite(
+    db.collection('categories').doc(categoryId).update({
+      itemName: itemName || '',
+      barcodeNumber: barcodeNumber || '',
+      originalPrice: originalPrice || 0,
+      sellingPrice: sellingPrice || 0,
+    }),
+    'تعديل بيانات الفئة'
+  );
+  logActivity({ action: 'edit_category_info', categoryId, itemName, barcodeNumber });
 }
 
 // ============================================================
@@ -1102,7 +1131,7 @@ async function registerPrintStation() {
   if (!(await ensureQZConnected())) return;
 
   try {
-    await db.collection('printStations').doc(deviceId).set(
+    fireWrite(db.collection('printStations').doc(deviceId).set(
       {
         deviceName: getDeviceName() || 'جهاز بدون اسم',
         labelPrinter,
@@ -1112,7 +1141,7 @@ async function registerPrintStation() {
         updatedByName: state.profile.name || '',
       },
       { merge: true }
-    );
+    ), 'تسجيل نقطة طباعة');
   } catch (err) {
     console.warn('تعذّر تسجيل الجهاز كنقطة طباعة:', err);
   }
@@ -1229,9 +1258,14 @@ async function sendPrintJob(type, targetDeviceId, html, sizeOptions) {
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
-  const ref = await db.collection('printJobs').add(payload);
+  const ref = db.collection('printJobs').doc();
+  fireWrite(ref.set(payload), 'طلب طباعة');
   const deviceLabel = station ? station.deviceName : 'الجهاز التاني';
-  alert(`اتبعت طلب الطباعة لـ"${deviceLabel}". هيوصلك تأكيد أول ما يطبع.`);
+  alert(
+    state.isOnline
+      ? `اتبعت طلب الطباعة لـ"${deviceLabel}". هيوصلك تأكيد أول ما يطبع.`
+      : `⚠️ انت مش متصل بالإنترنت دلوقتي.\nالطلب اتسجّل، وهيتبعت لـ"${deviceLabel}" أول ما النت يرجع.`
+  );
 
   // بنتابع الطلب شوية عشان نأكّد للي بعته إنه اتطبع فعلًا (أو فشل)، بدل
   // ما يفضل مستني من غير ما يعرف حصل إيه.
@@ -1676,7 +1710,7 @@ function openAddGradeRangeDialog(categoryId) {
       }
 
       const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
-      await logActivity({
+      logActivity({
         action: 'add_grade_range',
         categoryId,
         categoryName,
@@ -2022,9 +2056,9 @@ async function openPrinterSettings() {
 async function requestShortage(gradeId) {
   const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
   const snap = await gradeRef.get();
-  await gradeRef.update({ status: 'pending' });
+  fireWrite(gradeRef.update({ status: 'pending' }), 'طلب تزويد');
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
-  await logActivity({
+  logActivity({
     action: 'request_shortage',
     categoryId: state.activeCategoryId,
     categoryName,
@@ -2036,9 +2070,9 @@ async function requestShortage(gradeId) {
 async function cancelShortage(gradeId) {
   const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
   const snap = await gradeRef.get();
-  await gradeRef.update({ status: 'normal' });
+  fireWrite(gradeRef.update({ status: 'normal' }), 'إلغاء طلب تزويد');
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
-  await logActivity({
+  logActivity({
     action: 'cancel_shortage',
     categoryId: state.activeCategoryId,
     categoryName,
@@ -2054,9 +2088,9 @@ async function fulfillShortage(gradeId, qty) {
   const transferQty = Math.min(qty, data.mainQty || 0);
   const newMainQty = Math.max(0, (data.mainQty || 0) - transferQty);
   const newBranchQty = (data.branchQty || 0) + transferQty;
-  await gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty });
+  fireWrite(gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty }), 'تزويد');
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
-  await logActivity({
+  logActivity({
     action: 'fulfill_shortage',
     categoryId: state.activeCategoryId,
     categoryName,
@@ -2069,9 +2103,9 @@ async function fulfillShortage(gradeId, qty) {
 async function markOutOfStock(gradeId) {
   const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
   const snap = await gradeRef.get();
-  await gradeRef.update({ status: 'out' });
+  fireWrite(gradeRef.update({ status: 'out' }), 'خلصت نهائيًا');
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
-  await logActivity({
+  logActivity({
     action: 'mark_out_of_stock',
     categoryId: state.activeCategoryId,
     categoryName,
@@ -2083,9 +2117,9 @@ async function markOutOfStock(gradeId) {
 async function resetOutOfStock(gradeId) {
   const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
   const snap = await gradeRef.get();
-  await gradeRef.update({ status: 'normal' });
+  fireWrite(gradeRef.update({ status: 'normal' }), 'إرجاع للتوفر');
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
-  await logActivity({
+  logActivity({
     action: 'reset_available',
     categoryId: state.activeCategoryId,
     categoryName,
@@ -2095,9 +2129,9 @@ async function resetOutOfStock(gradeId) {
 }
 
 async function deleteGrade(categoryId, gradeId, gradeNumber) {
-  await db.collection('categories').doc(categoryId).collection('grades').doc(gradeId).delete();
+  fireWrite(db.collection('categories').doc(categoryId).collection('grades').doc(gradeId).delete(), 'حذف درجة');
   const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
-  await logActivity({ action: 'delete_grade', categoryId, categoryName, gradeId, gradeNumber });
+  logActivity({ action: 'delete_grade', categoryId, categoryName, gradeId, gradeNumber });
 }
 
 // ============================================================
@@ -2119,19 +2153,39 @@ async function setQuantity(categoryId, gradeId, field, newValue) {
   await applyQuantityChange(gradeRef, snap, field, oldValue, newValue);
 }
 
+// ⚠️ نقطة جوهرية للعمل بدون إنترنت:
+// وعد (Promise) الكتابة في Firestore **مابيتحلّش خالص وانت أوفلاين** — هو
+// بيستنى تأكيد من السيرفر. لكن التعديل نفسه بيتطبّق محليًا فورًا وبيترفع
+// لوحده أول ما النت يرجع.
+//
+// معنى كده إن أي `await` على كتابة كان بيوقف كل السطور اللي بعده وانت
+// أوفلاين — فالحالة كانت بتتغيّر على الشاشة، لكن **سجل العمليات مكانش
+// بيتكتب**، ورسائل التأكيد مكانتش بتظهر، والشاشة كانت تبان واقفة.
+//
+// الحل: منستناش الكتابة. بنطلقها وبنكمّل، وبنتعامل مع الفشل في catch.
+function fireWrite(promise, label) {
+  if (promise && typeof promise.catch === 'function') {
+    promise.catch((err) => console.warn(`تعذّرت الكتابة (${label}):`, err));
+  }
+  return promise;
+}
+
 function logActivity(details) {
-  return db.collection('activityLog').add({
-    ...details,
-    userId: state.user.uid,
-    userName: state.profile.name,
-    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-  });
+  return fireWrite(
+    db.collection('activityLog').add({
+      ...details,
+      userId: state.user.uid,
+      userName: state.profile.name,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    }),
+    'سجل العمليات'
+  );
 }
 
 async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
-  await gradeRef.update({ [field]: newValue });
+  fireWrite(gradeRef.update({ [field]: newValue }), 'تعديل كمية');
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
-  await logActivity({
+  logActivity({
     action: 'edit',
     categoryId: state.activeCategoryId,
     categoryName,
