@@ -90,6 +90,10 @@ async function promptAppInstall() {
   render();
 }
 
+// بيمنع إعادة بناء الاشتراكات مع كل تغيير في مستند الحساب — شوف الشرح
+// المفصّل جوه init() عند sessionStarted.
+let sessionStarted = false;
+
 let unsubProfile = null;
 let unsubCategories = null;
 let unsubGrades = null;
@@ -2373,6 +2377,8 @@ function init() {
 
   auth.onAuthStateChanged((user) => {
     state.user = user;
+    // أي تغيير في حالة الدخول (دخول أو خروج) بيبدأ جلسة اشتراكات جديدة
+    sessionStarted = false;
 
     if (unsubProfile) { unsubProfile(); unsubProfile = null; }
     if (unsubCategories) { unsubCategories(); unsubCategories = null; }
@@ -2427,10 +2433,24 @@ function init() {
       state.view = 'dashboard';
       render();
 
-      // ⚠️ الـsnapshot ده بيتنفّذ أكتر من مرة (مرة من الذاكرة المحلية ومرة
-      // من السحابة). قبل كده كان بيعيد الاشتراك في كل مرة من غير ما يلغي
-      // القديم، فكان بيتعمل اشتراكين على نفس البيانات وأي خطأ كان بيظهر
-      // مرتين. دلوقتي كل دالة اشتراك بتلغي القديم عندها الأول.
+      // ⚠️⚠️ نقطة حرجة — متشيلش الشرط ده:
+      //
+      // الـsnapshot ده بيتنفّذ في كل مرة مستند users/{uid} يتغيّر. ونبضة
+      // "آخر ظهور" بتكتب في **نفس المستند ده** كل شوية. يعني من غير الشرط،
+      // بيحصل كده:
+      //
+      //   نبضة تكتب lastSeen → المستند اتغيّر → الـsnapshot بيتنبّه →
+      //   بيشغّل النبضة تاني → تكتب تاني → ... حلقة لا نهائية
+      //
+      // وكل لفة كانت بتلغي وتعيد بناء 6 اشتراكات، وده اللي كان بيطلّع
+      // خطأ Firestore: INTERNAL ASSERTION FAILED: Unexpected state.
+      //
+      // الاشتراكات دي بتتعمل **مرة واحدة لكل دخول**. أي تغيير بعد كده في
+      // بيانات الحساب (زي تغيير الرتبة) بيعيد الرسم بس — من غير إعادة
+      // اشتراك، وده الصح أصلًا.
+      if (sessionStarted) return;
+      sessionStarted = true;
+
       subscribeCategories();
       // لوحة التحكم بتحتاج ملخّص النواقص واللي خلص لكل المستخدمين، وهي
       // نفس البيانات اللي العدّاد البنفسجي بيستخدمها — فاشتراك واحد يكفي.
