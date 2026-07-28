@@ -1,0 +1,85 @@
+# رفع قواعد أمان Firestore تلقائيًا
+# ============================================================
+# الغرض: كل ما ملف firestore.rules يتغيّر ويترفع على main، القواعد تترفع
+# لوحدها على Firebase — من غير ما تفتح Firebase Console خالص.
+#
+# ============================================================
+# قرارات أمان مقصودة (متغيّرهاش من غير ما تفهم نتيجتها)
+# ============================================================
+#
+# 1) `on: push` على main **بس**. مفيش `pull_request` ولا `pull_request_target`
+#    نهائيًا. السبب: المستودع Public، يعني أي حد على النت يقدر يفتح Pull
+#    Request. لو الملف ده اشتغل مع الـPull Requests، حد خبيث كان يقدر يبعت
+#    PR فيه كود يسرق المفتاح. الرفع على main محتاج صلاحية كتابة على
+#    المستودع — يعني صاحبه وبس.
+#
+# 2) `permissions: contents: read` — أقل صلاحية ممكنة للتوكن التلقائي.
+#
+# 3) المفتاح بيتنقل عن طريق `env:` مش مكتوب جوه أمر الـrun مباشرة، عشان
+#    قيمته ما تتكتبش في السكريبت اللي بيتنفّذ.
+#
+# 4) مفيش أي أمر بيطبع المفتاح (لا echo ولا cat ولا set -x).
+#
+# 5) المفتاح نفسه المفروض يكون **محدود الصلاحية**: تعديل قواعد
+#    tazweed-system وبس — مايقدرش يقرا بيانات ولا يمسح ولا يلمس أي مشروع
+#    تاني. الخطوات في README قسم "رفع القواعد تلقائيًا".
+
+name: رفع قواعد Firestore
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'firebase.json'
+      - '.github/workflows/deploy-firestore-rules.yml'
+  # زرار يدوي من تبويب Actions، لو حبيت ترفع القواعد من غير أي تعديل.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# لو اترفع تحديثين ورا بعض، الأحدث بس هو اللي يكمّل.
+concurrency:
+  group: firestore-rules
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: تنزيل ملفات المستودع
+        uses: actions/checkout@v4
+
+      - name: تجهيز Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: تثبيت Firebase CLI
+        run: npm install -g firebase-tools@13
+
+      - name: تجهيز مفتاح الدخول
+        env:
+          SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA_KEY" ]; then
+            echo "::error::الـSecret اسمه FIREBASE_SERVICE_ACCOUNT مش موجود في إعدادات المستودع."
+            echo "::error::ضيفه من: Settings ← Secrets and variables ← Actions ← New repository secret"
+            exit 1
+          fi
+          printf '%s' "$SA_KEY" > "$RUNNER_TEMP/sa.json"
+          chmod 600 "$RUNNER_TEMP/sa.json"
+
+      - name: رفع القواعد على Firebase
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+        run: |
+          firebase deploy \
+            --only firestore:rules \
+            --project tazweed-system \
+            --non-interactive
+
+      - name: مسح المفتاح من الجهاز المؤقت
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"

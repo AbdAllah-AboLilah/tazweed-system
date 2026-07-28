@@ -1,0 +1,7 @@
+# مفاتيح حسابات الخدمة — متترفعش على المستودع أبدًا (المستودع Public).
+# الشبكة الأمان دي بتمنع رفعها بالغلط حتى لو الملف اتحط في مجلد المشروع.
+*serviceaccount*.json
+*service-account*.json
+*-key.json
+*.pem
+!docs/qz-tray/*.crt
