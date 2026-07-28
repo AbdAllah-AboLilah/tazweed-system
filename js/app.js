@@ -459,7 +459,7 @@ function gradeTableHTML() {
       <button class="btn btn-primary" id="print-grade-labels-btn" ${totalLabels ? '' : 'disabled'}>🏷️ اطبع المحدّد</button>
       <button class="btn" id="clear-grade-labels-btn">مسح التحديد</button>
       <span style="font-size:11px; color:var(--text-secondary);">
-        كل ملصق هيطلع عليه اسم الصنف ورقم الدرجة
+        الملصق نص بس: ${escapeHTML((state.categories.find((c) => c.id === state.activeCategoryId) || {}).name || '')} + رقم الدرجة
       </span>
     </div>`
     : '';
@@ -1404,25 +1404,9 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   // عن دقة الشاشة أو محرك العرض اللي بيرسمها.
   const pad = 0.7;
   const qrBox = Math.min(halfHeight - pad * 2, 12);
-  const hasGrade = cat.gradeNumber !== undefined && cat.gradeNumber !== null;
-  const hasPrice = !!cat.sellingPrice;
-
-  let nameSize = Math.min(halfHeight * 0.21, 2.7);
-  let codeSize = Math.min(halfHeight * 0.19, 2.4);
-  let priceSize = Math.min(halfHeight * 0.2, 2.6);
-
-  // ملصق الدرجة فيه سطر زيادة (رقم الدرجة)، والسطور ممكن تفيض من ارتفاع
-  // نص اللاصقة. بنحسب الارتفاع المطلوب فعليًا، ولو زاد بنصغّر الكل
-  // بالنسبة نفسها — بدل ما السطر الأخير يتقطع زي ما كان بيحصل قبل كده.
-  const LINE = 1.15;
-  const available = halfHeight - pad * 2;
-  const needed = (nameSize + codeSize + priceSize * (hasPrice ? 1 : 0) + (hasGrade ? nameSize : 0)) * LINE;
-  if (needed > available) {
-    const k = available / needed;
-    nameSize *= k;
-    codeSize *= k;
-    priceSize *= k;
-  }
+  const nameSize = Math.min(halfHeight * 0.21, 2.7);
+  const codeSize = Math.min(halfHeight * 0.19, 2.4);
+  const priceSize = Math.min(halfHeight * 0.2, 2.6);
 
   const priceHTML = cat.sellingPrice
     ? `<div class="price"><s>${escapeHTML(cat.originalPrice || 0)} L.E</s><b>${escapeHTML(cat.sellingPrice)} L.E</b></div>`
@@ -1430,20 +1414,11 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
 
   const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '<div class="qr"></div>';
 
-  // لو الملصق لدرجة معيّنة، بيبان رقمها تحت اسم الصنف عشان تعرف الطبعة
-  // من غير ما تفتح النظام. رقم الباركود نفسه بيفضل زي ما هو — عشان
-  // الكاشير يقرا نفس الصنف بنفس السعر.
-  const gradeHTML =
-    cat.gradeNumber !== undefined && cat.gradeNumber !== null
-      ? `<div class="grade">درجة ${escapeHTML(cat.gradeNumber)}</div>`
-      : '';
-
   const halfHTML = `
       <div class="half">
         ${qrHTML}
         <div class="txt">
           <div class="name">${escapeHTML(cat.itemName || cat.name)}</div>
-          ${gradeHTML}
           <div class="code">${escapeHTML(cat.barcodeNumber || '')}</div>
           ${priceHTML}
         </div>
@@ -1482,7 +1457,6 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
           font-size: ${nameSize}mm; font-weight: bold;
           white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .grade { font-size: ${nameSize}mm; font-weight: bold; }
         .code { font-size: ${codeSize}mm; letter-spacing: 0.2mm; }
         .price { font-size: ${priceSize}mm; display: flex; justify-content: center; gap: ${pad * 2}mm; }
         .price s { font-weight: normal; }
@@ -1510,11 +1484,87 @@ async function printLabel(cat, sizeOptions) {
 }
 
 // ------------------------------------------------------------
-// طباعة ملصقات لدرجات محدّدة
+// ملصق الدرجة — تصميم مختلف تمامًا عن ملصق الصنف
 // ------------------------------------------------------------
-// الفرق عن ملصق الفئة العادي: كل درجة بتاخد ملصقاتها هي، وبيظهر عليها
-// رقم الدرجة تحت اسم الصنف. رقم الباركود بيفضل نفسه لكل الدرجات — لأنه
-// ده اللي الكاشير بيقرا بيه السعر، وتغييره هيبوّظ الكاشير.
+// ده مأخوذ من صورة الملصق الحقيقي اللي بتطبعه على ماكينة الباركود:
+// **نص بس**، سطرين في نص اللاصقة:
+//
+//        كريب سادة لوكس
+//           درجة 56
+//
+// من غير QR ولا رقم باركود ولا أسعار خالص — ده ملصق تعريف للطبعة، مش
+// ملصق سعر. والاسم بيتاخد من **اسم الفئة بالعربي** (مش الاسم الإنجليزي
+// بتاع الكاشير).
+
+// بيقيس أكبر حجم خط يخلي النص يدخل في العرض المتاح، باستخدام قياس فعلي
+// من الـcanvas بدل ما نخمّن ونلاقي الاسم الطويل اتقطع على الطابعة.
+function fitFontSizeMm(text, maxWidthMm, bold) {
+  const PX_PER_MM = 3.7795;
+  const REF = 100; // بنقيس عند 100px ونحسب النسبة
+  try {
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `${bold ? 'bold ' : ''}${REF}px Tahoma, Arial, sans-serif`;
+    const widthAtRef = ctx.measureText(String(text || '')).width;
+    if (!widthAtRef) return maxWidthMm;
+    return ((maxWidthMm * PX_PER_MM) / widthAtRef) * REF / PX_PER_MM;
+  } catch (err) {
+    return maxWidthMm / Math.max(1, String(text || '').length) * 1.8;
+  }
+}
+
+function buildGradeLabelHTML(categoryName, gradeNumber, sizeOptions, copies) {
+  const { pageWidthMm, pageHeightMm, halves } = sizeOptions;
+  const halfHeight = pageHeightMm / (halves || 1);
+  const copyCount = Math.max(1, Math.min(200, parseInt(copies, 10) || 1));
+
+  const pad = 1;
+  const availableW = pageWidthMm - pad * 2;
+  const availableH = halfHeight - pad * 2;
+
+  const line1 = String(categoryName || '');
+  const line2 = `درجة ${gradeNumber}`;
+
+  // السطرين ياخدوا نص الارتفاع لكل واحد، وكل واحد بيتصغّر لو عرضه زايد.
+  const LINE = 1.25;
+  const byHeight = availableH / (2 * LINE);
+  const size1 = Math.min(byHeight, fitFontSizeMm(line1, availableW, true));
+  const size2 = Math.min(byHeight, fitFontSizeMm(line2, availableW, true));
+
+  const halfHTML = `
+      <div class="half">
+        <div class="l1">${escapeHTML(line1)}</div>
+        <div class="l2">${escapeHTML(line2)}</div>
+      </div>`;
+
+  return `
+    <!doctype html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <title>ملصق درجة ${escapeHTML(gradeNumber)}</title>
+      <style>
+        @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Tahoma, Arial, sans-serif; width: ${pageWidthMm}mm; color: #000; }
+        .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; }
+        .label + .label { page-break-before: always; break-before: page; }
+        .half {
+          height: ${halfHeight}mm; width: 100%;
+          padding: ${pad}mm;
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: center;
+          text-align: center; overflow: hidden;
+        }
+        .l1, .l2 { font-weight: bold; white-space: nowrap; line-height: ${LINE}; }
+        .l1 { font-size: ${size1.toFixed(2)}mm; }
+        .l2 { font-size: ${size2.toFixed(2)}mm; }
+      </style>
+    </head>
+    <body>${`<div class="label">${halfHTML.repeat(halves || 1)}</div>`.repeat(copyCount)}</body>
+    </html>
+  `;
+}
+
 async function printGradeLabels(cat, sizeOptions) {
   const picks = state.grades
     .map((g) => ({ grade: g, qty: (state.gradeLabelQty || {})[g.id] || 0 }))
@@ -1522,12 +1572,8 @@ async function printGradeLabels(cat, sizeOptions) {
 
   if (!picks.length) return;
 
-  const qrPx = Math.round((sizeOptions.pageHeightMm / (sizeOptions.halves || 1)) * 16);
-  const qrDataUrl = await generateQRDataURL(cat.barcodeNumber || cat.name, qrPx);
-
   // المعاينة بتوري أول درجة محدّدة كنموذج
-  const sample = { ...cat, gradeNumber: picks[0].grade.number };
-  const previewHTML = buildLabelHTML(sample, sizeOptions, qrDataUrl, 1);
+  const previewHTML = buildGradeLabelHTML(cat.name, picks[0].grade.number, sizeOptions, 1);
   const total = picks.reduce((s, p) => s + p.qty, 0);
   const approved = await showPrintPreview(previewHTML, sizeOptions, total);
   if (!approved) return;
@@ -1535,9 +1581,9 @@ async function printGradeLabels(cat, sizeOptions) {
   // بنلزق ملصقات كل الدرجات في مستند واحد — طبعة واحدة بدل ما نفتح
   // نافذة طباعة لكل درجة لوحدها.
   const bodies = picks.map((p) =>
-    extractLabelBody(buildLabelHTML({ ...cat, gradeNumber: p.grade.number }, sizeOptions, qrDataUrl, p.qty))
+    extractLabelBody(buildGradeLabelHTML(cat.name, p.grade.number, sizeOptions, p.qty))
   );
-  const shell = buildLabelHTML({ ...cat, gradeNumber: picks[0].grade.number }, sizeOptions, qrDataUrl, 1);
+  const shell = buildGradeLabelHTML(cat.name, picks[0].grade.number, sizeOptions, 1);
   const html = shell.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
   await deliverPrint('label', html, sizeOptions, 'width=420,height=320');
