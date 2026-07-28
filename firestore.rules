@@ -91,6 +91,17 @@ service cloud.firestore {
       }
     }
 
+    // ⚠️ لازم تفضل موجودة: عدّاد "الطلبات المعلّقة" (الـBadge البنفسجي)
+    // بيستخدم استعلام من نوع collectionGroup على كل الدرجات في كل الفئات
+    // مرة واحدة. Firestore بيرفض النوع ده من الاستعلام لو القاعدة الوحيدة
+    // الموجودة هي القاعدة المتداخلة فوق — لازم قاعدة بالمسار الشامل
+    // ({path=**}) زي دي بالتحديد. من غيرها بيظهر الخطأ:
+    //   Missing or insufficient permissions
+    // قراءة فقط — كل عمليات الكتابة لسه بتمر على القاعدة المتداخلة فوق.
+    match /{path=**}/grades/{gradeId} {
+      allow read: if isSignedIn();
+    }
+
     // سجل العمليات: أي مستخدم مسجّل دخول يقدر يضيف سجل (وقت تعديله هو نفسه)
     // ويقرأ السجل، لكن محدش يقدر يعدّل أو يمسح سجل قديم — عشان يفضل موثوق.
     match /activityLog/{entryId} {
@@ -110,8 +121,20 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && canSendPrintJob() && request.resource.data.requestedByUid == request.auth.uid;
       allow update: if isSignedIn()
-        && onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt'])
-        && oldStatus() == 'pending' && newStatus() == 'printed';
+        && onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt', 'error'])
+        && oldStatus() == 'pending' && newStatus() in ['printed', 'failed'];
+      allow delete: if isFullAccess();
+    }
+
+    // نقاط الطباعة: كل جهاز عليه QZ Tray وطابعة محفوظة بيسجّل نفسه هنا
+    // وبيحدّث lastSeen كل شوية (نبضة). ده اللي بيخلي اللي بيطبع عن بُعد
+    // يشوف الأجهزة المتصلة **دلوقتي** بالاسم، ويبعت لجهاز محدد بدل
+    // "الفرع/الرئيسي" (الطابعات كلها في مكتب الكاشير في الفرع أصلًا).
+    // أي مستخدم مسجّل دخول يقدر يسجّل جهازه هو ويحدّثه، ويقرأ القايمة.
+    match /printStations/{deviceId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && request.resource.data.updatedByUid == request.auth.uid;
       allow delete: if isFullAccess();
     }
   }

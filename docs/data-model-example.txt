@@ -65,21 +65,41 @@ Document ID: لازم يكون نفس الـ UID بتاع الحساب في Auth
 ────────────────────────────────────────
 Collection: printJobs (يُنشأ تلقائيًا، لا تحتاج تضيفه يدويًا)
 ────────────────────────────────────────
-كل طلب طباعة لمكان تاني بيضيف مستند هنا تلقائيًا، وبيتشال (يتحول لـ
-status: "printed") أول ما الجهاز المستقبِل يطبعه. مثال لطلب ملصق:
+كل طلب طباعة لجهاز تاني بيضيف مستند هنا تلقائيًا، وبيتحول لـ
+status: "printed" أول ما الجهاز المستقبِل يطبعه.
+
+الطلب بيتبعت لـ **جهاز محدد** (targetDeviceId) مش لمكان (فرع/رئيسي) —
+لأن الطابعات كلها في مكتب الكاشير في الفرع. والصفحة بتتبعت **جاهزة
+بالكامل** في حقل html (بما فيها صورة الـQR)، عشان اللي بيتطبع هناك يبقى
+بالظبط اللي الباعت شافه في المعاينة عنده.
 {
-  "type": "label",
-  "targetLocation": "main",
-  "status": "pending",
-  "categoryName": "دوبيتا سادة",
-  "itemName": "دوبيتا سادة فاخر",
-  "barcodeNumber": "5402903",
-  "originalPrice": 300,
-  "sellingPrice": 240,
-  "sizeOptions": { "pageSize": "2in 4in", "qrSize": 95, "fontScale": 0.75 },
+  "type": "label",                    // label | restock
+  "targetDeviceId": "dev-a1b2c3d4...", // معرّف الجهاز المستقبِل
+  "html": "<!doctype html>...",       // الصفحة كاملة جاهزة للطباعة
+  "sizeOptions": { "pageWidthMm": 38, "pageHeightMm": 25, "halves": 2 },
+  "status": "pending",                // pending | printed | failed
   "requestedByUid": "...",
   "requestedByName": "اسم الشخص",
-  "createdAt": <server timestamp>
+  "createdAt": <server timestamp>,
+  "printedByUid": "...",              // بيتضافوا لما يتطبع
+  "printedByName": "اسم الشخص",
+  "printedAt": <server timestamp>
+}
+
+────────────────────────────────────────
+Collection: printStations (يُنشأ تلقائيًا، لا تحتاج تضيفه يدويًا)
+────────────────────────────────────────
+كل جهاز عليه QZ Tray وطابعة محفوظة بيسجّل نفسه هنا وبيحدّث lastSeen كل
+45 ثانية. ده اللي بيخلي اللي بيطبع يشوف الأجهزة المتصلة **دلوقتي** بالاسم.
+الجهاز بيتعتبر "متصل" لو آخر نبضة ليه أقل من دقيقتين.
+معرّف المستند = معرّف الجهاز، محفوظ محليًا على الجهاز نفسه.
+{
+  "deviceName": "كمبيوتر الكاشير — الفرع",   // بيتكتب من "⚙️ إعدادات الطابعة"
+  "labelPrinter": "XP-235B",
+  "restockPrinter": "XP-80C",
+  "lastSeen": <server timestamp>,
+  "updatedByUid": "...",
+  "updatedByName": "اسم الشخص"
 }
 
 ────────────────────────────────────────
