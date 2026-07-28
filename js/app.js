@@ -16,8 +16,12 @@ const state = {
   grades: [],
   loginError: '',
   loginBusy: false,
-  showActivityLog: false,
+  // الشاشة الحالية: home = لوحة التحكم، sheets = الشيتات، activity = السجل
+  screen: 'home',
   activityLog: [],
+  pendingByCategory: {}, // { categoryId: [أرقام الدرجات المعلّقة] }
+  outByCategory: {}, // { categoryId: [أرقام الدرجات اللي خلصت] }
+  outCount: 0,
   showAddCategoryForm: false,
   showAddGradeForm: false,
   showEditCategoryInfoForm: false,
@@ -86,7 +90,6 @@ let unsubProfile = null;
 let unsubCategories = null;
 let unsubGrades = null;
 let unsubActivityLog = null;
-let unsubPendingCount = null;
 
 // ============================================================
 // أدوات مساعدة
@@ -278,7 +281,9 @@ function dashboardHTML() {
     : '';
 
   let bodyHTML;
-  if (state.showActivityLog) {
+  if (state.screen === 'home') {
+    bodyHTML = dashboardHomeHTML();
+  } else if (state.screen === 'activity') {
     bodyHTML = `<div style="padding:1rem;">${activityLogHTML()}</div>`;
   } else if (state.categories.length === 0) {
     bodyHTML = `
@@ -290,9 +295,12 @@ function dashboardHTML() {
     bodyHTML = `<div style="padding:1rem;">${gradeTableHTML()}</div>`;
   }
 
-  const tabsRowHTML = !state.showActivityLog
-    ? `<div class="tabs">${tabsHTML}${addCategoryTabHTML}</div>${addCategoryFormHTML}`
-    : '';
+  const homeTabHTML = `<button class="tab ${state.screen === 'home' ? 'tab-active' : ''}" id="home-tab-btn" title="لوحة التحكم">🏠</button>`;
+
+  const tabsRowHTML =
+    state.screen !== 'activity'
+      ? `<div class="tabs">${homeTabHTML}${tabsHTML}${addCategoryTabHTML}</div>${state.screen === 'sheets' ? addCategoryFormHTML : ''}`
+      : '';
 
   return `
     <div>
@@ -315,7 +323,7 @@ function dashboardHTML() {
             <button class="btn" id="export-btn">📤 تصدير نسخة احتياطية</button>
             ${canManageUsers(state.profile) ? `<button class="btn" id="users-btn">👥 الحسابات</button>` : ''}
             ${state.canInstallApp ? `<button class="btn" id="install-app-btn">⬇️ تثبيت التطبيق</button>` : ''}
-            <button class="btn" id="activity-log-btn">${state.showActivityLog ? '📋 رجوع للشيتات' : '📋 سجل العمليات'}</button>
+            <button class="btn" id="activity-log-btn">${state.screen === 'activity' ? '📋 رجوع' : '📋 سجل العمليات'}</button>
             <button class="btn" id="logout-btn">🚪 تسجيل خروج</button>
           </div>
         </div>
@@ -710,10 +718,27 @@ function activityLogHTML() {
 }
 
 function attachDashboardEvents() {
+  const homeTabBtn = document.getElementById('home-tab-btn');
+  if (homeTabBtn) {
+    homeTabBtn.addEventListener('click', () => {
+      state.screen = 'home';
+      render();
+    });
+  }
+
+  if (state.screen === 'home') attachHomeEvents();
+
   document.querySelectorAll('.tab').forEach((btn) => {
     btn.addEventListener('click', () => {
       const categoryId = btn.dataset.categoryId;
-      if (categoryId === state.activeCategoryId) return;
+      if (!categoryId) return; // تاب الرئيسية له معالج لوحده
+      // لو جاي من لوحة التحكم، لازم نرجّع الشاشة للشيتات
+      const cameFromHome = state.screen !== 'sheets';
+      state.screen = 'sheets';
+      if (categoryId === state.activeCategoryId) {
+        if (cameFromHome) render();
+        return;
+      }
       state.activeCategoryId = categoryId;
       state.grades = [];
       state.showAddGradeForm = false;
@@ -862,13 +887,8 @@ function attachDashboardEvents() {
   const activityLogBtn = document.getElementById('activity-log-btn');
   if (activityLogBtn) {
     activityLogBtn.addEventListener('click', () => {
-      state.showActivityLog = !state.showActivityLog;
-      if (state.showActivityLog) {
-        subscribeActivityLog();
-      } else if (unsubActivityLog) {
-        unsubActivityLog();
-        unsubActivityLog = null;
-      }
+      state.screen = state.screen === 'activity' ? 'home' : 'activity';
+      if (state.screen === 'activity') subscribeActivityLog();
       render();
     });
   }
@@ -2341,9 +2361,9 @@ function init() {
     if (unsubCategories) { unsubCategories(); unsubCategories = null; }
     if (unsubGrades) { unsubGrades(); unsubGrades = null; }
     if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
-    if (unsubPendingCount) { unsubPendingCount(); unsubPendingCount = null; }
     if (unsubPrintJobs) { unsubPrintJobs(); unsubPrintJobs = null; }
     if (unsubPrintStations) { unsubPrintStations(); unsubPrintStations = null; }
+    stopOverview();
     stopStationHeartbeat();
 
     if (!user) {
@@ -2352,12 +2372,15 @@ function init() {
       state.categories = [];
       state.grades = [];
       state.activeCategoryId = null;
-      state.showActivityLog = false;
+      state.screen = 'home';
       state.activityLog = [];
       state.showAddCategoryForm = false;
       state.showAddGradeForm = false;
       state.showEditCategoryInfoForm = false;
       state.pendingCount = 0;
+      state.outCount = 0;
+      state.pendingByCategory = {};
+      state.outByCategory = {};
       state.resolvingGradeId = null;
       state.confirmingOutGradeId = null;
       state.bulkRequestMode = false;
@@ -2388,9 +2411,10 @@ function init() {
       // القديم، فكان بيتعمل اشتراكين على نفس البيانات وأي خطأ كان بيظهر
       // مرتين. دلوقتي كل دالة اشتراك بتلغي القديم عندها الأول.
       subscribeCategories();
-      if (canEditWarehouse(state.profile, 'main')) {
-        subscribePendingCount();
-      }
+      // لوحة التحكم بتحتاج ملخّص النواقص واللي خلص لكل المستخدمين، وهي
+      // نفس البيانات اللي العدّاد البنفسجي بيستخدمها — فاشتراك واحد يكفي.
+      subscribeOverview();
+      subscribeActivityLog();
 
       // أي جهاز (مش أمين مخزن بس) ممكن يبقى نقطة طباعة، طالما عليه
       // QZ Tray وطابعة محفوظة — لأن الطابعات كلها في مكتب الكاشير.
@@ -2399,24 +2423,6 @@ function init() {
       startStationHeartbeat();
     });
   });
-}
-
-// ⚠️ الاستعلام ده من نوع collectionGroup (بيقرا كل الدرجات في كل الفئات
-// مرة واحدة). Firestore بيرفضه لو مفيش قاعدة أمان بالمسار الشامل
-// ({path=**}) في firestore.rules — وده اللي كان بيسبب الخطأ الأحمر
-// "Missing or insufficient permissions" وبيخلي العدّاد معطّل بصمت.
-function subscribePendingCount() {
-  if (unsubPendingCount) unsubPendingCount();
-  unsubPendingCount = db
-    .collectionGroup('grades')
-    .where('status', '==', 'pending')
-    .onSnapshot(
-      (snap) => {
-        state.pendingCount = snap.size;
-        render();
-      },
-      (err) => console.warn('تعذّر حساب الطلبات المعلّقة:', err)
-    );
 }
 
 function subscribeCategories() {
