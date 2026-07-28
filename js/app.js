@@ -24,7 +24,46 @@ const state = {
   hasPendingWrites: false,
   bulkRequestMode: false,
   printStations: [], // الأجهزة المسجّلة كنقاط طباعة (اللي عليها QZ Tray وطابعة)
+  users: [], // حسابات المستخدمين (بتتحمّل بس وقت فتح شاشة الحسابات)
+  canInstallApp: false, // المتصفح عرض إنه يثبّت النظام كأيقونة
 };
+
+// ============================================================
+// تثبيت النظام كأيقونة على الشاشة الرئيسية (PWA)
+// ============================================================
+// المتصفح بيقرر لوحده إمتى التطبيق "يستاهل" التثبيت، وبيبعت الحدث ده.
+// بنمسك الحدث ونأجّله، ونوري زرار "تثبيت التطبيق" في شريط الأعلى بدل ما
+// نستنى المستخدم يلاقي الخيار مدفون في قايمة المتصفح.
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  state.canInstallApp = true;
+  if (state.view === 'dashboard') render();
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  state.canInstallApp = false;
+  if (state.view === 'dashboard') render();
+});
+
+async function promptAppInstall() {
+  if (!deferredInstallPrompt) {
+    alert(
+      'التثبيت مش متاح دلوقتي.\n\n' +
+        'على أندرويد: افتح قايمة Chrome (⋮) واختار "تثبيت التطبيق" أو "إضافة إلى الشاشة الرئيسية".\n' +
+        'على آيفون: من Safari، زرار المشاركة ← "إضافة إلى الشاشة الرئيسية".'
+    );
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  state.canInstallApp = false;
+  render();
+}
 
 let unsubProfile = null;
 let unsubCategories = null;
@@ -252,6 +291,11 @@ function dashboardHTML() {
             ${escapeHTML(APP_NAME)}
             <span style="font-size:11px; color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
           </span>
+          ${isBarcodeScanSupported() ? `<button class="btn" id="scan-barcode-btn" title="مسح باركود بالكاميرا">📷 مسح باركود</button>` : ''}
+          ${canManageCatalog ? `<button class="btn" id="import-btn" title="استيراد من ملف إكسل">📥 استيراد</button>` : ''}
+          <button class="btn" id="export-btn" title="تصدير نسخة احتياطية لإكسل">📤 تصدير</button>
+          ${canManageUsers(state.profile) ? `<button class="btn" id="users-btn" title="حسابات المستخدمين">👥 الحسابات</button>` : ''}
+          ${state.canInstallApp ? `<button class="btn" id="install-app-btn" title="تثبيت النظام كأيقونة">⬇️ تثبيت التطبيق</button>` : ''}
           <button class="btn" id="activity-log-btn">${state.showActivityLog ? 'رجوع للشيتات' : 'سجل العمليات'}</button>
           <button class="btn" id="logout-btn">تسجيل خروج</button>
         </div>
@@ -567,6 +611,32 @@ function attachDashboardEvents() {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => auth.signOut());
   }
+
+  // أزرار شريط الأعلى الجديدة (كل واحد بيتربط بس لو موجود فعلًا في الشاشة،
+  // لأن ظهورهم بيعتمد على الصلاحية أو على دعم المتصفح).
+  const wire = (id, handler) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', handler);
+  };
+  wire('scan-barcode-btn', () => openBarcodeScanner());
+  wire('import-btn', () => openImportDialog());
+  wire('users-btn', () => openUserAdmin());
+  wire('install-app-btn', () => promptAppInstall());
+  wire('export-btn', async (e) => {
+    const btn = document.getElementById('export-btn');
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'جارٍ التجهيز...';
+    try {
+      await exportToExcel();
+    } catch (err) {
+      console.error(err);
+      alert('تعذّر التصدير: ' + (err.message || err));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
 
   const activityLogBtn = document.getElementById('activity-log-btn');
   if (activityLogBtn) {
@@ -1128,7 +1198,12 @@ function promptLabelSize(callback) {
     'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
   overlay.innerHTML = `
     <div class="card" style="max-width:300px; text-align:center;">
-      <div style="margin-bottom:4px; font-size:14px; font-weight:500;">اختار مقاس لاصقة الباركود</div>
+      <div style="margin-bottom:12px; font-size:14px; font-weight:500;">طباعة ملصق</div>
+      <div class="field" style="text-align:start;">
+        <label>عدد اللاصقات</label>
+        <input class="input" type="number" id="label-copies" value="1" min="1" max="200" inputmode="numeric" />
+      </div>
+      <div style="margin-bottom:4px; font-size:13px;">اختار المقاس</div>
       <div style="margin-bottom:12px; font-size:11px; color:var(--text-secondary);">
         اللاصقة المقسومة نصين = مقاس واحد، والمحتوى بيتكرر في النصين
       </div>
@@ -1143,8 +1218,10 @@ function promptLabelSize(callback) {
   document.body.appendChild(overlay);
   const pick = (id, opts) =>
     document.getElementById(id).addEventListener('click', () => {
+      const raw = parseInt(document.getElementById('label-copies').value, 10);
+      const copies = Math.max(1, Math.min(200, Number.isNaN(raw) ? 1 : raw));
       document.body.removeChild(overlay);
-      callback(opts);
+      callback({ ...opts, copies });
     });
 
   // halves = عدد الأقسام اللي اللاصقة الواحدة مقسومة لها والماكينة بتحسبهم
@@ -1208,9 +1285,10 @@ function generateQRDataURL(text, sizePx) {
 //
 // نقطة تانية: اللاصقة مقسومة نصين والماكينة بتحسبهم لاصقة واحدة، فبنطبع
 // **نفس المحتوى مرتين، مرة في كل نص** — بالظبط زي لفة الملصقات الأصلية.
-function buildLabelHTML(cat, sizeOptions, qrDataUrl) {
+function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const { pageWidthMm, pageHeightMm, halves } = sizeOptions;
   const halfHeight = pageHeightMm / (halves || 1);
+  const copyCount = Math.max(1, Math.min(200, parseInt(copies, 10) || 1));
 
   // كل المقاسات بالملم عشان تطلع مظبوطة على الطابعة الحرارية بغض النظر
   // عن دقة الشاشة أو محرك العرض اللي بيرسمها.
@@ -1247,9 +1325,16 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl) {
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
         body {
           font-family: Arial, Helvetica, Tahoma, sans-serif;
-          width: ${pageWidthMm}mm; height: ${pageHeightMm}mm;
+          width: ${pageWidthMm}mm;
           color: #000; line-height: 1.15;
         }
+        /* كل لاصقة = صفحة لوحدها. لما تطلب أكتر من نسخة، كل نسخة بتنزل
+           على لاصقة جديدة بدل ما تتلزق في نفس الواحدة. */
+        .label {
+          width: ${pageWidthMm}mm; height: ${pageHeightMm}mm;
+          overflow: hidden;
+        }
+        .label + .label { page-break-before: always; break-before: page; }
         .half {
           height: ${halfHeight}mm; width: 100%;
           display: flex; align-items: center; gap: ${pad}mm;
@@ -1268,26 +1353,30 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl) {
         .price b { font-weight: bold; }
       </style>
     </head>
-    <body>${halfHTML.repeat(halves || 1)}</body>
+    <body>${`<div class="label">${halfHTML.repeat(halves || 1)}</div>`.repeat(copyCount)}</body>
     </html>
   `;
 }
 
 async function printLabel(cat, sizeOptions) {
+  const copies = sizeOptions.copies || 1;
   const qrPx = Math.round((sizeOptions.pageHeightMm / (sizeOptions.halves || 1)) * 16);
   const qrDataUrl = await generateQRDataURL(cat.barcodeNumber || cat.name, qrPx);
-  const html = buildLabelHTML(cat, sizeOptions, qrDataUrl);
 
-  const approved = await showPrintPreview(html, sizeOptions);
+  // المعاينة بتوري لاصقة واحدة بس (مفيش فايدة من عرض 20 نسخة متطابقة)،
+  // واللي بيتطبع فعلًا هو العدد اللي طلبته.
+  const previewHTML = buildLabelHTML(cat, sizeOptions, qrDataUrl, 1);
+  const approved = await showPrintPreview(previewHTML, sizeOptions, copies);
   if (!approved) return;
 
+  const html = buildLabelHTML(cat, sizeOptions, qrDataUrl, copies);
   await deliverPrint('label', html, sizeOptions, 'width=420,height=320');
 }
 
 // معاينة قبل الطباعة (للملصق بس) — بتوري شكل الملصق الحقيقي جوه النظام
 // نفسه قبل ما يروح للطابعة، مع تكبير مرئي عشان يبان على الموبايل.
 // بترجّع true لو المستخدم ضغط "طباعة"، false لو ألغى.
-function showPrintPreview(html, sizeOptions) {
+function showPrintPreview(html, sizeOptions, copies) {
   return new Promise((resolve) => {
     const scale = 4;
     const overlay = document.createElement('div');
@@ -1302,11 +1391,11 @@ function showPrintPreview(html, sizeOptions) {
           </div>
         </div>
         <div style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
-          ${sizeOptions.pageWidthMm}×${sizeOptions.pageHeightMm} ملم — المحتوى بيتكرر في نصّي اللاصقة
+          ${sizeOptions.pageWidthMm}×${sizeOptions.pageHeightMm} ملم${sizeOptions.halves > 1 ? ' — المحتوى بيتكرر في نصّي اللاصقة' : ''}
         </div>
         <div style="display:flex; gap:8px; justify-content:center;">
           <button class="btn" id="preview-cancel">إلغاء</button>
-          <button class="btn btn-primary" id="preview-print">🖨️ طباعة</button>
+          <button class="btn btn-primary" id="preview-print">🖨️ طباعة ${copies > 1 ? `${copies} لاصقات` : ''}</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
