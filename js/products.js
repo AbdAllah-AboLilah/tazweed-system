@@ -582,11 +582,15 @@ function attachProductsEvents() {
   const scanBtn = document.getElementById('products-scan-btn');
   if (scanBtn) {
     scanBtn.addEventListener('click', () =>
-      openBarcodeScanner((value) => {
-        state.productSearch = value;
-        state.productPage = 1;
-        render();
-      })
+      safeAsync(
+        () =>
+          openBarcodeScanner((value) => {
+            state.productSearch = value;
+            state.productPage = 1;
+            render();
+          }),
+        'فتح الكاميرا'
+      )
     );
   }
 
@@ -601,7 +605,7 @@ function attachProductsEvents() {
       const product = (productsCache || []).find(
         (p) => (p.barcode || p.code || p.name) === key
       );
-      if (product) printProductLabel(product);
+      if (product) safeAsync(() => printProductLabel(product), 'طباعة الملصق');
     });
   });
 }
@@ -696,10 +700,14 @@ function openProductPicker(onPick) {
   const scanBtn = document.getElementById('picker-scan');
   if (scanBtn) {
     scanBtn.addEventListener('click', () =>
-      openBarcodeScanner((value) => {
-        searchEl.value = value;
-        draw();
-      })
+      safeAsync(
+        () =>
+          openBarcodeScanner((value) => {
+            searchEl.value = value;
+            draw();
+          }),
+        'فتح الكاميرا'
+      )
     );
   }
 

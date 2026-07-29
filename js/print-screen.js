@@ -123,7 +123,7 @@ function attachPrintScreenEvents() {
     // المسح بيحط الصنف في السلة على طول — ده أسرع مسار للشغل الحقيقي:
     // صوّر، صوّر، صوّر، اطبع.
     scanBtn.addEventListener('click', () =>
-      openBarcodeScanner((value) => {
+      safeAsync(() => openBarcodeScanner((value) => {
         const product = findProductByBarcode(value);
         if (!product) {
           alert(`مفيش صنف بالباركود ده في القاعدة:\n${value}`);
@@ -131,12 +131,12 @@ function attachPrintScreenEvents() {
         }
         addProductToPrintCart(product);
         render();
-      }, true)
+      }, true), 'فتح الكاميرا')
     );
   }
 
   const cameraBtn = document.getElementById('print-camera-btn');
-  if (cameraBtn) cameraBtn.addEventListener('click', () => openCameraChooser());
+  if (cameraBtn) cameraBtn.addEventListener('click', () => safeAsync(() => openCameraChooser(), 'اختيار الكاميرا'));
 
   document.querySelectorAll('[data-add-product]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -190,14 +190,14 @@ function attachPrintScreenEvents() {
   }
 
   const settingsBtn = document.getElementById('print-settings-btn');
-  if (settingsBtn) settingsBtn.addEventListener('click', () => openPrinterSettings());
+  if (settingsBtn) settingsBtn.addEventListener('click', () => safeAsync(() => openPrinterSettings(), 'فتح إعدادات الطابعة'));
 
   const printBtn = document.getElementById('print-cart-btn');
   if (printBtn) {
     printBtn.addEventListener('click', () => {
       // العدد لكل صنف متحدّد في السلة، فخانة "عدد اللاصقات" العامة
       // مالهاش لازمة هنا (نفس منطق ملصقات الدرجات).
-      promptLabelSize((sizeOptions) => printCartLabels(sizeOptions), true);
+      promptLabelSize((sizeOptions) => safeAsync(() => printCartLabels(sizeOptions), 'طباعة السلة'), true);
     });
   }
 }
