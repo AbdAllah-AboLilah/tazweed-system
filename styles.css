@@ -432,6 +432,161 @@ th {
 }
 
 /* ============================================================
+   قايمة الفئات الجانبية + الفلاتر
+   ============================================================ */
+.app-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.main-area {
+  flex: 1;
+  min-width: 0;
+}
+
+.side-menu {
+  width: 250px;
+  flex: 0 0 250px;
+  background: var(--surface);
+  border-inline-end: 1px solid var(--border);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 120px);
+  position: sticky;
+  top: 0;
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* زرار الإغلاق ليه معنى في وضع الدرج على الموبايل بس */
+.side-close {
+  display: none;
+}
+
+.side-filters,
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-row {
+  margin-bottom: 0.75rem;
+}
+
+.cat-chip {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cat-chip-active {
+  background: var(--text-primary);
+  color: var(--surface);
+  border-color: var(--text-primary);
+}
+
+.side-search {
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.side-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.side-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: start;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 9px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.side-item:hover {
+  background: var(--surface-muted);
+}
+
+.side-item-active {
+  background: var(--text-primary);
+  color: var(--surface);
+}
+
+.side-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-item-dots {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+/* نقطة ملوّنة بعدد جواها: الأصفر = فيها طلبات تزويد معلّقة،
+   البرتقالي = قرّبت تخلص، الأحمر = خلصت نهائيًا. */
+.cat-dot {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.side-backdrop {
+  display: none;
+}
+
+.side-add {
+  width: 100%;
+}
+
+/* الدرجات الأساسية (أبيض/أسود/أوف وايت) بتتميّز بشريط جانبي.
+   في الجدول الشريط بيتحط على أول خلية مش على الصف نفسه، لأن الحدود على
+   <tr> مابترسمش مع border-collapse. */
+.grade-card.grade-base {
+  border-inline-start: 3px solid var(--accent);
+}
+
+tr.grade-base td:first-child {
+  font-weight: 600;
+  border-inline-start: 3px solid var(--accent);
+}
+
+/* ============================================================
    الشاشات الصغيرة — لازم تفضل في آخر الملف عشان تغلب القواعد فوق
    ============================================================ */
 @media (max-width: 900px) {
@@ -471,8 +626,56 @@ th {
   }
 }
 
+/* القايمة الجانبية بتتحوّل لدرج بيفتح فوق الشاشة على الأجهزة الصغيرة —
+   عمود ثابت 250px على شاشة 360px يعني الجدول مش هيلاقي مكان يعيش فيه. */
+@media (max-width: 900px) {
+  /* ⚠️ الصفحة كلها RTL، فبنستخدم right/left الفيزيائية هنا بدل
+     inset-inline: الدرج لازم يبقى ملزوق في يمين الشاشة، والمقفول يخرج
+     بره تمامًا ناحية اليمين. أول محاولة استخدمت inset-inline-end (اللي
+     في RTL معناها الشمال)، فالدرج المقفول كان بيقف في نص الشاشة ويبلع
+     الضغطات من غير ما يبان. */
+  .side-menu {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: auto;
+    width: 82vw;
+    max-width: 300px;
+    flex: none;
+    max-height: none;
+    z-index: 1200;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+    transform: translateX(100%);
+    /* شبكة أمان: حتى لو التحويل مادّاش، المقفول مايستقبلش ضغطات */
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.18s ease, visibility 0.18s;
+  }
+
+  .side-menu.open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .side-close {
+    display: inline-block;
+    padding: 4px 12px;
+  }
+
+  .side-backdrop.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 1100;
+  }
+}
+
 @media (max-width: 640px) {
   th, td { padding: 8px 4px; font-size: 12px; }
+  .cat-chip { min-height: 34px; }
 
   /* مساحات لمس أكبر: الأزرار الصغيرة كانت ~24px وصعب تظبط عليها
      بالصباع، خصوصًا أزرار +/− اللي بتتضغط طول اليوم. */

@@ -50,11 +50,21 @@ service cloud.firestore {
 
     // أمين مخزن الفرع: يعدّل branchQty، أو يطلب تزويد (عادي → معلّق)،
     // أو يلغي طلبه (معلّق → عادي).
+    //
+    // الحالة الرابعة جديدة (التزويد التلقائي): لما كمية الفرع تنزل لصفر،
+    // النظام بيغيّر الكمية **والحالة مع بعض في نفس الكتابة**. القاعدة
+    // بتسمح بده بشرط إن الكمية الجديدة صفر فعلًا والحالة بتروح لـ"معلّق"
+    // — يعني مايقدرش يعلّق درجة عنده منها كمية.
     function branchAction() {
       return isBranchKeeper() && (
         onlyChangedKeys(['branchQty'])
         || (onlyChangedKeys(['status']) && oldStatus() == 'normal' && newStatus() == 'pending')
         || (onlyChangedKeys(['status']) && oldStatus() == 'pending' && newStatus() == 'normal')
+        || (
+          onlyChangedKeys(['branchQty', 'status'])
+          && oldStatus() == 'normal' && newStatus() == 'pending'
+          && request.resource.data.branchQty == 0
+        )
       );
     }
 
@@ -122,7 +132,9 @@ service cloud.firestore {
     // أو أصحاب الصلاحية الكاملة. أي مستخدم مسجّل دخول يقدر "يستلم" الطلب
     // ويعلّمه كـ printed (الجهاز المستقبِل)، لكن مش يغيّر حاجة تانية غير كده.
     function canSendPrintJob() {
-      return isFullAccess() || userProfile().canSendRemotePrint == true;
+      return isFullAccess()
+        || userProfile().canSendRemotePrint == true
+        || role() == 'print_operator';
     }
 
     match /printJobs/{jobId} {
@@ -139,6 +151,16 @@ service cloud.firestore {
     // يشوف الأجهزة المتصلة **دلوقتي** بالاسم، ويبعت لجهاز محدد بدل
     // "الفرع/الرئيسي" (الطابعات كلها في مكتب الكاشير في الفرع أصلًا).
     // أي مستخدم مسجّل دخول يقدر يسجّل جهازه هو ويحدّثه، ويقرأ القايمة.
+    // قاعدة بيانات الأصناف: محفوظة على شكل "قطع" (كل قطعة مستند فيه آلاف
+    // الأصناف) عشان استيراد 50 ألف صنف يبقى 25 كتابة بدل 50 ألف — وده
+    // اللي بيخلّيه يدخل في الباقة المجانية.
+    // القراءة لأي حد داخل النظام (كل الشاشات محتاجاها)، والكتابة لصاحب
+    // الصلاحية الكاملة بس.
+    match /products/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isFullAccess();
+    }
+
     match /printStations/{deviceId} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn()
