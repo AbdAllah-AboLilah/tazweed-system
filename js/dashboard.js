@@ -97,6 +97,53 @@ function subscribeOverview() {
 // مركّب محتاج إعداد يدوي في Firebase — ولو مفيش أي فئة مفعّلة، مبنعملش
 // الاستعلام أصلًا (تكلفة صفر).
 let lowStockThreshold = null; // آخر حد اتبني عليه الاستعلام
+let unsubBaseGrades = null;
+
+// تنبيه "قرّبت تخلص" بقى ليه مصدرين، وبنجمّعهم في مكان واحد:
+//   1) الدرجات المرقّمة اللي نزلت تحت الحد الأدنى بتاع فئتها
+//   2) الدرجات الأساسية (أبيض/أسود/أوف وايت) اللي نزلت تحت حدها الحرج
+function recomputeLowStock() {
+  const merged = {};
+  const add = (map) => {
+    Object.entries(map || {}).forEach(([catId, arr]) => {
+      if (!merged[catId]) merged[catId] = [];
+      arr.forEach((v) => {
+        if (merged[catId].indexOf(v) === -1) merged[catId].push(v);
+      });
+    });
+  };
+  add(state.lowStockNumbered);
+  add(state.lowStockBase);
+  state.lowStockByCategory = merged;
+  state.lowStockCount = Object.values(merged).reduce((s, a) => s + a.length, 0);
+  if (state.screen === 'home') render();
+}
+
+// الدرجات الأساسية قليلة جدًا (3 لكل فئة = ~75 مستند لـ25 فئة)، فاستعلام
+// مستقل ليها رخيص، وبيدينا الحد الحرج بتاع كل واحدة بدقة.
+function subscribeBaseGrades() {
+  if (unsubBaseGrades) unsubBaseGrades();
+  unsubBaseGrades = db
+    .collectionGroup('grades')
+    .where('isBase', '==', true)
+    .onSnapshot(
+      (snap) => {
+        const map = {};
+        snap.docs.forEach((d) => {
+          const g = d.data();
+          if (g.status !== 'normal') return;
+          const limit = Number(g.criticalQty) || DEFAULT_BASE_CRITICAL_QTY;
+          if ((Number(g.branchQty) || 0) > limit) return;
+          const catId = categoryIdOfGrade(d);
+          if (!map[catId]) map[catId] = [];
+          map[catId].push(g.name || 'أساسية');
+        });
+        state.lowStockBase = map;
+        recomputeLowStock();
+      },
+      (err) => console.warn('تعذّر قراءة الدرجات الأساسية:', err)
+    );
+}
 
 function subscribeLowStock() {
   const maxThreshold = state.categories.reduce((m, c) => Math.max(m, Number(c.minQty) || 0), 0);
@@ -110,9 +157,8 @@ function subscribeLowStock() {
   if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
 
   if (!maxThreshold) {
-    state.lowStockByCategory = {};
-    state.lowStockCount = 0;
-    if (state.screen === 'home') render();
+    state.lowStockNumbered = {};
+    recomputeLowStock();
     return;
   }
 
@@ -126,6 +172,8 @@ function subscribeLowStock() {
           const g = d.data();
           // اللي معلّق أو خلص ليهم أقسامهم — مش تنبيه "قرب يخلص"
           if (g.status !== 'normal') return;
+          // الدرجات الأساسية ليها استعلامها وحدها بحدها الحرج الخاص
+          if (g.isBase) return;
           const catId = categoryIdOfGrade(d);
           const cat = state.categories.find((c) => c.id === catId);
           const limit = Number(cat && cat.minQty) || 0;
@@ -134,9 +182,8 @@ function subscribeLowStock() {
           map[catId].push(g.number);
         });
         Object.values(map).forEach((arr) => arr.sort((a, b) => a - b));
-        state.lowStockByCategory = map;
-        state.lowStockCount = Object.values(map).reduce((s, a) => s + a.length, 0);
-        if (state.screen === 'home') render();
+        state.lowStockNumbered = map;
+        recomputeLowStock();
       },
       (err) => console.warn('تعذّر قراءة الدرجات اللي قرّبت تخلص:', err)
     );
@@ -146,6 +193,7 @@ function stopOverview() {
   if (unsubPendingOverview) { unsubPendingOverview(); unsubPendingOverview = null; }
   if (unsubOutOverview) { unsubOutOverview(); unsubOutOverview = null; }
   if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
+  if (unsubBaseGrades) { unsubBaseGrades(); unsubBaseGrades = null; }
   lowStockThreshold = null;
   stopPresenceHeartbeat();
 }
@@ -313,7 +361,8 @@ function dashboardHomeHTML() {
 }
 
 function lowStockHTML() {
-  const anyThreshold = state.categories.some((c) => Number(c.minQty) > 0);
+  const anyBase = Object.keys(state.lowStockBase || {}).length > 0;
+  const anyThreshold = state.categories.some((c) => Number(c.minQty) > 0) || anyBase;
   if (!anyThreshold) {
     return `
       <div class="home-empty">

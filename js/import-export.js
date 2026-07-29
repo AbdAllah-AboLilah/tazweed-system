@@ -305,7 +305,14 @@ async function exportToExcel() {
       ['الباركود:', cat.barcodeNumber || ''],
       [],
       ['الدرجة', 'الفرع', 'الرئيسي', 'الحالة'],
-      ...grades.map((g) => [g.number, g.branchQty || 0, g.mainQty || 0, statusLabel(g.status)]),
+      // الدرجات الأساسية بتتصدّر باسمها (أبيض/أسود/أوف وايت) مش برقمها
+      // السالب، عشان الملف يفضل مقروء زي ملف الإكسل الأصلي.
+      ...grades.map((g) => [
+        g.isBase && g.name ? g.name : g.number,
+        g.branchQty || 0,
+        g.mainQty || 0,
+        statusLabel(g.status),
+      ]),
     ];
 
     // أسماء شيتات إكسل: 31 حرف كحد أقصى، وممنوع فيها : \ / ? * [ ]

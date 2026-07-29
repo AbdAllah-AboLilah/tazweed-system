@@ -16,8 +16,19 @@ const state = {
   grades: [],
   loginError: '',
   loginBusy: false,
-  // الشاشة الحالية: home = لوحة التحكم، sheets = الشيتات، activity = السجل
+  // الشاشة الحالية:
+  //   home = لوحة التحكم | sheets = الشيتات | activity = السجل
+  //   products = قاعدة الأصناف | print = شاشة طباعة الباركود
   screen: 'home',
+  sideMenuOpen: false, // قايمة الفئات الجانبية (على الموبايل بتفتح فوق الشاشة)
+  categorySearch: '', // بحث جوه قايمة الفئات
+  categoryFilter: 'all', // all | pending | out | low — فلترة قايمة الفئات
+  gradeFilter: 'all', // all | pending | out | low — فلترة الدرجات جوه الفئة
+  productSearch: '',
+  productDept: '',
+  productPage: 1,
+  printSearch: '',
+  printCart: [], // [{ key, product, qty }] — سلة شاشة الطباعة
   activityLog: [],
   pendingByCategory: {}, // { categoryId: [أرقام الدرجات المعلّقة] }
   outByCategory: {}, // { categoryId: [أرقام الدرجات اللي خلصت] }
@@ -124,6 +135,66 @@ function rowClassForStatus(status) {
   if (status === 'pending') return 'row-pending';
   if (status === 'out') return 'row-out';
   return '';
+}
+
+// توحيد النص العربي للبحث: الهمزات والألف والتاء المربوطة بتتكتب بأشكال
+// مختلفة، والبحث لازم يلاقي "أبيض" لما تكتب "ابيض".
+function normalizeArabic(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[ًٌٍَُِّْ]/g, '')
+    .trim();
+}
+
+// ============================================================
+// الدرجات الأساسية (الألوان اللي موجودة في كل الفئات)
+// ============================================================
+// أبيض وأسود وأوف وايت موجودين في كل فئة تقريبًا، ومش ليهم رقم درجة زي
+// باقي الألوان. بنخزّنهم كدرجات عادية بس بحقلين زيادة:
+//   isBase: true   → عشان نعرف إنها درجة أساسية
+//   name: 'أبيض'   → الاسم اللي بيتعرض بدل رقم الدرجة
+// والرقم بيبقى سالب (-3, -2, -1) عشان يترتبوا **فوق** كل الأرقام العادية
+// من غير ما نغيّر ترتيب Firestore.
+const BASE_GRADES = [
+  { key: 'white', name: 'أبيض', number: -3 },
+  { key: 'black', name: 'أسود', number: -2 },
+  { key: 'offwhite', name: 'أوف وايت', number: -1 },
+];
+
+const DEFAULT_BASE_CRITICAL_QTY = 3;
+
+function gradeDisplayName(g) {
+  if (g && g.isBase && g.name) return g.name;
+  return `درجة ${g ? g.number : ''}`;
+}
+
+// الحد الحرج للدرجة: الدرجات الأساسية ليها حد خاص بيها، وباقي الدرجات
+// بتاخد الحد الأدنى بتاع الفئة.
+function gradeCriticalQty(g, cat) {
+  if (g && g.isBase) return Number(g.criticalQty) || DEFAULT_BASE_CRITICAL_QTY;
+  return Number(cat && cat.minQty) || 0;
+}
+
+// ------------------------------------------------------------
+// فلترة الدرجات جوه الفئة
+// ------------------------------------------------------------
+function visibleGrades() {
+  const filter = state.gradeFilter || 'all';
+  if (filter === 'all') return state.grades;
+  const cat = state.categories.find((c) => c.id === state.activeCategoryId) || {};
+  return state.grades.filter((g) => {
+    if (filter === 'pending') return g.status === 'pending';
+    if (filter === 'out') return g.status === 'out';
+    if (filter === 'low') {
+      const limit = gradeCriticalQty(g, cat);
+      return g.status === 'normal' && limit > 0 && (Number(g.branchQty) || 0) <= limit;
+    }
+    if (filter === 'base') return !!g.isBase;
+    return true;
+  });
 }
 
 // ============================================================
@@ -241,22 +312,118 @@ function attachLoginEvents() {
 // ============================================================
 // لوحة التحكم: التابات + جدول الدرجات
 // ============================================================
+// ------------------------------------------------------------
+// قايمة الفئات الجانبية
+// ------------------------------------------------------------
+// قبل كده الفئات كانت شريط أفقي فوق. مع 25 فئة (وأكتر) الشريط بقى محتاج
+// سحب طويل يمين وشمال عشان توصل لفئة، والفئة اللي فيها نواقص ماكانش ليها
+// أي علامة تفرّقها. القايمة الجانبية بتحل الاتنين: كله تحت بعضه، وقدام كل
+// فئة نقطة بلونها لو محتاجة انتباه، وفوق فلاتر تخليك تشوف المطلوب بس.
+function categoryNeedsFlags(catId) {
+  return {
+    pending: ((state.pendingByCategory || {})[catId] || []).length,
+    out: ((state.outByCategory || {})[catId] || []).length,
+    low: ((state.lowStockByCategory || {})[catId] || []).length,
+  };
+}
+
+function categoryDotsHTML(flags) {
+  const dot = (color, title, n) =>
+    `<span title="${escapeHTML(title)}" class="cat-dot" style="background:${color};">${escapeHTML(n)}</span>`;
+  return [
+    flags.pending ? dot('#e6a817', 'طلبات تزويد معلّقة', flags.pending) : '',
+    flags.low ? dot('#d97706', 'قرّبت تخلص', flags.low) : '',
+    flags.out ? dot('#b03030', 'خلصت نهائيًا', flags.out) : '',
+  ].join('');
+}
+
+function sideMenuHTML() {
+  const canManageCatalog = hasFullAccess(state.profile);
+  const filter = state.categoryFilter || 'all';
+  const search = normalizeArabic(state.categorySearch || '');
+
+  const list = state.categories.filter((cat) => {
+    const flags = categoryNeedsFlags(cat.id);
+    if (filter === 'pending' && !flags.pending) return false;
+    if (filter === 'out' && !flags.out) return false;
+    if (filter === 'low' && !flags.low) return false;
+    if (search && normalizeArabic(cat.name).indexOf(search) === -1) return false;
+    return true;
+  });
+
+  const counts = {
+    pending: state.categories.filter((c) => categoryNeedsFlags(c.id).pending).length,
+    out: state.categories.filter((c) => categoryNeedsFlags(c.id).out).length,
+    low: state.categories.filter((c) => categoryNeedsFlags(c.id).low).length,
+  };
+
+  const chip = (key, label, n) => `
+    <button class="cat-chip ${filter === key ? 'cat-chip-active' : ''}" data-cat-filter="${key}">
+      ${escapeHTML(label)}${n ? ` (${escapeHTML(n)})` : ''}
+    </button>`;
+
+  return `
+    <aside class="side-menu ${state.sideMenuOpen ? 'open' : ''}" id="side-menu">
+      <div class="side-head">
+        <span>الفئات (${escapeHTML(state.categories.length)})</span>
+        <button class="btn side-close" id="side-close-btn" aria-label="إغلاق">✕</button>
+      </div>
+
+      <div class="side-filters">
+        ${chip('all', 'الكل', 0)}
+        ${chip('pending', '🟡 مطلوب تزويد', counts.pending)}
+        ${chip('low', '🟠 قرّبت تخلص', counts.low)}
+        ${chip('out', '🔴 خلصت', counts.out)}
+      </div>
+
+      <input class="input side-search" id="side-search" placeholder="ابحث عن فئة..."
+             value="${escapeHTML(state.categorySearch || '')}" />
+
+      <div class="side-list">
+        ${
+          list.length
+            ? list
+                .map((cat) => {
+                  const flags = categoryNeedsFlags(cat.id);
+                  return `
+            <button class="side-item ${cat.id === state.activeCategoryId && state.screen === 'sheets' ? 'side-item-active' : ''}"
+                    data-category-id="${escapeHTML(cat.id)}">
+              <span class="side-item-name">${escapeHTML(cat.name)}</span>
+              <span class="side-item-dots">${categoryDotsHTML(flags)}</span>
+            </button>`;
+                })
+                .join('')
+            : `<div class="home-empty" style="padding:10px;">مفيش فئة بالمواصفات دي.</div>`
+        }
+      </div>
+
+      ${canManageCatalog ? `<button class="btn side-add" id="add-category-tab-btn">+ فئة جديدة</button>` : ''}
+    </aside>`;
+}
+
 function dashboardHTML() {
   const roleLabel = ROLE_LABELS_AR[state.profile?.role] || '';
   const canManageCatalog = hasFullAccess(state.profile);
 
-  const tabsHTML = state.categories
-    .map(
-      (cat) => `
-      <button class="tab ${cat.id === state.activeCategoryId ? 'tab-active' : ''}" data-category-id="${escapeHTML(cat.id)}">
-        ${escapeHTML(cat.name)}
-      </button>`
-    )
-    .join('');
-
-  const addCategoryTabHTML = canManageCatalog
-    ? `<button class="tab" id="add-category-tab-btn">+ فئة جديدة</button>`
-    : '';
+  // حساب "موظف طباعة" بيفتح على شاشة الطباعة وبس — مفيش شيتات ولا لوحة
+  // تحكم ولا قايمة فئات، عشان مايقدرش يلمس المخزن أصلًا.
+  if (isPrintOperator(state.profile)) {
+    return `
+      <div>
+        <div class="topbar">
+          <div>
+            <div style="font-size:14px; font-weight:500;">${escapeHTML(state.profile?.name)}</div>
+            <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
+          </div>
+          <div class="topbar-meta">
+            ${connectionDotHTML()}
+            <span>${escapeHTML(APP_NAME)} <span style="color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span></span>
+            <button class="btn" id="logout-btn">🚪 خروج</button>
+          </div>
+        </div>
+        ${printScreenHTML()}
+      </div>`;
+  }
 
   const addCategoryFormHTML = state.showAddCategoryForm
     ? `
@@ -286,6 +453,7 @@ function dashboardHTML() {
           <label>الحد الأدنى</label>
           <input class="input" type="number" id="new-category-min-qty" min="0" placeholder="0 = مقفول" />
         </div>
+        <button class="btn" type="button" id="pick-product-new">🔎 اختار من الأصناف</button>
         <button class="btn btn-primary" type="submit">إضافة</button>
         <button class="btn" type="button" id="cancel-add-category">إلغاء</button>
       </form>
@@ -297,22 +465,34 @@ function dashboardHTML() {
     bodyHTML = dashboardHomeHTML();
   } else if (state.screen === 'activity') {
     bodyHTML = `<div style="padding:1rem;">${activityLogHTML()}</div>`;
+  } else if (state.screen === 'products') {
+    bodyHTML = productsScreenHTML();
+  } else if (state.screen === 'print') {
+    bodyHTML = printScreenHTML();
   } else if (state.categories.length === 0) {
     bodyHTML = `
       <div style="padding:2rem; text-align:center; color:var(--text-secondary);">
         لا توجد فئات (شيتات) مضافة بعد في قاعدة البيانات.
-        ${canManageCatalog ? ' اضغط "+ فئة جديدة" فوق عشان تبدأ.' : ''}
+        ${canManageCatalog ? ' افتح قايمة الفئات واضغط "+ فئة جديدة".' : ''}
       </div>`;
   } else {
     bodyHTML = `<div style="padding:1rem;">${gradeTableHTML()}</div>`;
   }
 
-  const homeTabHTML = `<button class="tab ${state.screen === 'home' ? 'tab-active' : ''}" id="home-tab-btn" title="لوحة التحكم">🏠</button>`;
+  // شريط تنقّل صغير بين الشاشات الرئيسية — بديل شريط التابات القديم اللي
+  // كان بيتزحلق يمين وشمال مع 25 فئة.
+  const navBtn = (screen, label) =>
+    `<button class="tab ${state.screen === screen ? 'tab-active' : ''}" data-screen="${screen}">${label}</button>`;
 
-  const tabsRowHTML =
-    state.screen !== 'activity'
-      ? `<div class="tabs">${homeTabHTML}${tabsHTML}${addCategoryTabHTML}</div>${state.screen === 'sheets' ? addCategoryFormHTML : ''}`
-      : '';
+  const navRowHTML = `
+    <div class="tabs">
+      <button class="tab" id="side-open-btn">📂 الفئات</button>
+      ${navBtn('home', '🏠 الرئيسية')}
+      ${navBtn('sheets', '📄 الشيت')}
+      ${canUsePrintScreen(state.profile) ? navBtn('print', '🏷️ طباعة') : ''}
+      ${navBtn('products', '📦 الأصناف')}
+    </div>
+    ${state.screen === 'sheets' ? addCategoryFormHTML : ''}`;
 
   return `
     <div>
@@ -340,8 +520,12 @@ function dashboardHTML() {
           </div>
         </div>
       </div>
-      ${tabsRowHTML}
-      ${bodyHTML}
+      ${navRowHTML}
+      <div class="app-body">
+        ${sideMenuHTML()}
+        <div class="main-area">${bodyHTML}</div>
+      </div>
+      <div class="side-backdrop ${state.sideMenuOpen ? 'open' : ''}" id="side-backdrop"></div>
     </div>`;
 }
 
@@ -396,6 +580,7 @@ function categoryInfoBarHTML() {
             <input class="input" type="number" id="edit-category-min-qty" min="0" value="${escapeHTML(cat.minQty || 0)}" />
             <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">0 = من غير تنبيه</div>
           </div>
+          <button class="btn" type="button" id="pick-product-edit">🔎 اختار من الأصناف</button>
           <button class="btn btn-primary" type="submit">حفظ</button>
           <button class="btn" type="button" id="cancel-edit-category-info">إلغاء</button>
         </form>
@@ -412,6 +597,29 @@ function categoryInfoBarHTML() {
       <button class="btn" id="print-restock-btn" style="padding:3px 10px; font-size:12px;">🖨️ طباعة ورقة تزويد</button>
       <button class="btn" id="printer-settings-btn" style="padding:3px 10px; font-size:12px;" title="إعدادات طابعات هذا الجهاز">⚙️ إعدادات الطابعة</button>
     </div>`;
+}
+
+// ============================================================
+// منطق التزويد الجديد
+// ============================================================
+// الواقع في المحل: العرض بياخد **قطعة واحدة** من كل درجة. أول ما القطعة
+// دي تتباع، الدرجة محتاجة تزويد فورًا — مش محتاج حد يفتح شاشة ويكتب
+// "طلب تزويد" كخطوة منفصلة.
+//
+// فالمنطق بقى كده:
+//   • أي درجة جديدة بتبدأ بـ1 في الفرع (مش صفر)
+//   • أول ما الفرع ينزل لصفر (بزرار − أو بكتابة صفر) → الطلب بيتسجّل
+//     **لوحده** ويبقى "معلّق"
+//   • أمين الرئيسي بيضغط ✅ مرة واحدة → القطعة بتتنقل من الرئيسي للفرع
+//     والحالة بترجع عادي، من غير ما يكتب أي رقم
+//
+// الكمية الافتراضية دي قابلة للتغيير لكل فئة (حقل restockQty)، والافتراضي 1.
+const DEFAULT_RESTOCK_QTY = 1;
+
+function defaultRestockQty() {
+  const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+  const n = Number(cat && cat.restockQty);
+  return n > 0 ? n : DEFAULT_RESTOCK_QTY;
 }
 
 // محتوى عمود الحالة من غير <td> — عشان نقدر نستخدمه في الجدول (كمبيوتر)
@@ -450,7 +658,12 @@ function statusContentHTML(g, canEditBranch, canEditMain) {
       extra += `<button class="btn" style="${smallBtn}" data-cancel-shortage-id="${escapeHTML(g.id)}">إلغاء الطلب</button>`;
     }
     if (canEditMain) {
-      extra += `<button class="btn" style="${smallBtn}" data-open-fulfill-id="${escapeHTML(g.id)}">تزويد</button>`;
+      // الزرار الأساسي بقى ضغطة واحدة: بينقل الكمية الافتراضية من الرئيسي
+      // للفرع ويقفل الطلب — من غير ما تكتب رقم في كل درجة. الكمية بكام
+      // لسه موجودة كخيار تاني للحالات الاستثنائية.
+      const n = defaultRestockQty();
+      extra += `<button class="btn btn-primary" style="${smallBtn}" data-quick-fulfill-id="${escapeHTML(g.id)}">✅ زوّد ${escapeHTML(n)}</button>`;
+      extra += `<button class="btn" style="${smallBtn}" data-open-fulfill-id="${escapeHTML(g.id)}">بكمية تانية</button>`;
       extra += `<button class="btn" style="${smallBtn}" data-open-confirm-out-id="${escapeHTML(g.id)}">مفيش خالص</button>`;
     }
     return `${badge}${extra}`;
@@ -488,7 +701,7 @@ function qtyControlsHTML(categoryId, gradeId, field, value, canEdit) {
 function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
   return `
     <div class="grade-cards">
-      ${state.grades
+      ${visibleGrades()
         .map((g) => {
           const middle = state.gradeLabelMode
             ? `
@@ -516,12 +729,12 @@ function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
               : `<div class="gc-status">${statusContentHTML(g, canEditBranch, canEditMain)}</div>`;
 
           return `
-          <div class="grade-card ${rowClassForStatus(g.status)}">
+          <div class="grade-card ${rowClassForStatus(g.status)} ${g.isBase ? 'grade-base' : ''}">
             <div class="gc-head">
-              <span class="gc-num">درجة ${escapeHTML(g.number)}</span>
+              <span class="gc-num">${escapeHTML(gradeDisplayName(g))}</span>
               ${
                 canManageCatalog
-                  ? `<button class="btn gc-del" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(g.number)}">حذف</button>`
+                  ? `<button class="btn gc-del" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(gradeDisplayName(g))}">حذف</button>`
                   : ''
               }
             </div>
@@ -555,13 +768,42 @@ function gradeTableHTML() {
     state.gradeLabelMode ? '✔️ تم' : '🏷️ طباعة ملصقات درجات'
   }</button>`;
 
+  const missingBase = canManageCatalog && !state.grades.some((g) => g.isBase);
+
   const toolbarHTML = `
     <div style="display:flex; gap:8px; margin-bottom:0.75rem; flex-wrap:wrap;">
       ${bulkToggleBtn}
       ${labelModeBtn}
       ${canManageCatalog ? `<button class="btn" id="add-grade-btn">+ إضافة درجة</button>` : ''}
       ${canManageCatalog ? `<button class="btn" id="add-grade-range-btn">+ إضافة درجات دفعة</button>` : ''}
+      ${missingBase ? `<button class="btn" id="add-base-grades-btn">+ الدرجات الأساسية</button>` : ''}
       ${canManageCatalog ? `<button class="btn" id="delete-category-btn">حذف الفئة دي</button>` : ''}
+    </div>`;
+
+  // فلتر سريع: بدل ما تدوّر بعينك في 200 درجة على اللي محتاج تزويد.
+  const cat = state.categories.find((c) => c.id === state.activeCategoryId) || {};
+  const counts = {
+    pending: state.grades.filter((g) => g.status === 'pending').length,
+    out: state.grades.filter((g) => g.status === 'out').length,
+    low: state.grades.filter((g) => {
+      const limit = gradeCriticalQty(g, cat);
+      return g.status === 'normal' && limit > 0 && (Number(g.branchQty) || 0) <= limit;
+    }).length,
+    base: state.grades.filter((g) => g.isBase).length,
+  };
+  const gf = state.gradeFilter || 'all';
+  const gchip = (key, label, n) =>
+    `<button class="cat-chip ${gf === key ? 'cat-chip-active' : ''}" data-grade-filter="${key}">${escapeHTML(label)}${
+      n ? ` (${escapeHTML(n)})` : ''
+    }</button>`;
+
+  const filterBarHTML = `
+    <div class="filter-row">
+      ${gchip('all', 'الكل', state.grades.length)}
+      ${gchip('pending', '🟡 معلّق', counts.pending)}
+      ${gchip('low', '🟠 قرّبت تخلص', counts.low)}
+      ${gchip('out', '🔴 خلصت', counts.out)}
+      ${counts.base ? gchip('base', '⚪ الأساسية', counts.base) : ''}
     </div>`;
 
   // شريط ملخّص بيفضل ظاهر وانت بتعلّم على الدرجات، عشان تعرف انت اخترت
@@ -624,15 +866,21 @@ function gradeTableHTML() {
       </td>`;
   };
 
-  const rows = state.grades
+  const shownGrades = visibleGrades();
+
+  const emptyFilterHTML = shownGrades.length
+    ? ''
+    : `<div class="home-empty" style="padding:1rem;">مفيش درجات بالفلتر ده.</div>`;
+
+  const rows = shownGrades
     .map(
       (g) => `
-      <tr class="${rowClassForStatus(g.status)}">
-        <td>${escapeHTML(g.number)}</td>
+      <tr class="${rowClassForStatus(g.status)} ${g.isBase ? 'grade-base' : ''}">
+        <td>${escapeHTML(gradeDisplayName(g))}</td>
         ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
         ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
         ${statusColumnHTML(g)}
-        ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(g.number)}">حذف</button></td>` : ''}
+        ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(gradeDisplayName(g))}">حذف</button></td>` : ''}
       </tr>`
     )
     .join('');
@@ -640,11 +888,13 @@ function gradeTableHTML() {
   // على الموبايل بنرسم كارتس بدل الجدول (مش الاتنين) — عشان منضاعفش
   // عدد العناصر في الصفحة لما الفئة يكون فيها مئات الدرجات.
   if (state.isNarrow) {
-    return `${infoBarHTML}${toolbarHTML}${labelBarHTML}${addGradeFormHTML}${gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog)}`;
+    return `${infoBarHTML}${toolbarHTML}${filterBarHTML}${labelBarHTML}${addGradeFormHTML}${
+      shownGrades.length ? gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) : emptyFilterHTML
+    }`;
   }
 
   return `
-    ${infoBarHTML}${toolbarHTML}${labelBarHTML}${addGradeFormHTML}
+    ${infoBarHTML}${toolbarHTML}${filterBarHTML}${labelBarHTML}${addGradeFormHTML}${emptyFilterHTML}
     <div class="card" style="padding:0; overflow:auto; max-height:70vh;">
       <table>
         <thead>
@@ -734,41 +984,113 @@ function activityLogHTML() {
     </div>`;
 }
 
+function openCategory(categoryId) {
+  const cameFromElsewhere = state.screen !== 'sheets';
+  state.screen = 'sheets';
+  state.sideMenuOpen = false;
+  if (categoryId === state.activeCategoryId) {
+    if (cameFromElsewhere) render();
+    return;
+  }
+  state.activeCategoryId = categoryId;
+  state.grades = [];
+  state.showAddGradeForm = false;
+  state.showEditCategoryInfoForm = false;
+  state.resolvingGradeId = null;
+  state.confirmingOutGradeId = null;
+  state.bulkRequestMode = false;
+  state.gradeFilter = 'all';
+  // التحديد مرتبط بدرجات الفئة اللي كنا فيها، فلازم يتصفّر مع التبديل
+  // عشان مايتطبعش بالغلط على فئة تانية.
+  state.gradeLabelMode = false;
+  state.gradeLabelQty = {};
+  render();
+  subscribeGrades(categoryId);
+}
+
 function attachDashboardEvents() {
-  const homeTabBtn = document.getElementById('home-tab-btn');
-  if (homeTabBtn) {
-    homeTabBtn.addEventListener('click', () => {
-      state.screen = 'home';
+  // حساب موظف الطباعة: شاشة واحدة بس، فمفيش داعي لباقي الربط.
+  if (isPrintOperator(state.profile)) {
+    const out = document.getElementById('logout-btn');
+    if (out) out.addEventListener('click', () => auth.signOut());
+    attachPrintScreenEvents();
+    return;
+  }
+
+  if (state.screen === 'home') attachHomeEvents();
+  if (state.screen === 'products') attachProductsEvents();
+  if (state.screen === 'print') attachPrintScreenEvents();
+
+  // ---- التنقّل بين الشاشات ----
+  document.querySelectorAll('[data-screen]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const screen = btn.getAttribute('data-screen');
+      state.screen = screen;
+      state.sideMenuOpen = false;
+      render();
+      // الأصناف بتتحمّل أول ما تحتاجها بس — مش مع كل تسجيل دخول.
+      if (screen === 'products' || screen === 'print') {
+        if (!productsCache) loadProducts().then(render).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
+      }
+    });
+  });
+
+  // ---- قايمة الفئات الجانبية ----
+  const sideOpen = document.getElementById('side-open-btn');
+  if (sideOpen) {
+    sideOpen.addEventListener('click', () => {
+      state.sideMenuOpen = !state.sideMenuOpen;
+      render();
+    });
+  }
+  const sideClose = document.getElementById('side-close-btn');
+  if (sideClose) {
+    sideClose.addEventListener('click', () => {
+      state.sideMenuOpen = false;
+      render();
+    });
+  }
+  const backdrop = document.getElementById('side-backdrop');
+  if (backdrop) {
+    backdrop.addEventListener('click', () => {
+      state.sideMenuOpen = false;
       render();
     });
   }
 
-  if (state.screen === 'home') attachHomeEvents();
-
-  document.querySelectorAll('.tab').forEach((btn) => {
+  document.querySelectorAll('[data-cat-filter]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const categoryId = btn.dataset.categoryId;
-      if (!categoryId) return; // تاب الرئيسية له معالج لوحده
-      // لو جاي من لوحة التحكم، لازم نرجّع الشاشة للشيتات
-      const cameFromHome = state.screen !== 'sheets';
-      state.screen = 'sheets';
-      if (categoryId === state.activeCategoryId) {
-        if (cameFromHome) render();
-        return;
-      }
-      state.activeCategoryId = categoryId;
-      state.grades = [];
-      state.showAddGradeForm = false;
-      state.showEditCategoryInfoForm = false;
-      state.resolvingGradeId = null;
-      state.confirmingOutGradeId = null;
-      state.bulkRequestMode = false;
-      // التحديد مرتبط بدرجات الفئة اللي كنا فيها، فلازم يتصفّر مع التبديل
-      // عشان مايتطبعش بالغلط على فئة تانية.
-      state.gradeLabelMode = false;
-      state.gradeLabelQty = {};
+      state.categoryFilter = btn.getAttribute('data-cat-filter');
       render();
-      subscribeGrades(categoryId);
+    });
+  });
+
+  const sideSearch = document.getElementById('side-search');
+  if (sideSearch) {
+    let timer = null;
+    sideSearch.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        state.categorySearch = sideSearch.value;
+        render();
+        const again = document.getElementById('side-search');
+        if (again) {
+          again.focus();
+          again.setSelectionRange(again.value.length, again.value.length);
+        }
+      }, 200);
+    });
+  }
+
+  document.querySelectorAll('.side-item[data-category-id]').forEach((btn) => {
+    btn.addEventListener('click', () => openCategory(btn.dataset.categoryId));
+  });
+
+  // ---- فلتر الدرجات جوه الفئة ----
+  document.querySelectorAll('[data-grade-filter]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.gradeFilter = btn.getAttribute('data-grade-filter');
+      render();
     });
   });
 
@@ -857,6 +1179,32 @@ function attachDashboardEvents() {
     addGradeRangeBtn.addEventListener('click', () => openAddGradeRangeDialog(state.activeCategoryId));
   }
 
+  const addBaseGradesBtn = document.getElementById('add-base-grades-btn');
+  if (addBaseGradesBtn) {
+    addBaseGradesBtn.addEventListener('click', () => openBaseGradesDialog(state.activeCategoryId));
+  }
+
+  // ---- ربط الفئة بصنف من قاعدة الأصناف ----
+  // بدل ما تكتب الاسم والباركود والسعرين بإيدك، بتدوّر وتختار والخانات
+  // بتتملى لوحدها.
+  const fillFromProduct = (prefix) => (product) => {
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value;
+    };
+    set(`${prefix}-item-name`, product.name || '');
+    set(`${prefix}-barcode`, product.barcode || product.code || '');
+    set(`${prefix}-original-price`, product.origPrice || '');
+    set(`${prefix}-selling-price`, product.price || '');
+    const nameEl = document.getElementById('new-category-name');
+    if (prefix === 'new-category' && nameEl && !nameEl.value) nameEl.value = product.name || '';
+  };
+
+  const pickNew = document.getElementById('pick-product-new');
+  if (pickNew) pickNew.addEventListener('click', () => openProductPicker(fillFromProduct('new-category')));
+  const pickEdit = document.getElementById('pick-product-edit');
+  if (pickEdit) pickEdit.addEventListener('click', () => openProductPicker(fillFromProduct('edit-category')));
+
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', () => auth.signOut());
@@ -930,6 +1278,9 @@ function attachDashboardEvents() {
   if (addCategoryTabBtn) {
     addCategoryTabBtn.addEventListener('click', () => {
       state.showAddCategoryForm = !state.showAddCategoryForm;
+      // الفورم بيظهر فوق شاشة الشيتات، فلازم نكون فيها ونقفل الدرج.
+      state.screen = 'sheets';
+      state.sideMenuOpen = false;
       render();
     });
   }
@@ -1074,6 +1425,14 @@ function attachDashboardEvents() {
     btn.addEventListener('click', () => cancelShortage(btn.dataset.cancelShortageId));
   });
 
+  // التزويد بضغطة واحدة: بينقل الكمية الافتراضية من الرئيسي للفرع فورًا.
+  document.querySelectorAll('[data-quick-fulfill-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      await fulfillShortage(btn.dataset.quickFulfillId, defaultRestockQty());
+    });
+  });
+
   document.querySelectorAll('[data-open-fulfill-id]').forEach((btn) => {
     btn.addEventListener('click', () => {
       state.resolvingGradeId = btn.dataset.openFulfillId;
@@ -1167,22 +1526,129 @@ async function deleteCategory(categoryId, categoryName) {
 
 async function addGrade(categoryId, data) {
   const ref = db.collection('categories').doc(categoryId).collection('grades').doc();
-  fireWrite(
-    ref.set({
-      number: data.number,
-      branchQty: data.branchQty || 0,
-      mainQty: data.mainQty || 0,
-      status: 'normal',
-    }),
-    'إضافة درجة'
-  );
+  const payload = {
+    number: data.number,
+    // الافتراضي 1 مش صفر: العرض بياخد قطعة واحدة من كل درجة، والصفر معناه
+    // "خلصت من العرض" — فلو بدأنا بصفر كل الدرجات هتتحسب ناقصة من أول يوم.
+    branchQty: data.branchQty === undefined ? DEFAULT_RESTOCK_QTY : data.branchQty,
+    mainQty: data.mainQty || 0,
+    status: 'normal',
+  };
+  if (data.isBase) {
+    payload.isBase = true;
+    payload.name = data.name;
+    payload.criticalQty = Number(data.criticalQty) || DEFAULT_BASE_CRITICAL_QTY;
+  }
+  fireWrite(ref.set(payload), 'إضافة درجة');
   const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({
     action: 'add_grade',
     categoryId,
     categoryName,
     gradeId: ref.id,
-    gradeNumber: data.number,
+    gradeNumber: data.name || data.number,
+  });
+}
+
+// ------------------------------------------------------------
+// إضافة الدرجات الأساسية (أبيض/أسود/أوف وايت)
+// ------------------------------------------------------------
+// بتتضاف لفئة واحدة أو لكل الفئات مرة واحدة. الدالة بتتخطى أي فئة عندها
+// الدرجات دي أصلًا، فتقدر تشغّلها كذا مرة من غير ما تتكرر.
+async function addBaseGradesToCategory(categoryId, criticalQty) {
+  const snap = await db.collection('categories').doc(categoryId).collection('grades').get();
+  const existing = new Set(
+    snap.docs.map((d) => (d.data().isBase ? String(d.data().name || '') : '')).filter(Boolean)
+  );
+
+  const batch = db.batch();
+  let added = 0;
+  BASE_GRADES.forEach((base) => {
+    if (existing.has(base.name)) return;
+    const ref = db.collection('categories').doc(categoryId).collection('grades').doc();
+    batch.set(ref, {
+      number: base.number,
+      name: base.name,
+      isBase: true,
+      criticalQty: Number(criticalQty) || DEFAULT_BASE_CRITICAL_QTY,
+      branchQty: DEFAULT_RESTOCK_QTY,
+      mainQty: 0,
+      status: 'normal',
+    });
+    added++;
+  });
+
+  if (added) await batch.commit();
+  return added;
+}
+
+async function openBaseGradesDialog(categoryId) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:340px; width:100%;">
+      <div style="font-size:15px; font-weight:500; margin-bottom:6px;">الدرجات الأساسية</div>
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.7; margin-bottom:12px;">
+        هيتضاف <strong>أبيض</strong> و<strong>أسود</strong> و<strong>أوف وايت</strong> كدرجات
+        بأسماء بدل أرقام. أي فئة عندها الدرجات دي خلاص هتتخطّى.
+        <br>الدرجات دي <strong>مش بتظهر في ورقة التزويد المطبوعة</strong> لأنها من غير أرقام.
+      </div>
+      <div class="field">
+        <label>الحد الحرج (تنبيه لما تنزل عنه)</label>
+        <input class="input" type="number" id="base-critical" min="0" value="${DEFAULT_BASE_CRITICAL_QTY}" />
+      </div>
+      <div id="base-status" style="font-size:12px; color:var(--text-secondary); margin-bottom:10px;"></div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="btn btn-primary" id="base-this">ضيفهم للفئة دي بس</button>
+        <button class="btn" id="base-all">ضيفهم لكل الفئات (${state.categories.length})</button>
+        <button class="btn" id="base-cancel">إلغاء</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    if (overlay.parentNode) document.body.removeChild(overlay);
+  };
+  document.getElementById('base-cancel').addEventListener('click', close);
+  const statusEl = document.getElementById('base-status');
+  const critical = () => Number(document.getElementById('base-critical').value) || DEFAULT_BASE_CRITICAL_QTY;
+
+  document.getElementById('base-this').addEventListener('click', async () => {
+    statusEl.textContent = 'جارٍ الإضافة...';
+    try {
+      const n = await addBaseGradesToCategory(categoryId, critical());
+      logActivity({
+        action: 'add_base_grades',
+        categoryId,
+        categoryName: state.categories.find((c) => c.id === categoryId)?.name || '',
+        newValue: n,
+      });
+      close();
+    } catch (err) {
+      statusEl.textContent = 'فشلت الإضافة: ' + (err.message || err);
+    }
+  });
+
+  document.getElementById('base-all').addEventListener('click', async () => {
+    if (!state.isOnline) {
+      statusEl.textContent = '⚠️ العملية دي بتلمس كل الفئات، فمحتاجة إنترنت.';
+      return;
+    }
+    let done = 0;
+    let total = 0;
+    try {
+      for (const cat of state.categories) {
+        statusEl.innerHTML = `جارٍ الإضافة... <strong>${done}/${state.categories.length}</strong>`;
+        total += await addBaseGradesToCategory(cat.id, critical());
+        done++;
+      }
+      logActivity({ action: 'add_base_grades', newValue: total });
+      statusEl.innerHTML = `✅ اتضافت <strong>${total}</strong> درجة أساسية في ${done} فئة.`;
+      setTimeout(close, 1500);
+    } catch (err) {
+      statusEl.textContent = `وقفت عند الفئة رقم ${done + 1}: ` + (err.message || err);
+    }
   });
 }
 
@@ -1741,7 +2207,9 @@ function fitFontSizeMm(text, maxWidthMm, bold) {
   }
 }
 
-function buildGradeLabelHTML(categoryName, gradeNumber, sizeOptions, copies) {
+// gradeLabel = النص اللي هيتكتب في السطر التاني: "درجة 56" للدرجات
+// المرقّمة، أو الاسم نفسه ("أبيض") للدرجات الأساسية.
+function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
   const { pageWidthMm, pageHeightMm, halves } = sizeOptions;
   const halfHeight = pageHeightMm / (halves || 1);
   const copyCount = Math.max(1, Math.min(200, parseInt(copies, 10) || 1));
@@ -1753,7 +2221,7 @@ function buildGradeLabelHTML(categoryName, gradeNumber, sizeOptions, copies) {
   const availableH = halfHeight - pad * 2 - SAFETY_MM;
 
   const line1 = String(categoryName || '');
-  const line2 = `درجة ${gradeNumber}`;
+  const line2 = String(gradeLabel || '');
 
   // اسم الفئة الطويل بيتقسم على سطرين بدل ما يتقطع أو يخرج بره اللاصقة.
   const LINE = 1.2;
@@ -1775,7 +2243,7 @@ function buildGradeLabelHTML(categoryName, gradeNumber, sizeOptions, copies) {
     <html dir="rtl" lang="ar">
     <head>
       <meta charset="UTF-8">
-      <title>ملصق درجة ${escapeHTML(gradeNumber)}</title>
+      <title>ملصق ${escapeHTML(gradeLabel)}</title>
       <style>
         @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
@@ -1813,7 +2281,7 @@ async function printGradeLabels(cat, sizeOptions) {
   if (!picks.length) return;
 
   // المعاينة بتوري أول درجة محدّدة كنموذج
-  const previewHTML = buildGradeLabelHTML(cat.name, picks[0].grade.number, sizeOptions, 1);
+  const previewHTML = buildGradeLabelHTML(cat.name, gradeDisplayName(picks[0].grade), sizeOptions, 1);
   const total = picks.reduce((s, p) => s + p.qty, 0);
   const approved = await showPrintPreview(previewHTML, sizeOptions, total);
   if (!approved) return;
@@ -1821,15 +2289,15 @@ async function printGradeLabels(cat, sizeOptions) {
   // كل لاصقة صفحة مستقلة عند QZ (مصفوفة)، عشان ما يحشرش أكتر من واحدة
   // في نفس اللاصقة.
   const jobs = picks.map((p) => ({
-    html: buildGradeLabelHTML(cat.name, p.grade.number, sizeOptions, 1),
+    html: buildGradeLabelHTML(cat.name, gradeDisplayName(p.grade), sizeOptions, 1),
     copies: p.qty,
   }));
 
   // نسخة واحدة بفواصل صفحات لنافذة طباعة المتصفح (بتتعامل مع مستند واحد).
   const bodies = picks.map((p) =>
-    extractLabelBody(buildGradeLabelHTML(cat.name, p.grade.number, sizeOptions, p.qty))
+    extractLabelBody(buildGradeLabelHTML(cat.name, gradeDisplayName(p.grade), sizeOptions, p.qty))
   );
-  const shell = buildGradeLabelHTML(cat.name, picks[0].grade.number, sizeOptions, 1);
+  const shell = buildGradeLabelHTML(cat.name, gradeDisplayName(picks[0].grade), sizeOptions, 1);
   const browserHTML = shell.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
   await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML);
@@ -1916,7 +2384,8 @@ function openAddGradeRangeDialog(categoryId) {
       for (let i = 0; i < toAdd.length; i += 400) {
         const batch = db.batch();
         toAdd.slice(i, i + 400).forEach((number) => {
-          batch.set(gradesRef.doc(), { number, branchQty: 0, mainQty: 0, status: 'normal' });
+          // نفس منطق الدرجة الواحدة: الفرع بيبدأ بقطعة، مش بصفر.
+          batch.set(gradesRef.doc(), { number, branchQty: DEFAULT_RESTOCK_QTY, mainQty: 0, status: 'normal' });
         });
         await batch.commit();
       }
@@ -1952,9 +2421,11 @@ function showPrintPreview(html, sizeOptions, copies) {
     // المساحة المتاحة فعلًا بدل رقم ثابت — كبيرة على الكمبيوتر ومناسبة
     // على الموبايل، وبحد أقصى عشان ما تبقاش مشوّهة.
     const isNarrow = window.innerWidth <= NARROW_BREAKPOINT;
-    const boxW = Math.min(window.innerWidth - 80, isNarrow ? 320 : 560);
+    // المعاينة على الكمبيوتر كانت صغيرة أوي (نص الملصق مش باين)، فوسّعنا
+    // المساحة المتاحة وسقف التكبير على الشاشات الكبيرة.
+    const boxW = Math.min(window.innerWidth - 80, isNarrow ? 320 : 820);
     const PX_PER_MM = 3.7795;
-    const zoom = Math.min(boxW / (sizeOptions.pageWidthMm * PX_PER_MM), isNarrow ? 4 : 7);
+    const zoom = Math.min(boxW / (sizeOptions.pageWidthMm * PX_PER_MM), isNarrow ? 4 : 12);
     const shownW = sizeOptions.pageWidthMm * PX_PER_MM * zoom;
     const shownH = sizeOptions.pageHeightMm * PX_PER_MM * zoom;
     const jobList = normalizePrintJobs(html);
@@ -2015,7 +2486,11 @@ function hatchSVG() {
 
 function buildRestockHTML(cat, grades) {
   const now = new Date().toLocaleString('ar-EG');
+  // الدرجات الأساسية (أبيض/أسود/أوف وايت) **مابتظهرش في الورقة المطبوعة**:
+  // الورقة دي شبكة أرقام بتمشي بيها على الرف، والدرجات دي من غير أرقام
+  // أصلًا — فوجودها بيلخبط الشبكة. متابعتها بتبقى من الشاشة.
   const rowsHTML = grades
+    .filter((g) => !g.isBase)
     .map(
       (g) => `
       <div class="row">
@@ -2450,18 +2925,39 @@ function logActivity(details) {
 }
 
 async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
-  fireWrite(gradeRef.update({ [field]: newValue }), 'تعديل كمية');
+  const data = snap.data() || {};
+  const update = { [field]: newValue };
+
+  // ⭐ التزويد التلقائي: أول ما كمية الفرع تنزل لصفر، الطلب بيتسجّل لوحده
+  // — من غير ما حد يفتح شاشة ويضغط "طلب تزويد" كخطوة زيادة.
+  let autoRequested = false;
+  if (field === 'branchQty' && newValue === 0 && data.status === 'normal') {
+    update.status = 'pending';
+    autoRequested = true;
+  }
+
+  fireWrite(gradeRef.update(update), 'تعديل كمية');
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
   logActivity({
     action: 'edit',
     categoryId: state.activeCategoryId,
     categoryName,
     gradeId: snap.id,
-    gradeNumber: snap.data().number,
+    gradeNumber: data.number,
     field,
     oldValue,
     newValue,
   });
+
+  if (autoRequested) {
+    logActivity({
+      action: 'request_shortage',
+      categoryId: state.activeCategoryId,
+      categoryName,
+      gradeId: snap.id,
+      gradeNumber: data.number,
+    });
+  }
 }
 
 function subscribeActivityLog() {
@@ -2534,7 +3030,18 @@ function init() {
       state.pendingByCategory = {};
       state.outByCategory = {};
       state.lowStockByCategory = {};
+      state.lowStockNumbered = {};
+      state.lowStockBase = {};
       state.lowStockCount = 0;
+      state.sideMenuOpen = false;
+      state.categorySearch = '';
+      state.categoryFilter = 'all';
+      state.gradeFilter = 'all';
+      state.printCart = [];
+      state.printSearch = '';
+      state.productSearch = '';
+      state.productDept = '';
+      state.productPage = 1;
       state.presence = [];
       state.stockTotals = null;
       state.resolvingGradeId = null;
@@ -2559,6 +3066,12 @@ function init() {
         return;
       }
 
+      // موظف الطباعة بيفتح على شاشته على طول ومايقدرش يخرج منها.
+      if (isPrintOperator(state.profile)) {
+        state.screen = 'print';
+        if (!productsCache) loadProducts().then(render).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
+      }
+
       state.view = 'dashboard';
       render();
 
@@ -2580,10 +3093,20 @@ function init() {
       if (sessionStarted) return;
       sessionStarted = true;
 
+      // موظف الطباعة مايحتاجش اشتراكات المخزن (فئات/نواقص/سجل) — شاشته
+      // بتقرا الأصناف بس. لكنه محتاج أجهزة الطباعة عشان يقدر يبعت للكاشير.
+      if (isPrintOperator(state.profile)) {
+        subscribePrintStations();
+        subscribePrintJobs();
+        startStationHeartbeat();
+        return;
+      }
+
       subscribeCategories();
       // لوحة التحكم بتحتاج ملخّص النواقص واللي خلص لكل المستخدمين، وهي
       // نفس البيانات اللي العدّاد البنفسجي بيستخدمها — فاشتراك واحد يكفي.
       subscribeOverview();
+      subscribeBaseGrades();
       subscribeActivityLog();
       startPresenceHeartbeat();
 
