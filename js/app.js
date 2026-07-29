@@ -1170,7 +1170,7 @@ function attachDashboardEvents() {
     printGradeLabelsBtn.addEventListener('click', () => {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
       if (!cat) return;
-      promptLabelSize((sizeOptions) => printGradeLabels(cat, sizeOptions), true);
+      promptLabelSize((sizeOptions) => safeAsync(() => printGradeLabels(cat, sizeOptions), 'طباعة ملصقات الدرجات'), true);
     });
   }
 
@@ -1181,7 +1181,9 @@ function attachDashboardEvents() {
 
   const addBaseGradesBtn = document.getElementById('add-base-grades-btn');
   if (addBaseGradesBtn) {
-    addBaseGradesBtn.addEventListener('click', () => openBaseGradesDialog(state.activeCategoryId));
+    addBaseGradesBtn.addEventListener('click', () =>
+      safeAsync(() => openBaseGradesDialog(state.activeCategoryId), 'إضافة الدرجات الأساسية')
+    );
   }
 
   // ---- ربط الفئة بصنف من قاعدة الأصناف ----
@@ -1229,7 +1231,7 @@ function attachDashboardEvents() {
     menuPanel.addEventListener('click', () => menuPanel.classList.remove('open'));
     document.addEventListener('click', () => menuPanel.classList.remove('open'), { once: true });
   }
-  wire('scan-barcode-btn', () => openBarcodeScanner());
+  wire('scan-barcode-btn', () => safeAsync(() => openBarcodeScanner(), 'فتح الكاميرا'));
   wire('import-btn', () => openImportDialog());
   wire('users-btn', () => openUserAdmin());
   wire('install-app-btn', () => promptAppInstall());
@@ -1354,7 +1356,7 @@ function attachDashboardEvents() {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
       if (!cat) return;
       // المقاس ← المعاينة ← اختيار الجهاز ← الطباعة (كلها جوه printLabel).
-      promptLabelSize((sizeOptions) => printLabel(cat, sizeOptions));
+      promptLabelSize((sizeOptions) => safeAsync(() => printLabel(cat, sizeOptions), 'طباعة الملصق'));
     });
   }
 
@@ -1363,14 +1365,14 @@ function attachDashboardEvents() {
     printRestockBtn.addEventListener('click', () => {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
       if (!cat) return;
-      printRestockPaper(cat, state.grades);
+      safeAsync(() => printRestockPaper(cat, state.grades), 'طباعة ورقة التزويد');
     });
   }
 
   const printerSettingsBtn = document.getElementById('printer-settings-btn');
   if (printerSettingsBtn) {
     printerSettingsBtn.addEventListener('click', () => {
-      openPrinterSettings();
+      safeAsync(() => openPrinterSettings(), 'فتح إعدادات الطابعة');
     });
   }
 
@@ -1429,7 +1431,11 @@ function attachDashboardEvents() {
   document.querySelectorAll('[data-quick-fulfill-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
-      await fulfillShortage(btn.dataset.quickFulfillId, defaultRestockQty());
+      await fulfillShortage(btn.dataset.quickFulfillId, defaultRestockQty()).catch((err) => {
+        btn.disabled = false;
+        console.error('فشل التزويد السريع:', err);
+        alert('حصلت مشكلة أثناء التزويد. جرّب تاني.');
+      });
     });
   });
 
@@ -2751,12 +2757,32 @@ async function openPrinterSettings() {
       </div>
     </div>`;
   document.body.appendChild(overlay);
-  document.getElementById('qz-settings-close').addEventListener('click', () => document.body.removeChild(overlay));
+
+  // ⚠️ درس اتعلمناه من خطأ حقيقي ظهر على التليفون:
+  // البحث عن QZ Tray بياخد كام ثانية (بيحاول يفتح اتصال محلي وميلاقيش).
+  // المستخدم بيقفل الشاشة في الوقت ده، وبعدين البحث بيخلص وبيدوّر على
+  // عناصر الشاشة اللي **اتشالت خلاص** — فبيرجع null والكود بيقع برسالة
+  // Cannot set properties of null.
+  //
+  // الإصلاح جزئين:
+  //   1) نمسك العناصر **قبل** الانتظار، مش بعده
+  //   2) لو الشاشة اتقفلت أثناء الانتظار، نخرج بهدوء من غير ما نعمل حاجة
+  const statusLine = overlay.querySelector('#qz-status-line');
+  const fields = overlay.querySelector('#qz-printer-fields');
+  const saveBtn = overlay.querySelector('#qz-settings-save');
+  const labelSelect = overlay.querySelector('#qz-label-printer-select');
+  const restockSelect = overlay.querySelector('#qz-restock-printer-select');
+  const deviceNameInput = overlay.querySelector('#qz-device-name');
+
+  let closed = false;
+  const closeSettings = () => {
+    closed = true;
+    if (overlay.parentNode) document.body.removeChild(overlay);
+  };
+  overlay.querySelector('#qz-settings-close').addEventListener('click', closeSettings);
 
   const printers = await getAvailableQZPrinters();
-  const statusLine = document.getElementById('qz-status-line');
-  const fields = document.getElementById('qz-printer-fields');
-  const saveBtn = document.getElementById('qz-settings-save');
+  if (closed) return;
 
   if (!isQZAvailable() || printers.length === 0) {
     statusLine.innerHTML = isQZAvailable()
@@ -2769,10 +2795,6 @@ async function openPrinterSettings() {
   fields.style.display = 'block';
   saveBtn.style.display = 'inline-block';
 
-  const labelSelect = document.getElementById('qz-label-printer-select');
-  const restockSelect = document.getElementById('qz-restock-printer-select');
-  const deviceNameInput = document.getElementById('qz-device-name');
-
   [labelSelect, restockSelect].forEach((select) => {
     select.innerHTML = `<option value="">— اختار طابعة —</option>` + printers.map((p) => `<option value="${escapeHTML(p)}">${escapeHTML(p)}</option>`).join('');
   });
@@ -2784,7 +2806,7 @@ async function openPrinterSettings() {
     saveSelectedPrinter('label', labelSelect.value);
     saveSelectedPrinter('restock', restockSelect.value);
     saveDeviceName(deviceNameInput.value.trim());
-    document.body.removeChild(overlay);
+    closeSettings();
     // نسجّل الجهاز فورًا بالاسم والطابعات الجديدة، عشان يظهر لزمايله
     // على طول من غير ما يستنى النبضة الجاية.
     startStationHeartbeat();
@@ -2905,6 +2927,32 @@ async function setQuantity(categoryId, gradeId, field, newValue) {
 // بيتكتب**، ورسائل التأكيد مكانتش بتظهر، والشاشة كانت تبان واقفة.
 //
 // الحل: منستناش الكتابة. بنطلقها وبنكمّل، وبنتعامل مع الفشل في catch.
+// ------------------------------------------------------------
+// تشغيل آمن لأي عملية غير متزامنة جاية من ضغطة زرار
+// ------------------------------------------------------------
+// أي دالة async بتتنادى من onclick من غير ما حد يمسك فشلها، بيطلع خطأ
+// أحمر خام تحت الشاشة مكتوب فيه "Promise: ..." — رسالة إنجليزي مالهاش
+// معنى للمستخدم، وساعات بتبقى حاجة مالهاش تأثير أصلًا.
+//
+// الدالة دي بتمسك أي فشل، بتسجّله في الكونسول للتشخيص، وبتوري رسالة
+// عربي مفهومة بس لما يكون فيه فعلًا حاجة وقفت.
+function safeAsync(promiseOrFn, label) {
+  let promise;
+  try {
+    promise = typeof promiseOrFn === 'function' ? promiseOrFn() : promiseOrFn;
+  } catch (err) {
+    console.error(`فشل ${label || 'التنفيذ'}:`, err);
+    alert(`حصلت مشكلة أثناء ${label || 'التنفيذ'}. جرّب تاني.`);
+    return;
+  }
+  if (promise && typeof promise.catch === 'function') {
+    promise.catch((err) => {
+      console.error(`فشل ${label || 'التنفيذ'}:`, err);
+      alert(`حصلت مشكلة أثناء ${label || 'التنفيذ'}. جرّب تاني.`);
+    });
+  }
+}
+
 function fireWrite(promise, label) {
   if (promise && typeof promise.catch === 'function') {
     promise.catch((err) => console.warn(`تعذّرت الكتابة (${label}):`, err));

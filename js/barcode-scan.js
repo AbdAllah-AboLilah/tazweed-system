@@ -106,11 +106,11 @@ function openCameraChooser() {
         close(id);
       });
     });
-    document.getElementById('cam-auto').addEventListener('click', () => {
+    overlay.querySelector('#cam-auto').addEventListener('click', () => {
       saveCameraId('');
       close('');
     });
-    document.getElementById('cam-cancel').addEventListener('click', () => close(getSavedCameraId()));
+    overlay.querySelector('#cam-cancel').addEventListener('click', () => close(getSavedCameraId()));
   });
 }
 
@@ -139,8 +139,10 @@ async function openBarcodeScanner(onResult, keepOpen) {
     </div>`;
   document.body.appendChild(overlay);
 
-  const video = document.getElementById('scan-video');
-  const msg = document.getElementById('scan-msg');
+  // بنمسك العناصر من جوه الـoverlay نفسه مش من الصفحة كلها — لو فيه أكتر
+  // من شاشة مفتوحة، كل واحدة بتلاقي عناصرها هي.
+  const video = overlay.querySelector('#scan-video');
+  const msg = overlay.querySelector('#scan-msg');
   let stream = null;
   let stopped = false;
 
@@ -154,7 +156,7 @@ async function openBarcodeScanner(onResult, keepOpen) {
     stopStream();
     if (overlay.parentNode) document.body.removeChild(overlay);
   };
-  document.getElementById('scan-cancel').addEventListener('click', close);
+  overlay.querySelector('#scan-cancel').addEventListener('click', close);
 
   if (!isBarcodeScanSupported()) {
     msg.innerHTML = 'المتصفح ده مش بيدعم قراءة الباركود بالكاميرا.<br>جرّب Chrome، أو اكتب رقم الباركود بإيدك.';
@@ -198,15 +200,25 @@ async function openBarcodeScanner(onResult, keepOpen) {
       }
     }
 
+    // نفس درس شاشة إعدادات الطابعة: المستخدم ممكن يكون قفل الشاشة وإحنا
+    // لسه بنستنى إذن الكاميرا. من غير الفحص ده الكاميرا كانت هتفضل شغّالة
+    // بعد ما الشاشة تتقفل (اللمبة تفضل نوّرة).
+    if (stopped) {
+      stopStream();
+      return false;
+    }
+
     video.srcObject = stream;
     await video.play();
     return true;
   };
 
-  document.getElementById('scan-switch').addEventListener('click', async () => {
-    await openCameraChooser();
-    await start();
-  });
+  overlay.querySelector('#scan-switch').addEventListener('click', () =>
+    safeAsync(async () => {
+      await openCameraChooser();
+      await start();
+    }, 'تغيير الكاميرا')
+  );
 
   if (!(await start())) return;
 
@@ -261,7 +273,7 @@ function handleScannedBarcode(value) {
     const product = typeof findProductByBarcode === 'function' ? findProductByBarcode(value) : null;
     if (product) {
       if (confirm(`الباركود ده لصنف في قاعدة الأصناف:\n${product.name}\n\nتحب تطبع ملصق له؟`)) {
-        printProductLabel(product);
+        safeAsync(() => printProductLabel(product), 'طباعة الملصق');
       }
       return;
     }
