@@ -1274,6 +1274,9 @@ async function registerPrintStation() {
         deviceName: getDeviceName() || 'جهاز بدون اسم',
         labelPrinter,
         restockPrinter,
+        // نسخة النظام الشغّالة على الجهاز ده — بتظهر للي هيبعتله طباعة،
+        // عشان لو الجهاز لسه على نسخة قديمة ياخد باله ويحدّثها.
+        appVersion: typeof APP_VERSION === 'string' ? APP_VERSION : '',
         lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
         updatedByUid: state.user.uid,
         updatedByName: state.profile.name || '',
@@ -1337,12 +1340,20 @@ function choosePrintTarget() {
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
           <button class="btn btn-primary" data-target="local">🖨️ هنا (الجهاز ده)</button>
           ${others
-            .map(
-              (s) => `
+            .map((s) => {
+              const stale = s.appVersion && s.appVersion !== APP_VERSION;
+              return `
             <button class="btn btn-primary" data-target="${escapeHTML(s.id)}">
-              🟢 ${escapeHTML(s.deviceName || 'جهاز بدون اسم')}
-            </button>`
-            )
+              ${stale ? '🟡' : '🟢'} ${escapeHTML(s.deviceName || 'جهاز بدون اسم')}
+            </button>
+            ${
+              stale
+                ? `<div style="font-size:10px; color:#8a6d1f; margin-top:-4px;">
+                     الجهاز ده لسه على نسخة ${escapeHTML(s.appVersion)} — يفضّل تحدّث صفحته
+                   </div>`
+                : ''
+            }`;
+            })
             .join('')}
         </div>
         <button class="btn" data-target="cancel">إلغاء</button>
@@ -1374,7 +1385,12 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML) {
   const printedViaQZ = await tryPrintViaQZ(type, html, sizeOptions);
   if (printedViaQZ) return;
 
-  const single = browserHTML || (Array.isArray(html) ? html[0].html : html);
+  const list = normalizePrintJobs(html);
+  const single = browserHTML || (list.length ? list[0].html : '');
+  if (!single) {
+    alert('حصلت مشكلة في تجهيز محتوى الطباعة. حدّث الصفحة وحاول تاني.');
+    return;
+  }
   const win = window.open('', '_blank', winFeatures);
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
@@ -1388,10 +1404,20 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML) {
 // يعيد بناءه — كده اللي بيتطبع هناك هو **بالظبط** اللي شوفته في المعاينة.
 async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML) {
   const station = (state.printStations || []).find((s) => s.id === targetDeviceId);
+
+  // ⚠️ درس مهم: الجهاز المستقبِل ممكن يكون لسه شغّال على **نسخة أقدم** من
+  // النظام (تبويب مفتوح من كام يوم). فالطلب اللي بنسيبه في السحابة لازم
+  // يبقى مفهوم للنسخة القديمة كمان:
+  //   • html      → نص واحد جاهز (كل النسخ القديمة بتفهمه صح)
+  //   • jobs      → القايمة الجديدة بالنسخ (النسخ القديمة بتتجاهلها)
+  // كده حتى لو الجهاز التاني ما اتحدّثش، هيطبع ملصق صح مش نص خام.
+  const jobs = normalizePrintJobs(html);
   const payload = {
     type,
     targetDeviceId,
-    html,
+    html: browserHTML || (jobs.length ? jobs[0].html : ''),
+    jobs,
+    senderVersion: typeof APP_VERSION === 'string' ? APP_VERSION : '',
     browserHTML: browserHTML || null,
     sizeOptions: sizeOptions || null,
     status: 'pending',
@@ -1454,15 +1480,24 @@ function subscribePrintJobs() {
 async function executePrintJob(jobId, job) {
   // الـHTML بيوصل جاهز من الجهاز الباعت (بما فيه صورة الـQR)، فاللي بيتطبع
   // هنا هو بالظبط اللي هو شافه في المعاينة عنده.
-  const html = job.html;
-  if (!html) return;
+  // jobs هو الشكل الجديد؛ html هو الشكل المتوافق مع النسخ القديمة. لو
+  // الطلب جاي من نسخة أقدم، normalizePrintJobs بتفهم أشكالها كلها.
+  const list = normalizePrintJobs(job.jobs && job.jobs.length ? job.jobs : job.html);
+  if (!list.length) {
+    console.error('طلب طباعة محتواه غير صالح — اتلغى:', jobId);
+    db.collection('printJobs')
+      .doc(jobId)
+      .update({ status: 'failed' })
+      .catch(() => {});
+    return;
+  }
 
   // نجرب QZ Tray الأول (طباعة صامتة فعليًا 100%، من غير أي نافذة أو ضغطة
   // خالص)، ولو مش متاح على الجهاز ده، نرجع لطريقة الـiframe المخفي القديمة
   // (اللي لسه محتاجة ضغطة "طباعة" أخيرة جوه نافذة المتصفح).
-  const printedViaQZ = await tryPrintViaQZ(job.type, html, job.sizeOptions);
+  const printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions);
   if (!printedViaQZ) {
-    printHTMLSilently(job.browserHTML || (Array.isArray(html) ? html[0].html : html));
+    printHTMLSilently(job.browserHTML || list[0].html);
   }
 
   db.collection('printJobs')
@@ -1922,8 +1957,9 @@ function showPrintPreview(html, sizeOptions, copies) {
     const zoom = Math.min(boxW / (sizeOptions.pageWidthMm * PX_PER_MM), isNarrow ? 4 : 7);
     const shownW = sizeOptions.pageWidthMm * PX_PER_MM * zoom;
     const shownH = sizeOptions.pageHeightMm * PX_PER_MM * zoom;
-    const pages = Array.isArray(html) ? html.reduce((n, j) => n + (j.copies || 1), 0) : 1;
-    const previewHTML = Array.isArray(html) ? html[0].html : html;
+    const jobList = normalizePrintJobs(html);
+    const pages = jobList.reduce((n, j) => n + j.copies, 0) || 1;
+    const previewHTML = jobList.length ? jobList[0].html : '';
 
     const overlay = document.createElement('div');
     overlay.style.cssText =
@@ -2139,6 +2175,25 @@ function saveSelectedPrinter(type, printerName) {
   }
 }
 
+// بتحوّل أي شكل من أشكال محتوى الطباعة لقايمة موحّدة [{ html: نص, copies: رقم }].
+// بتقبل: نص واحد، مصفوفة نصوص (شكل نسخة قديمة)، مصفوفة كائنات { html, copies }.
+// وبترمي أي عنصر مش نص — عشان مستحيل يوصل لـQZ حاجة تتطبع كنص خام.
+function normalizePrintJobs(input) {
+  const raw = Array.isArray(input) ? input : [input];
+  const out = [];
+  raw.forEach((item) => {
+    if (typeof item === 'string') {
+      out.push({ html: item, copies: 1 });
+      return;
+    }
+    if (item && typeof item.html === 'string') {
+      const copies = Math.max(1, Math.min(200, parseInt(item.copies, 10) || 1));
+      out.push({ html: item.html, copies });
+    }
+  });
+  return out;
+}
+
 // بيرجع true لو نجحت الطباعة عبر QZ Tray، false لو محتاج نرجع للطريقة
 // العادية (نافذة المتصفح / iframe).
 async function tryPrintViaQZ(type, jobs, sizeOptions) {
@@ -2149,25 +2204,36 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
   if (!ok) return false;
 
   try {
-    // درس اتعلمناه من طباعة فعلية غلط:
-    // QZ Tray بيقبل **عنصر واحد بس** في طلب طباعة HTML. لما بعتناله مصفوفة
-    // فيها أكتر من صفحة، هو حوّل المصفوفة نفسها لنص وطبع النص الخام
-    // بدل الملصق.
+    // ⚠️ قاعدة ذهبية اتعلمناها من طباعتين غلط على التوالي:
+    // الحاجة اللي بتتبعت لـQZ في خانة data **لازم تكون نص HTML وبس**.
+    // لو بعتنا مصفوفة أو كائن بالغلط، QZ ما بيرفضش — بيحوّله لنص ويطبع
+    // النص الخام على اللاصقة (زي [{"html":"\n \n...).
     //
-    // الطريقة الصح:
-    //   • نسخ متطابقة  → خيار copies في إعداد الطابعة (QZ بيتولاها بنفسه)
-    //   • ملصقات مختلفة → طلب طباعة مستقل لكل واحد، واحد ورا التاني
-    const list = typeof jobs === 'string' ? [{ html: jobs, copies: 1 }] : jobs;
+    // عشان كده normalizePrintJobs بترجّع قايمة نضيفة، وتحت السطر ده فيه
+    // فحص صارم: لو المحتوى مش نص، بنوقف الطباعة فورًا ونرجع false بدل ما
+    // نطبع زبالة على ورق حقيقي.
+    const list = normalizePrintJobs(jobs);
+    if (!list.length) {
+      console.error('محتوى الطباعة غير صالح — مش هيتبعت لـQZ:', jobs);
+      return false;
+    }
+
     const size =
       sizeOptions && sizeOptions.pageWidthMm
         ? { width: sizeOptions.pageWidthMm, height: sizeOptions.pageHeightMm }
         : null;
 
+    // نفس شكل الإعداد اللي كان شغال 100% في v0.17 — من غير أي خيارات
+    // إضافية. العدد بنعمله بتكرار الطلب نفسه، مش بخيار في الإعداد، عشان
+    // ما نعتمدش على سلوك مش متأكدين منه في نسخة QZ اللي على الجهاز.
+    const config = qz.configs.create(printerName, size ? { size, units: 'mm' } : {});
+
     for (const job of list) {
-      const opts = size ? { size, units: 'mm' } : {};
-      opts.copies = Math.max(1, parseInt(job.copies, 10) || 1);
-      const config = qz.configs.create(printerName, opts);
-      await qz.print(config, [{ type: 'pixel', format: 'html', flavor: 'plain', data: job.html }]);
+      for (let i = 0; i < job.copies; i++) {
+        await qz.print(config, [
+          { type: 'pixel', format: 'html', flavor: 'plain', data: job.html },
+        ]);
+      }
     }
     return true;
   } catch (err) {

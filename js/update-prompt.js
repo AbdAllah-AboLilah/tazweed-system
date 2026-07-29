@@ -26,6 +26,21 @@ function initUpdatePrompt() {
           }
         });
       });
+
+      // ⚠️ ده اللي كان ناقص وسبّب مشكلة حقيقية:
+      // كمبيوتر الكاشير بيفضل التبويب مفتوح عليه أيام من غير ما حد يعمل
+      // Refresh، والمتصفح لوحده بيسأل عن تحديث للـservice worker مرة كل
+      // 24 ساعة تقريبًا. النتيجة إن التليفون بقى على نسخة جديدة والكمبيوتر
+      // لسه على القديمة — والطباعة اللي بتتبعت بينهم بتطلع غلط.
+      //
+      // فبنسأل عن تحديث كل نص ساعة، وكمان أول ما التبويب يرجع قدام أو
+      // النت يرجع. لو مفيش تحديث، السؤال ده رخيص جدًا (رد 304 وخلاص).
+      const checkForUpdate = () => registration.update().catch(() => {});
+      setInterval(checkForUpdate, 30 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) checkForUpdate();
+      });
+      window.addEventListener('online', checkForUpdate);
     })
     .catch((err) => console.error('تعذّر تسجيل service worker:', err));
 
