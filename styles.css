@@ -574,6 +574,42 @@ th {
   width: 100%;
 }
 
+/* ============================================================
+   عناوين مجموعات الألوان جوه الفئة
+   ============================================================ */
+.group-head {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  margin: 10px 0 6px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.group-head span,
+tr.group-row td span {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+tr.group-row td {
+  background: var(--surface-muted);
+  font-weight: 600;
+  font-size: 13px;
+  position: sticky;
+  top: 38px;
+  z-index: 4;
+}
+
 /* الدرجات الأساسية (أبيض/أسود/أوف وايت) بتتميّز بشريط جانبي.
    في الجدول الشريط بيتحط على أول خلية مش على الصف نفسه، لأن الحدود على
    <tr> مابترسمش مع border-collapse. */
