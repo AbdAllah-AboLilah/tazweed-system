@@ -1360,35 +1360,39 @@ function choosePrintTarget() {
 }
 
 // بيوصّل الطباعة لوجهتها: يا إما الجهاز ده مباشرة، يا إما بيبعتها لجهاز تاني.
-async function deliverPrint(type, html, sizeOptions, winFeatures) {
+// html: صفحة واحدة أو مصفوفة صفحات (لـQZ). browserHTML: مستند واحد بفواصل
+// صفحات، بيستخدم مع نافذة طباعة المتصفح لأنها بتتعامل مع مستند واحد بس.
+async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML) {
   const target = await choosePrintTarget();
   if (target === null) return;
 
   if (target !== 'local') {
-    await sendPrintJob(type, target, html, sizeOptions);
+    await sendPrintJob(type, target, html, sizeOptions, browserHTML);
     return;
   }
 
   const printedViaQZ = await tryPrintViaQZ(type, html, sizeOptions);
   if (printedViaQZ) return;
 
+  const single = browserHTML || (Array.isArray(html) ? html[0] : html);
   const win = window.open('', '_blank', winFeatures);
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
     return;
   }
-  win.document.write(html);
+  win.document.write(single);
   win.document.close();
 }
 
 // بنبعت الـHTML جاهز بالكامل (بما فيه صورة الـQR) بدل ما الجهاز المستقبِل
 // يعيد بناءه — كده اللي بيتطبع هناك هو **بالظبط** اللي شوفته في المعاينة.
-async function sendPrintJob(type, targetDeviceId, html, sizeOptions) {
+async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML) {
   const station = (state.printStations || []).find((s) => s.id === targetDeviceId);
   const payload = {
     type,
     targetDeviceId,
     html,
+    browserHTML: browserHTML || null,
     sizeOptions: sizeOptions || null,
     status: 'pending',
     requestedByUid: state.user.uid,
@@ -1458,7 +1462,7 @@ async function executePrintJob(jobId, job) {
   // (اللي لسه محتاجة ضغطة "طباعة" أخيرة جوه نافذة المتصفح).
   const printedViaQZ = await tryPrintViaQZ(job.type, html, job.sizeOptions);
   if (!printedViaQZ) {
-    printHTMLSilently(html);
+    printHTMLSilently(job.browserHTML || (Array.isArray(html) ? html[0] : html));
   }
 
   db.collection('printJobs')
@@ -1572,17 +1576,31 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const halfHeight = pageHeightMm / (halves || 1);
   const copyCount = Math.max(1, Math.min(200, parseInt(copies, 10) || 1));
 
-  // كل المقاسات بالملم عشان تطلع مظبوطة على الطابعة الحرارية بغض النظر
-  // عن دقة الشاشة أو محرك العرض اللي بيرسمها.
-  const pad = 0.7;
-  const qrBox = Math.min(halfHeight - pad * 2, 12);
-  const nameSize = Math.min(halfHeight * 0.21, 2.7);
-  const codeSize = Math.min(halfHeight * 0.19, 2.4);
-  const priceSize = Math.min(halfHeight * 0.2, 2.6);
-
+  const name = String(cat.itemName || cat.name || '');
   const priceHTML = cat.sellingPrice
     ? `<div class="price"><s>${escapeHTML(cat.originalPrice || 0)} L.E</s><b>${escapeHTML(cat.sellingPrice)} L.E</b></div>`
     : '';
+
+  // هامش أمان رأسي: الطابعة الحرارية بتاكل جزء بسيط من أعلى وأسفل اللاصقة،
+  // فبنسيب 0.6مم فاضيين عشان المحتوى ما يخرجش بره حدود الورق.
+  const SAFETY_MM = 0.6;
+  const pad = 0.6;
+  const LINE = 1.2;
+  const contentH = halfHeight - pad * 2 - SAFETY_MM;
+
+  const qrBox = Math.min(contentH, 11);
+  const textW = pageWidthMm - qrBox - pad * 3;
+
+  // اسم الصنف بيتقاس فعليًا: لو داخل في سطر واحد يبقى سطر، ولو أطول
+  // بيتقسم على سطرين بدل ما يتقطع بنقط (...) زي ما كان بيحصل.
+  const oneLineFit = fitFontSizeMm(name, textW, true);
+  const nameLines = oneLineFit >= 1.9 ? 1 : 2;
+  const totalLines = nameLines + 1 + (cat.sellingPrice ? 1 : 0);
+  const byHeight = contentH / (totalLines * LINE);
+
+  const nameSize = Math.min(byHeight, 2.7, nameLines === 1 ? oneLineFit : oneLineFit * 1.85);
+  const codeSize = Math.min(byHeight, nameSize * 0.9);
+  const priceSize = Math.min(byHeight, nameSize * 0.95);
 
   const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '<div class="qr"></div>';
 
@@ -1590,7 +1608,7 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
       <div class="half">
         ${qrHTML}
         <div class="txt">
-          <div class="name">${escapeHTML(cat.itemName || cat.name)}</div>
+          <div class="name">${escapeHTML(name)}</div>
           <div class="code">${escapeHTML(cat.barcodeNumber || '')}</div>
           ${priceHTML}
         </div>
@@ -1601,17 +1619,15 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
     <html dir="ltr" lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>ملصق - ${escapeHTML(cat.itemName || cat.name)}</title>
+      <title>ملصق - ${escapeHTML(name)}</title>
       <style>
         @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
         body {
           font-family: Arial, Helvetica, Tahoma, sans-serif;
           width: ${pageWidthMm}mm;
-          color: #000; line-height: 1.15;
+          color: #000; line-height: ${LINE};
         }
-        /* كل لاصقة = صفحة لوحدها. لما تطلب أكتر من نسخة، كل نسخة بتنزل
-           على لاصقة جديدة بدل ما تتلزق في نفس الواحدة. */
         .label {
           width: ${pageWidthMm}mm; height: ${pageHeightMm}mm;
           overflow: hidden;
@@ -1620,17 +1636,20 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
         .half {
           height: ${halfHeight}mm; width: 100%;
           display: flex; align-items: center; gap: ${pad}mm;
-          padding: ${pad}mm;
+          padding: ${pad}mm ${pad}mm ${pad + SAFETY_MM}mm;
           overflow: hidden;
         }
         .qr { width: ${qrBox}mm; height: ${qrBox}mm; flex: 0 0 ${qrBox}mm; display: block; }
         .txt { flex: 1; min-width: 0; text-align: center; }
+        /* الاسم الطويل بيكمّل في سطر تحته بدل ما يتقطع بنقط */
         .name {
-          font-size: ${nameSize}mm; font-weight: bold;
-          white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          font-size: ${nameSize.toFixed(2)}mm; font-weight: bold;
+          overflow-wrap: anywhere; word-break: break-word;
+          display: -webkit-box; -webkit-line-clamp: ${nameLines}; -webkit-box-orient: vertical;
+          overflow: hidden;
         }
-        .code { font-size: ${codeSize}mm; letter-spacing: 0.2mm; }
-        .price { font-size: ${priceSize}mm; display: flex; justify-content: center; gap: ${pad * 2}mm; }
+        .code { font-size: ${codeSize.toFixed(2)}mm; letter-spacing: 0.15mm; }
+        .price { font-size: ${priceSize.toFixed(2)}mm; display: flex; justify-content: center; gap: ${pad * 2}mm; white-space: nowrap; }
         .price s { font-weight: normal; }
         .price b { font-weight: bold; }
       </style>
@@ -1651,8 +1670,12 @@ async function printLabel(cat, sizeOptions) {
   const approved = await showPrintPreview(previewHTML, sizeOptions, copies);
   if (!approved) return;
 
-  const html = buildLabelHTML(cat, sizeOptions, qrDataUrl, copies);
-  await deliverPrint('label', html, sizeOptions, 'width=420,height=320');
+  // لكل نسخة صفحة مستقلة (مصفوفة) عشان QZ ما يحشرهمش في لاصقة واحدة،
+  // ومستند واحد بفواصل صفحات للطريقة العادية (نافذة المتصفح).
+  const onePage = buildLabelHTML(cat, sizeOptions, qrDataUrl, 1);
+  const pages = Array(copies).fill(onePage);
+  const fallbackHTML = buildLabelHTML(cat, sizeOptions, qrDataUrl, copies);
+  await deliverPrint('label', pages, sizeOptions, 'width=420,height=320', fallbackHTML);
 }
 
 // ------------------------------------------------------------
@@ -1689,17 +1712,22 @@ function buildGradeLabelHTML(categoryName, gradeNumber, sizeOptions, copies) {
   const halfHeight = pageHeightMm / (halves || 1);
   const copyCount = Math.max(1, Math.min(200, parseInt(copies, 10) || 1));
 
-  const pad = 1;
+  // هامش أمان رأسي زي ملصق الصنف — الطابعة بتاكل جزء بسيط من الحواف.
+  const SAFETY_MM = 0.6;
+  const pad = 0.8;
   const availableW = pageWidthMm - pad * 2;
-  const availableH = halfHeight - pad * 2;
+  const availableH = halfHeight - pad * 2 - SAFETY_MM;
 
   const line1 = String(categoryName || '');
   const line2 = `درجة ${gradeNumber}`;
 
-  // السطرين ياخدوا نص الارتفاع لكل واحد، وكل واحد بيتصغّر لو عرضه زايد.
-  const LINE = 1.25;
-  const byHeight = availableH / (2 * LINE);
-  const size1 = Math.min(byHeight, fitFontSizeMm(line1, availableW, true));
+  // اسم الفئة الطويل بيتقسم على سطرين بدل ما يتقطع أو يخرج بره اللاصقة.
+  const LINE = 1.2;
+  const oneLineFit = fitFontSizeMm(line1, availableW, true);
+  const nameLines = oneLineFit >= 2.4 ? 1 : 2;
+  const byHeight = availableH / ((nameLines + 1) * LINE);
+
+  const size1 = Math.min(byHeight, nameLines === 1 ? oneLineFit : oneLineFit * 1.85);
   const size2 = Math.min(byHeight, fitFontSizeMm(line2, availableW, true));
 
   const halfHTML = `
@@ -1722,13 +1750,19 @@ function buildGradeLabelHTML(categoryName, gradeNumber, sizeOptions, copies) {
         .label + .label { page-break-before: always; break-before: page; }
         .half {
           height: ${halfHeight}mm; width: 100%;
-          padding: ${pad}mm;
+          padding: ${pad}mm ${pad}mm ${pad + SAFETY_MM}mm;
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
           text-align: center; overflow: hidden;
         }
-        .l1, .l2 { font-weight: bold; white-space: nowrap; line-height: ${LINE}; }
-        .l1 { font-size: ${size1.toFixed(2)}mm; }
+        .l1, .l2 { font-weight: bold; line-height: ${LINE}; }
+        .l1 {
+          font-size: ${size1.toFixed(2)}mm;
+          overflow-wrap: anywhere; word-break: break-word;
+          display: -webkit-box; -webkit-line-clamp: ${nameLines}; -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .l2 { white-space: nowrap; }
         .l2 { font-size: ${size2.toFixed(2)}mm; }
       </style>
     </head>
@@ -1750,15 +1784,22 @@ async function printGradeLabels(cat, sizeOptions) {
   const approved = await showPrintPreview(previewHTML, sizeOptions, total);
   if (!approved) return;
 
-  // بنلزق ملصقات كل الدرجات في مستند واحد — طبعة واحدة بدل ما نفتح
-  // نافذة طباعة لكل درجة لوحدها.
+  // كل لاصقة صفحة مستقلة عند QZ (مصفوفة)، عشان ما يحشرش أكتر من واحدة
+  // في نفس اللاصقة.
+  const pages = [];
+  picks.forEach((p) => {
+    const one = buildGradeLabelHTML(cat.name, p.grade.number, sizeOptions, 1);
+    for (let i = 0; i < p.qty; i++) pages.push(one);
+  });
+
+  // نسخة واحدة بفواصل صفحات لنافذة طباعة المتصفح (بتتعامل مع مستند واحد).
   const bodies = picks.map((p) =>
     extractLabelBody(buildGradeLabelHTML(cat.name, p.grade.number, sizeOptions, p.qty))
   );
   const shell = buildGradeLabelHTML(cat.name, picks[0].grade.number, sizeOptions, 1);
-  const html = shell.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
+  const browserHTML = shell.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
-  await deliverPrint('label', html, sizeOptions, 'width=420,height=320');
+  await deliverPrint('label', pages, sizeOptions, 'width=420,height=320', browserHTML);
 }
 
 function extractLabelBody(fullHTML) {
@@ -1874,20 +1915,33 @@ function openAddGradeRangeDialog(categoryId) {
 // بترجّع true لو المستخدم ضغط "طباعة"، false لو ألغى.
 function showPrintPreview(html, sizeOptions, copies) {
   return new Promise((resolve) => {
-    const scale = 4;
+    // المعاينة كانت صغيرة أوي على شاشة الكمبيوتر. دلوقتي بنحسب التكبير من
+    // المساحة المتاحة فعلًا بدل رقم ثابت — كبيرة على الكمبيوتر ومناسبة
+    // على الموبايل، وبحد أقصى عشان ما تبقاش مشوّهة.
+    const isNarrow = window.innerWidth <= NARROW_BREAKPOINT;
+    const boxW = Math.min(window.innerWidth - 80, isNarrow ? 320 : 560);
+    const PX_PER_MM = 3.7795;
+    const zoom = Math.min(boxW / (sizeOptions.pageWidthMm * PX_PER_MM), isNarrow ? 4 : 7);
+    const shownW = sizeOptions.pageWidthMm * PX_PER_MM * zoom;
+    const shownH = sizeOptions.pageHeightMm * PX_PER_MM * zoom;
+    const pages = Array.isArray(html) ? html.length : 1;
+    const previewHTML = Array.isArray(html) ? html[0] : html;
+
     const overlay = document.createElement('div');
     overlay.style.cssText =
       'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
     overlay.innerHTML = `
-      <div class="card" style="max-width:360px; width:100%; text-align:center;">
-        <div style="font-size:14px; font-weight:500; margin-bottom:10px;">معاينة الملصق قبل الطباعة</div>
-        <div style="overflow:auto; margin-bottom:12px;">
-          <div style="width:${sizeOptions.pageWidthMm * scale}px; height:${sizeOptions.pageHeightMm * scale}px; margin:0 auto; border:1px solid var(--border); background:#fff;">
-            <iframe id="preview-frame" style="width:${sizeOptions.pageWidthMm}mm; height:${sizeOptions.pageHeightMm}mm; border:0; transform:scale(${(sizeOptions.pageWidthMm * scale) / (sizeOptions.pageWidthMm * 3.7795)}); transform-origin:top left;"></iframe>
-          </div>
+      <div class="card" style="max-width:${Math.round(shownW) + 60}px; width:100%; text-align:center;">
+        <div style="font-size:14px; font-weight:500; margin-bottom:12px;">معاينة الملصق قبل الطباعة</div>
+        <div style="margin:0 auto 12px; width:${Math.round(shownW)}px; height:${Math.round(shownH)}px;
+                    border:1px solid var(--border); background:#fff; overflow:hidden;">
+          <iframe id="preview-frame" scrolling="no"
+                  style="width:${sizeOptions.pageWidthMm}mm; height:${sizeOptions.pageHeightMm}mm; border:0;
+                         transform:scale(${zoom}); transform-origin:top left; display:block;"></iframe>
         </div>
         <div style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
           ${sizeOptions.pageWidthMm}×${sizeOptions.pageHeightMm} ملم${sizeOptions.halves > 1 ? ' — المحتوى بيتكرر في نصّي اللاصقة' : ''}
+          ${pages > 1 ? `<br>دي أول لاصقة — هيتطبع <strong>${pages}</strong> لاصقة كل واحدة لوحدها` : ''}
         </div>
         <div style="display:flex; gap:8px; justify-content:center;">
           <button class="btn" id="preview-cancel">إلغاء</button>
@@ -1899,7 +1953,7 @@ function showPrintPreview(html, sizeOptions, copies) {
     const frame = document.getElementById('preview-frame');
     const doc = frame.contentWindow.document;
     doc.open();
-    doc.write(html);
+    doc.write(previewHTML);
     doc.close();
 
     const close = (result) => {
@@ -2097,15 +2151,21 @@ async function tryPrintViaQZ(type, htmlContent, sizeOptions) {
   if (!ok) return false;
 
   try {
-    // اللاصقة مقاسها ثابت فبنفرضه على محرك الطباعة بتاع QZ مباشرة (وده
-    // اللي بيلف مشكلة قايمة المقاسات المحفوظة في تعريف الطابعة). ورقة
-    // التزويد رول مستمر بارتفاع مفتوح، فبنسيب الطابعة تتحكم في الارتفاع.
+    // ⚠️ نقطة مهمة: QZ Tray بيرسم الـHTML كصورة واحدة بمقاس الصفحة.
+    // فلو بعتنا مستند فيه أكتر من لاصقة جوه بعض، هو بيحشرهم كلهم في
+    // لاصقة واحدة — وده اللي كان بيحصل لما تطلب نسختين.
+    //
+    // الحل: نبعت **مصفوفة** — كل عنصر فيها = لاصقة/صفحة مستقلة عند QZ.
+    const pages = Array.isArray(htmlContent) ? htmlContent : [htmlContent];
     const size =
       sizeOptions && sizeOptions.pageWidthMm
         ? { width: sizeOptions.pageWidthMm, height: sizeOptions.pageHeightMm }
         : null;
     const config = qz.configs.create(printerName, size ? { size, units: 'mm' } : {});
-    await qz.print(config, [{ type: 'pixel', format: 'html', flavor: 'plain', data: htmlContent }]);
+    await qz.print(
+      config,
+      pages.map((html) => ({ type: 'pixel', format: 'html', flavor: 'plain', data: html }))
+    );
     return true;
   } catch (err) {
     console.error('فشلت الطباعة عبر QZ Tray:', err);
