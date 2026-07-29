@@ -1374,7 +1374,7 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML) {
   const printedViaQZ = await tryPrintViaQZ(type, html, sizeOptions);
   if (printedViaQZ) return;
 
-  const single = browserHTML || (Array.isArray(html) ? html[0] : html);
+  const single = browserHTML || (Array.isArray(html) ? html[0].html : html);
   const win = window.open('', '_blank', winFeatures);
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
@@ -1462,7 +1462,7 @@ async function executePrintJob(jobId, job) {
   // (اللي لسه محتاجة ضغطة "طباعة" أخيرة جوه نافذة المتصفح).
   const printedViaQZ = await tryPrintViaQZ(job.type, html, job.sizeOptions);
   if (!printedViaQZ) {
-    printHTMLSilently(job.browserHTML || (Array.isArray(html) ? html[0] : html));
+    printHTMLSilently(job.browserHTML || (Array.isArray(html) ? html[0].html : html));
   }
 
   db.collection('printJobs')
@@ -1672,10 +1672,9 @@ async function printLabel(cat, sizeOptions) {
 
   // لكل نسخة صفحة مستقلة (مصفوفة) عشان QZ ما يحشرهمش في لاصقة واحدة،
   // ومستند واحد بفواصل صفحات للطريقة العادية (نافذة المتصفح).
-  const onePage = buildLabelHTML(cat, sizeOptions, qrDataUrl, 1);
-  const pages = Array(copies).fill(onePage);
+  const jobs = [{ html: buildLabelHTML(cat, sizeOptions, qrDataUrl, 1), copies }];
   const fallbackHTML = buildLabelHTML(cat, sizeOptions, qrDataUrl, copies);
-  await deliverPrint('label', pages, sizeOptions, 'width=420,height=320', fallbackHTML);
+  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', fallbackHTML);
 }
 
 // ------------------------------------------------------------
@@ -1786,11 +1785,10 @@ async function printGradeLabels(cat, sizeOptions) {
 
   // كل لاصقة صفحة مستقلة عند QZ (مصفوفة)، عشان ما يحشرش أكتر من واحدة
   // في نفس اللاصقة.
-  const pages = [];
-  picks.forEach((p) => {
-    const one = buildGradeLabelHTML(cat.name, p.grade.number, sizeOptions, 1);
-    for (let i = 0; i < p.qty; i++) pages.push(one);
-  });
+  const jobs = picks.map((p) => ({
+    html: buildGradeLabelHTML(cat.name, p.grade.number, sizeOptions, 1),
+    copies: p.qty,
+  }));
 
   // نسخة واحدة بفواصل صفحات لنافذة طباعة المتصفح (بتتعامل مع مستند واحد).
   const bodies = picks.map((p) =>
@@ -1799,7 +1797,7 @@ async function printGradeLabels(cat, sizeOptions) {
   const shell = buildGradeLabelHTML(cat.name, picks[0].grade.number, sizeOptions, 1);
   const browserHTML = shell.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
-  await deliverPrint('label', pages, sizeOptions, 'width=420,height=320', browserHTML);
+  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML);
 }
 
 function extractLabelBody(fullHTML) {
@@ -1924,8 +1922,8 @@ function showPrintPreview(html, sizeOptions, copies) {
     const zoom = Math.min(boxW / (sizeOptions.pageWidthMm * PX_PER_MM), isNarrow ? 4 : 7);
     const shownW = sizeOptions.pageWidthMm * PX_PER_MM * zoom;
     const shownH = sizeOptions.pageHeightMm * PX_PER_MM * zoom;
-    const pages = Array.isArray(html) ? html.length : 1;
-    const previewHTML = Array.isArray(html) ? html[0] : html;
+    const pages = Array.isArray(html) ? html.reduce((n, j) => n + (j.copies || 1), 0) : 1;
+    const previewHTML = Array.isArray(html) ? html[0].html : html;
 
     const overlay = document.createElement('div');
     overlay.style.cssText =
@@ -2143,7 +2141,7 @@ function saveSelectedPrinter(type, printerName) {
 
 // بيرجع true لو نجحت الطباعة عبر QZ Tray، false لو محتاج نرجع للطريقة
 // العادية (نافذة المتصفح / iframe).
-async function tryPrintViaQZ(type, htmlContent, sizeOptions) {
+async function tryPrintViaQZ(type, jobs, sizeOptions) {
   const printerName = getSavedPrinter(type);
   if (!printerName) return false;
 
@@ -2151,21 +2149,26 @@ async function tryPrintViaQZ(type, htmlContent, sizeOptions) {
   if (!ok) return false;
 
   try {
-    // ⚠️ نقطة مهمة: QZ Tray بيرسم الـHTML كصورة واحدة بمقاس الصفحة.
-    // فلو بعتنا مستند فيه أكتر من لاصقة جوه بعض، هو بيحشرهم كلهم في
-    // لاصقة واحدة — وده اللي كان بيحصل لما تطلب نسختين.
+    // درس اتعلمناه من طباعة فعلية غلط:
+    // QZ Tray بيقبل **عنصر واحد بس** في طلب طباعة HTML. لما بعتناله مصفوفة
+    // فيها أكتر من صفحة، هو حوّل المصفوفة نفسها لنص وطبع النص الخام
+    // بدل الملصق.
     //
-    // الحل: نبعت **مصفوفة** — كل عنصر فيها = لاصقة/صفحة مستقلة عند QZ.
-    const pages = Array.isArray(htmlContent) ? htmlContent : [htmlContent];
+    // الطريقة الصح:
+    //   • نسخ متطابقة  → خيار copies في إعداد الطابعة (QZ بيتولاها بنفسه)
+    //   • ملصقات مختلفة → طلب طباعة مستقل لكل واحد، واحد ورا التاني
+    const list = typeof jobs === 'string' ? [{ html: jobs, copies: 1 }] : jobs;
     const size =
       sizeOptions && sizeOptions.pageWidthMm
         ? { width: sizeOptions.pageWidthMm, height: sizeOptions.pageHeightMm }
         : null;
-    const config = qz.configs.create(printerName, size ? { size, units: 'mm' } : {});
-    await qz.print(
-      config,
-      pages.map((html) => ({ type: 'pixel', format: 'html', flavor: 'plain', data: html }))
-    );
+
+    for (const job of list) {
+      const opts = size ? { size, units: 'mm' } : {};
+      opts.copies = Math.max(1, parseInt(job.copies, 10) || 1);
+      const config = qz.configs.create(printerName, opts);
+      await qz.print(config, [{ type: 'pixel', format: 'html', flavor: 'plain', data: job.html }]);
+    }
     return true;
   } catch (err) {
     console.error('فشلت الطباعة عبر QZ Tray:', err);
