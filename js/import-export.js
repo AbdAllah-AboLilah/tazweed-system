@@ -304,11 +304,12 @@ async function exportToExcel() {
       ['الصنف:', cat.itemName || cat.name],
       ['الباركود:', cat.barcodeNumber || ''],
       [],
-      ['الدرجة', 'الفرع', 'الرئيسي', 'الحالة'],
+      ['الدرجة', 'المجموعة', 'الفرع', 'الرئيسي', 'الحالة'],
       // الدرجات الأساسية بتتصدّر باسمها (أبيض/أسود/أوف وايت) مش برقمها
       // السالب، عشان الملف يفضل مقروء زي ملف الإكسل الأصلي.
       ...grades.map((g) => [
         g.isBase && g.name ? g.name : g.number,
+        g.group || '',
         g.branchQty || 0,
         g.mainQty || 0,
         statusLabel(g.status),

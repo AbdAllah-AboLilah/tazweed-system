@@ -23,7 +23,8 @@ const state = {
   sideMenuOpen: false, // قايمة الفئات الجانبية (على الموبايل بتفتح فوق الشاشة)
   categorySearch: '', // بحث جوه قايمة الفئات
   categoryFilter: 'all', // all | pending | out | low — فلترة قايمة الفئات
-  gradeFilter: 'all', // all | pending | out | low — فلترة الدرجات جوه الفئة
+  gradeFilter: 'all', // all | pending | out | low | base — فلترة الدرجات جوه الفئة
+  gradeGroupFilter: '', // فلترة بمجموعة الألوان ('' = الكل)
   productSearch: '',
   productDept: '',
   productPage: 1,
@@ -178,14 +179,97 @@ function gradeCriticalQty(g, cat) {
   return Number(cat && cat.minQty) || 0;
 }
 
+// ============================================================
+// مجموعات الألوان جوه الفئة الواحدة
+// ============================================================
+// في ملف الإكسل الأصلي، شيت "كريب سادة لوكس" كان مقسوم جواه لأكتر من
+// مجموعة: "بيجات" لوحدها، وباقي الألوان لوحدها — كل مجموعة بترقيم درجاتها.
+//
+// فبقى لكل فئة قايمة أسماء مجموعات (colorGroups)، وكل درجة ليها حقل group
+// باسم مجموعتها. الدرجات اللي مالهاش مجموعة بتظهر في الآخر تحت "باقي
+// الدرجات" — فالفئات القديمة بتفضل شغّالة زي ما هي من غير أي تغيير.
+const UNGROUPED_LABEL = 'باقي الدرجات';
+
+function categoryGroups(cat) {
+  const list = (cat && Array.isArray(cat.colorGroups) ? cat.colorGroups : []).filter(Boolean);
+  return list;
+}
+
+// بترجّع الدرجات مقسّمة: [{ name, grades }] بترتيب المجموعات المحفوظ،
+// والمجموعة الفاضية بتتشال. لو الفئة مش مقسّمة خالص، بترجّع قسم واحد
+// من غير اسم (يعني بلا عناوين على الشاشة).
+function groupedGrades(grades, cat) {
+  const groups = categoryGroups(cat);
+  if (!groups.length) return [{ name: '', grades }];
+
+  const sections = groups.map((name) => ({ name, grades: [] }));
+  const rest = { name: UNGROUPED_LABEL, grades: [] };
+  const byName = {};
+  sections.forEach((s) => (byName[s.name] = s));
+
+  grades.forEach((g) => {
+    const target = g.group && byName[g.group] ? byName[g.group] : rest;
+    target.grades.push(g);
+  });
+
+  const out = sections.filter((s) => s.grades.length);
+  if (rest.grades.length) out.push(rest);
+  return out.length ? out : [{ name: '', grades: [] }];
+}
+
+// خانة اختيار مجموعة — بتظهر بس لو الفئة مقسّمة، فالفورم مايكبرش من غير داعي.
+function groupSelectHTML(id, cat) {
+  const groups = categoryGroups(cat);
+  if (!groups.length) return '';
+  return `
+        <div class="field" style="margin-bottom:0; min-width:120px;">
+          <label>المجموعة</label>
+          <select class="input" id="${id}">
+            <option value="">— ${escapeHTML(UNGROUPED_LABEL)} —</option>
+            ${groups.map((n) => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('')}
+          </select>
+        </div>`;
+}
+
+// شريط تاني للفلترة بالمجموعة — بيظهر بس لو الفئة مقسّمة فعلًا، فالفئات
+// غير المقسّمة شكلها مايتغيرش خالص.
+function groupFilterBarHTML(cat) {
+  const groups = categoryGroups(cat);
+  if (!groups.length) return '';
+
+  const hasUngrouped = state.grades.some((g) => !g.group || !groups.includes(g.group));
+  const active = state.gradeGroupFilter || '';
+  const countOf = (name) =>
+    state.grades.filter((g) => (g.group && groups.includes(g.group) ? g.group : UNGROUPED_LABEL) === name).length;
+
+  const chip = (value, label, n) =>
+    `<button class="cat-chip ${active === value ? 'cat-chip-active' : ''}" data-group-filter="${escapeHTML(value)}">${escapeHTML(
+      label
+    )}${n ? ` (${escapeHTML(n)})` : ''}</button>`;
+
+  return `
+    <div class="filter-row">
+      <span style="font-size:12px; color:var(--text-secondary); align-self:center;">🎨</span>
+      ${chip('', 'كل المجموعات', 0)}
+      ${groups.map((name) => chip(name, name, countOf(name))).join('')}
+      ${hasUngrouped ? chip(UNGROUPED_LABEL, UNGROUPED_LABEL, countOf(UNGROUPED_LABEL)) : ''}
+    </div>`;
+}
+
 // ------------------------------------------------------------
 // فلترة الدرجات جوه الفئة
 // ------------------------------------------------------------
 function visibleGrades() {
   const filter = state.gradeFilter || 'all';
-  if (filter === 'all') return state.grades;
+  const groupFilter = state.gradeGroupFilter || '';
   const cat = state.categories.find((c) => c.id === state.activeCategoryId) || {};
+
   return state.grades.filter((g) => {
+    if (groupFilter) {
+      const own = g.group || UNGROUPED_LABEL;
+      if (own !== groupFilter) return false;
+    }
+    if (filter === 'all') return true;
     if (filter === 'pending') return g.status === 'pending';
     if (filter === 'out') return g.status === 'out';
     if (filter === 'low') {
@@ -484,11 +568,20 @@ function dashboardHTML() {
   const navBtn = (screen, label) =>
     `<button class="tab ${state.screen === screen ? 'tab-active' : ''}" data-screen="${screen}">${label}</button>`;
 
+  // التاب بيوري **اسم الفئة المفتوحة نفسها** مش كلمة "الشيت" — عشان تعرف
+  // انت فاتح إيه من غير ما تدوّر. الأسماء الطويلة بتتقص في التاب بس
+  // (الاسم الكامل موجود فوق الجدول وفي القايمة الجانبية).
+  const openCat = state.categories.find((c) => c.id === state.activeCategoryId);
+  const openCatName = openCat ? openCat.name : '';
+  const sheetTabLabel =
+    '📄 ' +
+    escapeHTML(openCatName.length > 20 ? openCatName.slice(0, 19) + '…' : openCatName || 'الشيت');
+
   const navRowHTML = `
     <div class="tabs">
       <button class="tab" id="side-open-btn">📂 الفئات</button>
       ${navBtn('home', '🏠 الرئيسية')}
-      ${navBtn('sheets', '📄 الشيت')}
+      ${navBtn('sheets', sheetTabLabel)}
       ${canUsePrintScreen(state.profile) ? navBtn('print', '🏷️ طباعة') : ''}
       ${navBtn('products', '📦 الأصناف')}
     </div>
@@ -622,6 +715,37 @@ function defaultRestockQty() {
   return n > 0 ? n : DEFAULT_RESTOCK_QTY;
 }
 
+// ------------------------------------------------------------
+// الحالة بتتحدد من الكميات — مش من زرار حد بيضغطه
+// ------------------------------------------------------------
+// القاعدة الوحيدة اللي بيمشي عليها النظام كله دلوقتي:
+//
+//   فيه كمية في الفرع            → عادي
+//   الفرع صفر والرئيسي فيه كمية  → طلب معلّق
+//   الفرع صفر والرئيسي صفر       → خلصت نهائيًا
+//
+// وده معناه إن الحالة **بتصحّح نفسها في الاتجاهين**:
+//   • الرئيسي نزل صفر وفيه طلب معلّق  → تتحول "خلصت" لوحدها
+//   • وصلت كمية للرئيسي وهي "خلصت"    → ترجع "طلب معلّق" لوحدها
+//   • دخلت قطعة للفرع                  → ترجع "عادي" لوحدها
+//
+// الأتمتة اللي في اتجاه واحد وبتحتاج تصحيح يدوي هي اللي بتعمل مشاكل —
+// دي بترجع لوحدها أول ما الرقم الصح يتسجّل.
+//
+// بترجع الحالة الجديدة، أو null لو مفيش تغيير مطلوب.
+function nextStatusFromQuantities(data, field, newValue) {
+  const branch = field === 'branchQty' ? newValue : Number(data.branchQty) || 0;
+  const main = field === 'mainQty' ? newValue : Number(data.mainQty) || 0;
+  const current = data.status || 'normal';
+
+  let target;
+  if (branch > 0) target = 'normal';
+  else if (main > 0) target = 'pending';
+  else target = 'out';
+
+  return target === current ? null : target;
+}
+
 // محتوى عمود الحالة من غير <td> — عشان نقدر نستخدمه في الجدول (كمبيوتر)
 // وفي الكارت (موبايل) من غير ما نكرر المنطق.
 function statusContentHTML(g, canEditBranch, canEditMain) {
@@ -664,16 +788,32 @@ function statusContentHTML(g, canEditBranch, canEditMain) {
       const n = defaultRestockQty();
       extra += `<button class="btn btn-primary" style="${smallBtn}" data-quick-fulfill-id="${escapeHTML(g.id)}">✅ زوّد ${escapeHTML(n)}</button>`;
       extra += `<button class="btn" style="${smallBtn}" data-open-fulfill-id="${escapeHTML(g.id)}">بكمية تانية</button>`;
-      extra += `<button class="btn" style="${smallBtn}" data-open-confirm-out-id="${escapeHTML(g.id)}">مفيش خالص</button>`;
+
+      // "مفيش خالص" بقت مش محتاجة ضغطة أصلًا: أول ما كمية الرئيسي تنزل
+      // صفر، الحالة بتتحول "خلصت" لوحدها. فالزرار بيظهر بس لو الرقم صفر
+      // خلاص والحالة لسه معلّقة (بيانات قديمة). ولو فيه كمية، بنقول
+      // للمستخدم الطريقة الصح بدل ما نسيبه يعلن حاجة تخالف الرقم.
+      if ((Number(g.mainQty) || 0) === 0) {
+        extra += `<button class="btn" style="${smallBtn}" data-open-confirm-out-id="${escapeHTML(g.id)}">مفيش خالص</button>`;
+      } else {
+        extra += `<span style="font-size:11px; color:var(--text-muted); margin-inline-start:6px;">نزّل كمية الرئيسي لصفر → تتحول "خلصت" لوحدها</span>`;
+      }
     }
     return `${badge}${extra}`;
   }
 
-  // status === 'out'
-  const resetBtn = canEditMain
-    ? `<button class="btn" style="${smallBtn}" data-reset-out-id="${escapeHTML(g.id)}">رجّعها متاحة</button>`
-    : '';
-  return `${badge}${resetBtn}`;
+  // status === 'out' — الرجوع للتوفر بيحصل لوحده أول ما كمية تدخل الرئيسي.
+  // الزرار اليدوي بيظهر بس لو فعلًا فيه كمية مسجّلة (تصحيح بيانات قديمة).
+  let outExtra = '';
+  if (canEditMain) {
+    const main = Number(g.mainQty) || 0;
+    const branch = Number(g.branchQty) || 0;
+    outExtra =
+      main > 0 || branch > 0
+        ? `<button class="btn" style="${smallBtn}" data-reset-out-id="${escapeHTML(g.id)}">رجّعها متاحة</button>`
+        : `<span style="font-size:11px; color:var(--text-muted); margin-inline-start:6px;">ضيف كمية في الرئيسي → ترجع "معلّقة" لوحدها</span>`;
+  }
+  return `${badge}${outExtra}`;
 }
 
 function statusCellHTML(g, canEditBranch, canEditMain) {
@@ -699,9 +839,14 @@ function qtyControlsHTML(categoryId, gradeId, field, value, canEdit) {
 // بيطلع 425px ويحتاج سحب أفقي، وعمود الحالة (أهم عمود في الشغل) بيختفي
 // بره الشاشة. الكارت بيحل ده: كل حاجة تحت بعضها، مفيش أي سحب.
 function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
-  return `
+  const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+  const sections = groupedGrades(visibleGrades(), cat);
+  return sections
+    .map(
+      (section) => `
+    ${section.name ? `<div class="group-head">${escapeHTML(section.name)} <span>${escapeHTML(section.grades.length)}</span></div>` : ''}
     <div class="grade-cards">
-      ${visibleGrades()
+      ${section.grades
         .map((g) => {
           const middle = state.gradeLabelMode
             ? `
@@ -750,7 +895,9 @@ function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
           </div>`;
         })
         .join('')}
-    </div>`;
+    </div>`
+    )
+    .join('');
 }
 
 function gradeTableHTML() {
@@ -777,6 +924,8 @@ function gradeTableHTML() {
       ${canManageCatalog ? `<button class="btn" id="add-grade-btn">+ إضافة درجة</button>` : ''}
       ${canManageCatalog ? `<button class="btn" id="add-grade-range-btn">+ إضافة درجات دفعة</button>` : ''}
       ${missingBase ? `<button class="btn" id="add-base-grades-btn">+ الدرجات الأساسية</button>` : ''}
+      ${canManageCatalog ? `<button class="btn" id="color-groups-btn">🎨 مجموعات الألوان</button>` : ''}
+      ${canEditBranch ? `<button class="btn" id="bulk-branch-qty-btn">⬆️ ظبط كميات الفرع</button>` : ''}
       ${canManageCatalog ? `<button class="btn" id="delete-category-btn">حذف الفئة دي</button>` : ''}
     </div>`;
 
@@ -804,7 +953,8 @@ function gradeTableHTML() {
       ${gchip('low', '🟠 قرّبت تخلص', counts.low)}
       ${gchip('out', '🔴 خلصت', counts.out)}
       ${counts.base ? gchip('base', '⚪ الأساسية', counts.base) : ''}
-    </div>`;
+    </div>
+    ${groupFilterBarHTML(cat)}`;
 
   // شريط ملخّص بيفضل ظاهر وانت بتعلّم على الدرجات، عشان تعرف انت اخترت
   // كام وبتطبع كام من غير ما تعد بنفسك.
@@ -832,6 +982,7 @@ function gradeTableHTML() {
         <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" required /></div>
         <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="0" /></div>
         <div class="field" style="margin-bottom:0;"><label>الرئيسي</label><input class="input" style="width:70px;" type="number" id="new-grade-main" value="0" /></div>
+        ${groupSelectHTML('new-grade-group', cat)}
         <button class="btn btn-primary" type="submit">إضافة</button>
         <button class="btn" type="button" id="cancel-add-grade">إلغاء</button>
       </form>
@@ -872,17 +1023,25 @@ function gradeTableHTML() {
     ? ''
     : `<div class="home-empty" style="padding:1rem;">مفيش درجات بالفلتر ده.</div>`;
 
-  const rows = shownGrades
-    .map(
-      (g) => `
+  const gradeRowHTML = (g) => `
       <tr class="${rowClassForStatus(g.status)} ${g.isBase ? 'grade-base' : ''}">
         <td>${escapeHTML(gradeDisplayName(g))}</td>
         ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
         ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
         ${statusColumnHTML(g)}
         ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(gradeDisplayName(g))}">حذف</button></td>` : ''}
-      </tr>`
-    )
+      </tr>`;
+
+  // لو الفئة مقسّمة لمجموعات ألوان، كل مجموعة بيتحطّ قبلها صف عنوان
+  // بيمتد على عرض الجدول كله.
+  const colCount = 4 + (canManageCatalog ? 1 : 0);
+  const rows = groupedGrades(shownGrades, cat)
+    .map((section) => {
+      const header = section.name
+        ? `<tr class="group-row"><td colspan="${colCount}">${escapeHTML(section.name)} <span>${escapeHTML(section.grades.length)}</span></td></tr>`
+        : '';
+      return header + section.grades.map(gradeRowHTML).join('');
+    })
     .join('');
 
   // على الموبايل بنرسم كارتس بدل الجدول (مش الاتنين) — عشان منضاعفش
@@ -1000,6 +1159,7 @@ function openCategory(categoryId) {
   state.confirmingOutGradeId = null;
   state.bulkRequestMode = false;
   state.gradeFilter = 'all';
+  state.gradeGroupFilter = '';
   // التحديد مرتبط بدرجات الفئة اللي كنا فيها، فلازم يتصفّر مع التبديل
   // عشان مايتطبعش بالغلط على فئة تانية.
   state.gradeLabelMode = false;
@@ -1094,6 +1254,13 @@ function attachDashboardEvents() {
     });
   });
 
+  document.querySelectorAll('[data-group-filter]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.gradeGroupFilter = btn.getAttribute('data-group-filter');
+      render();
+    });
+  });
+
   const toggleBulkRequestBtn = document.getElementById('toggle-bulk-request-btn');
   if (toggleBulkRequestBtn) {
     toggleBulkRequestBtn.addEventListener('click', () => {
@@ -1177,6 +1344,16 @@ function attachDashboardEvents() {
   const addGradeRangeBtn = document.getElementById('add-grade-range-btn');
   if (addGradeRangeBtn) {
     addGradeRangeBtn.addEventListener('click', () => openAddGradeRangeDialog(state.activeCategoryId));
+  }
+
+  const colorGroupsBtn = document.getElementById('color-groups-btn');
+  if (colorGroupsBtn) {
+    colorGroupsBtn.addEventListener('click', () => openColorGroupsDialog(state.activeCategoryId));
+  }
+
+  const bulkBranchQtyBtn = document.getElementById('bulk-branch-qty-btn');
+  if (bulkBranchQtyBtn) {
+    bulkBranchQtyBtn.addEventListener('click', () => openBulkBranchQtyDialog(state.activeCategoryId));
   }
 
   const addBaseGradesBtn = document.getElementById('add-base-grades-btn');
@@ -1328,7 +1505,9 @@ function attachDashboardEvents() {
       if (!number) return;
       const branchQty = Number(document.getElementById('new-grade-branch').value) || 0;
       const mainQty = Number(document.getElementById('new-grade-main').value) || 0;
-      await addGrade(state.activeCategoryId, { number, branchQty, mainQty });
+      const groupEl = document.getElementById('new-grade-group');
+      const group = groupEl ? groupEl.value : '';
+      await addGrade(state.activeCategoryId, { number, branchQty, mainQty, group });
       state.showAddGradeForm = false;
       render();
     });
@@ -1540,6 +1719,7 @@ async function addGrade(categoryId, data) {
     mainQty: data.mainQty || 0,
     status: 'normal',
   };
+  if (data.group) payload.group = data.group;
   if (data.isBase) {
     payload.isBase = true;
     payload.name = data.name;
@@ -1586,6 +1766,357 @@ async function addBaseGradesToCategory(categoryId, criticalQty) {
 
   if (added) await batch.commit();
   return added;
+}
+
+// ------------------------------------------------------------
+// شاشة مجموعات الألوان
+// ------------------------------------------------------------
+// بتعمل حاجتين: تعرّف أسماء المجموعات (زي "بيجات" و"ألوان")، وتنقل مدى
+// أرقام درجات لمجموعة مرة واحدة — لأن الفئة اللي فيها 165 درجة مستحيل
+// تتقسم بالإيد درجة درجة.
+function openColorGroupsDialog(categoryId) {
+  const cat = state.categories.find((c) => c.id === categoryId);
+  if (!cat) return;
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:400px; width:100%; max-height:90vh; overflow:auto;">
+      <div style="font-size:15px; font-weight:500; margin-bottom:6px;">مجموعات الألوان — ${escapeHTML(cat.name)}</div>
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.7; margin-bottom:12px;">
+        الفئة الواحدة ممكن تتقسم جواها لمجموعات (زي "بيجات" و"ألوان" في شيتك
+        الأصلي). كل مجموعة بتظهر تحت عنوانها في الجدول وفي ورقة التزويد.
+      </div>
+
+      <div id="groups-list" style="margin-bottom:12px;"></div>
+
+      <form id="add-group-form" style="display:flex; gap:8px; align-items:flex-end; margin-bottom:16px;">
+        <div class="field" style="flex:1; margin-bottom:0;">
+          <label>اسم مجموعة جديدة</label>
+          <input class="input" id="new-group-name" placeholder="مثال: بيجات" required />
+        </div>
+        <button class="btn btn-primary" type="submit">إضافة</button>
+      </form>
+
+      <div id="assign-box" style="border-top:1px solid var(--border); padding-top:12px;">
+        <div style="font-size:13px; font-weight:500; margin-bottom:8px;">نقل درجات لمجموعة</div>
+        <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+          <div class="field" style="width:80px; margin-bottom:0;">
+            <label>من درجة</label>
+            <input class="input" type="number" id="assign-from" min="1" inputmode="numeric" />
+          </div>
+          <div class="field" style="width:80px; margin-bottom:0;">
+            <label>إلى درجة</label>
+            <input class="input" type="number" id="assign-to" min="1" inputmode="numeric" />
+          </div>
+          <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
+            <label>المجموعة</label>
+            <select class="input" id="assign-group"></select>
+          </div>
+          <button class="btn btn-primary" id="assign-btn">نقل</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">
+          سيب الخانتين فاضيتين لو عايز تنقل كل الدرجات المرقّمة
+        </div>
+      </div>
+
+      <div id="groups-status" style="font-size:12px; color:var(--text-secondary); margin:10px 0; min-height:16px;"></div>
+      <div style="display:flex; justify-content:flex-end;">
+        <button class="btn" id="groups-close">إغلاق</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  let closed = false;
+  const close = () => {
+    closed = true;
+    if (overlay.parentNode) document.body.removeChild(overlay);
+  };
+  overlay.querySelector('#groups-close').addEventListener('click', close);
+
+  const statusEl = overlay.querySelector('#groups-status');
+  const say = (html) => {
+    if (!closed) statusEl.innerHTML = html;
+  };
+
+  // الفئة بتتحدّث من الاشتراك، فبناخد أحدث نسخة منها في كل رسم
+  const currentGroups = () => categoryGroups(state.categories.find((c) => c.id === categoryId));
+
+  const saveGroups = (groups) =>
+    fireWrite(
+      db.collection('categories').doc(categoryId).update({ colorGroups: groups }),
+      'مجموعات الألوان'
+    );
+
+  const draw = () => {
+    if (closed) return;
+    const groups = currentGroups();
+    const listEl = overlay.querySelector('#groups-list');
+
+    listEl.innerHTML = groups.length
+      ? groups
+          .map(
+            (name, i) => `
+        <div class="home-row" style="padding:7px 0;">
+          <div style="flex:1; min-width:0;">
+            <div class="home-row-title">${escapeHTML(name)}</div>
+            <div class="home-row-sub">${escapeHTML(state.grades.filter((g) => g.group === name).length)} درجة</div>
+          </div>
+          <button class="btn" style="padding:3px 9px; font-size:11px;" data-group-up="${i}" ${i === 0 ? 'disabled' : ''}>▲</button>
+          <button class="btn" style="padding:3px 9px; font-size:11px;" data-group-rename="${escapeHTML(name)}">تعديل</button>
+          <button class="btn" style="padding:3px 9px; font-size:11px; color:var(--danger-text);" data-group-del="${escapeHTML(name)}">حذف</button>
+        </div>`
+          )
+          .join('')
+      : '<div class="home-empty">مفيش مجموعات — الفئة كلها قايمة واحدة.</div>';
+
+    const sel = overlay.querySelector('#assign-group');
+    sel.innerHTML =
+      `<option value="">— ${escapeHTML(UNGROUPED_LABEL)} —</option>` +
+      groups.map((n) => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('');
+    overlay.querySelector('#assign-box').style.display = groups.length ? 'block' : 'none';
+
+    listEl.querySelectorAll('[data-group-up]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.getAttribute('data-group-up'));
+        const next = currentGroups();
+        [next[i - 1], next[i]] = [next[i], next[i - 1]];
+        saveGroups(next);
+        setTimeout(draw, 120);
+      });
+    });
+
+    listEl.querySelectorAll('[data-group-rename]').forEach((btn) => {
+      btn.addEventListener('click', () =>
+        safeAsync(async () => {
+          const oldName = btn.getAttribute('data-group-rename');
+          const newName = (prompt('الاسم الجديد للمجموعة:', oldName) || '').trim();
+          if (!newName || newName === oldName) return;
+          const next = currentGroups().map((n) => (n === oldName ? newName : n));
+          saveGroups(next);
+          // الدرجات بتتحدّث كمان، وإلا هتفضل مشاورة على اسم مش موجود
+          const moved = await assignGroupToGrades(categoryId, null, null, newName, oldName);
+          say(`✅ الاسم اتغيّر، و${moved} درجة اتحدّثت.`);
+          setTimeout(draw, 150);
+        }, 'تعديل اسم المجموعة')
+      );
+    });
+
+    listEl.querySelectorAll('[data-group-del]').forEach((btn) => {
+      btn.addEventListener('click', () =>
+        safeAsync(async () => {
+          const name = btn.getAttribute('data-group-del');
+          if (!confirm(`تحذف مجموعة "${name}"؟ الدرجات مش هتتمسح — هترجع تحت "${UNGROUPED_LABEL}".`)) return;
+          saveGroups(currentGroups().filter((n) => n !== name));
+          const moved = await assignGroupToGrades(categoryId, null, null, '', name);
+          say(`✅ المجموعة اتشالت، و${moved} درجة رجعت من غير مجموعة.`);
+          setTimeout(draw, 150);
+        }, 'حذف المجموعة')
+      );
+    });
+  };
+
+  overlay.querySelector('#add-group-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = overlay.querySelector('#new-group-name');
+    const name = input.value.trim();
+    if (!name) return;
+    const groups = currentGroups();
+    if (groups.includes(name)) {
+      say('⚠️ المجموعة دي موجودة خلاص.');
+      return;
+    }
+    saveGroups(groups.concat([name]));
+    input.value = '';
+    say(`✅ اتضافت مجموعة "${escapeHTML(name)}".`);
+    setTimeout(draw, 150);
+  });
+
+  overlay.querySelector('#assign-btn').addEventListener('click', () =>
+    safeAsync(async () => {
+      const from = parseInt(overlay.querySelector('#assign-from').value, 10);
+      const to = parseInt(overlay.querySelector('#assign-to').value, 10);
+      const group = overlay.querySelector('#assign-group').value;
+      const hasRange = !Number.isNaN(from) && !Number.isNaN(to);
+      if (hasRange && to < from) {
+        say('⚠️ "إلى" لازم يكون أكبر من أو يساوي "من".');
+        return;
+      }
+      say('جارٍ النقل...');
+      const n = await assignGroupToGrades(categoryId, hasRange ? from : null, hasRange ? to : null, group, null);
+      logActivity({
+        action: 'assign_color_group',
+        categoryId,
+        categoryName: cat.name,
+        oldValue: hasRange ? `${from}-${to}` : 'الكل',
+        newValue: group || UNGROUPED_LABEL,
+      });
+      say(`✅ اتنقلت <strong>${n}</strong> درجة لـ"${escapeHTML(group || UNGROUPED_LABEL)}".`);
+      setTimeout(draw, 150);
+    }, 'نقل الدرجات')
+  );
+
+  draw();
+}
+
+// بتحدّد المجموعة لمدى أرقام درجات (أو للكل لو from/to فاضيين).
+// onlyFromGroup: لو محدّد، بتتغيّر الدرجات اللي مجموعتها الحالية دي بس —
+// بيستخدم في إعادة التسمية والحذف.
+async function assignGroupToGrades(categoryId, from, to, group, onlyFromGroup) {
+  const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
+  const snap = await gradesRef.get();
+
+  const targets = snap.docs.filter((d) => {
+    const g = d.data();
+    if (onlyFromGroup !== null && onlyFromGroup !== undefined) {
+      if ((g.group || '') !== onlyFromGroup) return false;
+    }
+    if (from !== null && to !== null) {
+      // الدرجات الأساسية أرقامها سالبة، فمدى الأرقام مايمسّهاش
+      const n = Number(g.number);
+      if (g.isBase || !Number.isFinite(n) || n < from || n > to) return false;
+    }
+    return (g.group || '') !== (group || '');
+  });
+
+  for (let i = 0; i < targets.length; i += 400) {
+    const batch = db.batch();
+    targets.slice(i, i + 400).forEach((d) => batch.update(d.ref, { group: group || '' }));
+    await batch.commit();
+  }
+  return targets.length;
+}
+
+// ------------------------------------------------------------
+// ظبط كميات الفرع دفعة واحدة
+// ------------------------------------------------------------
+// المنطق الجديد بيقول "كل درجة عليها قطعة في العرض"، لكن الدرجات القديمة
+// كلها متسجّلة بصفر من الاستيراد. تظبيطها بالإيد يعني ضغط + ألفين مرة.
+//
+// الدالة دي بتظبّطها كلها مرة واحدة، والحالة بترجع "عادي" تلقائيًا لأن
+// الكمية بقت أكبر من صفر (نفس قاعدة nextStatusFromQuantities).
+async function applyBranchQtyToCategory(categoryId, qty, onlyZeros, includeOut) {
+  const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
+  const snap = await gradesRef.get();
+
+  const targets = snap.docs.filter((d) => {
+    const g = d.data();
+    if (!includeOut && g.status === 'out') return false;
+    if (onlyZeros && (Number(g.branchQty) || 0) > 0) return false;
+    return (Number(g.branchQty) || 0) !== qty || g.status !== 'normal';
+  });
+
+  for (let i = 0; i < targets.length; i += 400) {
+    const batch = db.batch();
+    targets.slice(i, i + 400).forEach((d) => {
+      batch.update(d.ref, { branchQty: qty, status: 'normal' });
+    });
+    await batch.commit();
+  }
+  return targets.length;
+}
+
+function openBulkBranchQtyDialog(categoryId) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:360px; width:100%; max-height:88vh; overflow:auto;">
+      <div style="font-size:15px; font-weight:500; margin-bottom:6px;">ظبط كميات مخزن الفرع</div>
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.7; margin-bottom:12px;">
+        بيحدّد كمية الفرع لكل الدرجات مرة واحدة، والحالة بترجع "عادي" لأن
+        الكمية بقت أكبر من صفر.
+      </div>
+
+      <div class="field">
+        <label>الكمية</label>
+        <input class="input" type="number" id="bulk-qty" min="0" max="999" value="1" inputmode="numeric" />
+      </div>
+
+      <div class="field" style="margin-bottom:8px;">
+        <label style="margin-bottom:8px;">تطبّق على</label>
+        <label style="display:flex; gap:8px; align-items:center; font-size:13px; color:var(--text-primary); margin-bottom:6px;">
+          <input type="radio" name="bulk-scope" value="zeros" checked /> الدرجات اللي كميتها صفر بس (موصى به)
+        </label>
+        <label style="display:flex; gap:8px; align-items:center; font-size:13px; color:var(--text-primary);">
+          <input type="radio" name="bulk-scope" value="all" /> كل الدرجات (بيستبدل الأرقام الموجودة)
+        </label>
+      </div>
+
+      <label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:12px;">
+        <input type="checkbox" id="bulk-include-out" />
+        اشمل الدرجات المعلّمة "خلصت نهائيًا"
+      </label>
+
+      <div id="bulk-status" style="font-size:12px; color:var(--text-secondary); margin-bottom:10px; min-height:16px;"></div>
+
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="btn btn-primary" id="bulk-this">ظبّط الفئة دي</button>
+        <button class="btn" id="bulk-all">ظبّط كل الفئات (${escapeHTML(state.categories.length)})</button>
+        <button class="btn" id="bulk-cancel">إلغاء</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  let closed = false;
+  const close = () => {
+    closed = true;
+    if (overlay.parentNode) document.body.removeChild(overlay);
+  };
+  const statusEl = overlay.querySelector('#bulk-status');
+  const say = (html) => {
+    if (!closed) statusEl.innerHTML = html;
+  };
+  const opts = () => ({
+    qty: Math.max(0, Math.min(999, parseInt(overlay.querySelector('#bulk-qty').value, 10) || 0)),
+    onlyZeros: overlay.querySelector('input[name="bulk-scope"]:checked').value === 'zeros',
+    includeOut: overlay.querySelector('#bulk-include-out').checked,
+  });
+  const buttons = ['#bulk-this', '#bulk-all', '#bulk-cancel'].map((s) => overlay.querySelector(s));
+  const lock = (on) => buttons.forEach((b) => (b.disabled = on));
+
+  overlay.querySelector('#bulk-cancel').addEventListener('click', close);
+
+  overlay.querySelector('#bulk-this').addEventListener('click', () =>
+    safeAsync(async () => {
+      const { qty, onlyZeros, includeOut } = opts();
+      lock(true);
+      say('جارٍ التظبيط...');
+      const n = await applyBranchQtyToCategory(categoryId, qty, onlyZeros, includeOut);
+      logActivity({
+        action: 'bulk_branch_qty',
+        categoryId,
+        categoryName: state.categories.find((c) => c.id === categoryId)?.name || '',
+        newValue: n,
+      });
+      say(`✅ اتظبّطت <strong>${n}</strong> درجة.`);
+      lock(false);
+    }, 'تظبيط الكميات')
+  );
+
+  overlay.querySelector('#bulk-all').addEventListener('click', () =>
+    safeAsync(async () => {
+      if (!state.isOnline) {
+        say('⚠️ العملية دي بتلمس كل الفئات، فمحتاجة إنترنت.');
+        return;
+      }
+      const { qty, onlyZeros, includeOut } = opts();
+      if (!confirm(`هيتم تظبيط كمية الفرع على ${qty} في كل الـ${state.categories.length} فئة. أكمل؟`)) return;
+      lock(true);
+      let total = 0;
+      let done = 0;
+      for (const cat of state.categories) {
+        say(`جارٍ التظبيط... <strong>${done}/${state.categories.length}</strong> فئة، ${total} درجة`);
+        total += await applyBranchQtyToCategory(cat.id, qty, onlyZeros, includeOut);
+        done++;
+        if (closed) return;
+      }
+      logActivity({ action: 'bulk_branch_qty', newValue: total });
+      say(`✅ اتظبّطت <strong>${total}</strong> درجة في ${done} فئة.`);
+      lock(false);
+    }, 'تظبيط الكميات')
+  );
 }
 
 async function openBaseGradesDialog(categoryId) {
@@ -2334,6 +2865,7 @@ function openAddGradeRangeDialog(categoryId) {
         <div class="field" style="flex:1;"><label>إلى</label>
           <input class="input" type="number" id="range-to" min="1" inputmode="numeric" /></div>
       </div>
+      ${groupSelectHTML('range-group', state.categories.find((c) => c.id === categoryId))}
       <div id="range-status" style="font-size:12px; margin-bottom:10px; min-height:16px;"></div>
       <div style="display:flex; gap:8px; justify-content:flex-end;">
         <button class="btn" id="range-cancel">إلغاء</button>
@@ -2385,13 +2917,17 @@ function openAddGradeRangeDialog(categoryId) {
     statusEl.textContent = `جارٍ إضافة ${toAdd.length} درجة...`;
 
     try {
+      const groupEl = document.getElementById('range-group');
+      const group = groupEl ? groupEl.value : '';
       const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
       // دفعات من 400 — الحد الأقصى للدفعة الواحدة في Firestore هو 500.
       for (let i = 0; i < toAdd.length; i += 400) {
         const batch = db.batch();
         toAdd.slice(i, i + 400).forEach((number) => {
           // نفس منطق الدرجة الواحدة: الفرع بيبدأ بقطعة، مش بصفر.
-          batch.set(gradesRef.doc(), { number, branchQty: DEFAULT_RESTOCK_QTY, mainQty: 0, status: 'normal' });
+          const payload = { number, branchQty: DEFAULT_RESTOCK_QTY, mainQty: 0, status: 'normal' };
+          if (group) payload.group = group;
+          batch.set(gradesRef.doc(), payload);
         });
         await batch.commit();
       }
@@ -2495,14 +3031,19 @@ function buildRestockHTML(cat, grades) {
   // الدرجات الأساسية (أبيض/أسود/أوف وايت) **مابتظهرش في الورقة المطبوعة**:
   // الورقة دي شبكة أرقام بتمشي بيها على الرف، والدرجات دي من غير أرقام
   // أصلًا — فوجودها بيلخبط الشبكة. متابعتها بتبقى من الشاشة.
-  const rowsHTML = grades
-    .filter((g) => !g.isBase)
-    .map(
-      (g) => `
+  const rowHTML = (g) => `
       <div class="row">
         <span class="num">${escapeHTML(g.number)}</span>
         <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
-      </div>`
+      </div>`;
+
+  // لو الفئة مقسّمة لمجموعات ألوان، الورقة بتتطبع مجموعة مجموعة تحت
+  // عنوانها — بالظبط زي شكل الشيت في ملف الإكسل الأصلي.
+  const rowsHTML = groupedGrades(grades.filter((g) => !g.isBase), cat)
+    .map(
+      (section) => `
+      ${section.name ? `<div class="group-title">${escapeHTML(section.name)}</div>` : ''}
+      <div class="grid">${section.grades.map(rowHTML).join('')}</div>`
     )
     .join('');
 
@@ -2521,6 +3062,11 @@ function buildRestockHTML(cat, grades) {
         .header .item-name { font-size: 14px; font-weight: bold; color: #000; margin-top: 2px; }
         .header .time { font-size: 11px; font-weight: bold; margin-top: 4px; }
         .grid { column-count: 4; column-gap: 1.5mm; }
+        .group-title {
+          font-weight: bold; font-size: 12px; text-align: center;
+          margin: 4px 0 2px; padding: 1px 0;
+          border-top: 1.5px solid #000; border-bottom: 1.5px solid #000;
+        }
         .row {
           display: flex; align-items: stretch;
           border: 1px solid #000; margin-bottom: -1px;
@@ -2555,7 +3101,7 @@ function buildRestockHTML(cat, grades) {
         ${cat.itemName ? `<div class="item-name">${escapeHTML(cat.itemName)}</div>` : ''}
         <div class="time">${escapeHTML(now)}</div>
       </div>
-      <div class="grid">${rowsHTML}</div>
+      ${rowsHTML}
       <script>
         window.onload = function () { setTimeout(function () { window.print(); }, 300); };
       <\/script>
@@ -2976,13 +3522,9 @@ async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
   const data = snap.data() || {};
   const update = { [field]: newValue };
 
-  // ⭐ التزويد التلقائي: أول ما كمية الفرع تنزل لصفر، الطلب بيتسجّل لوحده
-  // — من غير ما حد يفتح شاشة ويضغط "طلب تزويد" كخطوة زيادة.
-  let autoRequested = false;
-  if (field === 'branchQty' && newValue === 0 && data.status === 'normal') {
-    update.status = 'pending';
-    autoRequested = true;
-  }
+  // ⭐ الحالة بتتحدد من الكميات لوحدها (شرح القاعدة عند nextStatusFromQuantities)
+  const nextStatus = nextStatusFromQuantities(data, field, newValue);
+  if (nextStatus) update.status = nextStatus;
 
   fireWrite(gradeRef.update(update), 'تعديل كمية');
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
@@ -2997,13 +3539,22 @@ async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
     newValue,
   });
 
-  if (autoRequested) {
+  // نسجّل تغيير الحالة التلقائي كسطر مستقل في السجل، عشان يبان مين
+  // العملية اللي سبّبته ومتى — مش يحصل في الخفاء.
+  if (nextStatus) {
+    const autoAction =
+      nextStatus === 'pending'
+        ? 'request_shortage'
+        : nextStatus === 'out'
+          ? 'mark_out_of_stock'
+          : 'reset_available';
     logActivity({
-      action: 'request_shortage',
+      action: autoAction,
       categoryId: state.activeCategoryId,
       categoryName,
       gradeId: snap.id,
-      gradeNumber: data.number,
+      gradeNumber: data.name || data.number,
+      auto: true,
     });
   }
 }
@@ -3085,6 +3636,7 @@ function init() {
       state.categorySearch = '';
       state.categoryFilter = 'all';
       state.gradeFilter = 'all';
+      state.gradeGroupFilter = '';
       state.printCart = [];
       state.printSearch = '';
       state.productSearch = '';

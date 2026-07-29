@@ -48,22 +48,31 @@ service cloud.firestore {
     function oldStatus() { return resource.data.status; }
     function newStatus() { return request.resource.data.status; }
 
-    // أمين مخزن الفرع: يعدّل branchQty، أو يطلب تزويد (عادي → معلّق)،
-    // أو يلغي طلبه (معلّق → عادي).
-    //
-    // الحالة الرابعة جديدة (التزويد التلقائي): لما كمية الفرع تنزل لصفر،
-    // النظام بيغيّر الكمية **والحالة مع بعض في نفس الكتابة**. القاعدة
-    // بتسمح بده بشرط إن الكمية الجديدة صفر فعلًا والحالة بتروح لـ"معلّق"
-    // — يعني مايقدرش يعلّق درجة عنده منها كمية.
+    // القاعدة الجوهرية في المنطق الجديد: **الكمية هي اللي تحدد الحالة**.
+    //   فيه كمية في الفرع            → عادي
+    //   الفرع صفر والرئيسي فيه كمية  → معلّق
+    //   الفرع صفر والرئيسي صفر       → خلصت
+    // الدالة دي بتتأكد إن الحالة الجديدة مطابقة للكميات الجديدة فعلًا،
+    // فمحدش يقدر يعلن حالة تخالف الأرقام المسجّلة.
+    function statusMatchesQty(branch, main, s) {
+      return (branch > 0 && s == 'normal')
+        || (branch == 0 && main > 0 && s == 'pending')
+        || (branch == 0 && main == 0 && s == 'out');
+    }
+
+    function newBranchQty() { return request.resource.data.branchQty; }
+    function newMainQty() { return request.resource.data.mainQty; }
+
     function branchAction() {
       return isBranchKeeper() && (
         onlyChangedKeys(['branchQty'])
         || (onlyChangedKeys(['status']) && oldStatus() == 'normal' && newStatus() == 'pending')
         || (onlyChangedKeys(['status']) && oldStatus() == 'pending' && newStatus() == 'normal')
+        // التغيير التلقائي: الكمية والحالة بيتغيّروا مع بعض في كتابة واحدة،
+        // بشرط إن الحالة الجديدة مطابقة للأرقام.
         || (
           onlyChangedKeys(['branchQty', 'status'])
-          && oldStatus() == 'normal' && newStatus() == 'pending'
-          && request.resource.data.branchQty == 0
+          && statusMatchesQty(newBranchQty(), resource.data.get('mainQty', 0), newStatus())
         )
       );
     }
@@ -76,6 +85,12 @@ service cloud.firestore {
         || (onlyChangedKeys(['status', 'mainQty', 'branchQty']) && oldStatus() == 'pending' && newStatus() == 'normal')
         || (onlyChangedKeys(['status']) && oldStatus() == 'pending' && newStatus() == 'out')
         || (onlyChangedKeys(['status']) && oldStatus() == 'out' && newStatus() == 'normal')
+        // التغيير التلقائي من ناحية الرئيسي: نزّل الكمية لصفر فالدرجة
+        // بتتحول "خلصت"، أو دخّل كمية وهي "خلصت" فبترجع "معلّقة".
+        || (
+          onlyChangedKeys(['mainQty', 'status'])
+          && statusMatchesQty(resource.data.get('branchQty', 0), newMainQty(), newStatus())
+        )
       );
     }
 
@@ -146,11 +161,6 @@ service cloud.firestore {
       allow delete: if isFullAccess();
     }
 
-    // نقاط الطباعة: كل جهاز عليه QZ Tray وطابعة محفوظة بيسجّل نفسه هنا
-    // وبيحدّث lastSeen كل شوية (نبضة). ده اللي بيخلي اللي بيطبع عن بُعد
-    // يشوف الأجهزة المتصلة **دلوقتي** بالاسم، ويبعت لجهاز محدد بدل
-    // "الفرع/الرئيسي" (الطابعات كلها في مكتب الكاشير في الفرع أصلًا).
-    // أي مستخدم مسجّل دخول يقدر يسجّل جهازه هو ويحدّثه، ويقرأ القايمة.
     // قاعدة بيانات الأصناف: محفوظة على شكل "قطع" (كل قطعة مستند فيه آلاف
     // الأصناف) عشان استيراد 50 ألف صنف يبقى 25 كتابة بدل 50 ألف — وده
     // اللي بيخلّيه يدخل في الباقة المجانية.
@@ -161,6 +171,11 @@ service cloud.firestore {
       allow write: if isFullAccess();
     }
 
+    // نقاط الطباعة: كل جهاز عليه QZ Tray وطابعة محفوظة بيسجّل نفسه هنا
+    // وبيحدّث lastSeen كل شوية (نبضة). ده اللي بيخلي اللي بيطبع عن بُعد
+    // يشوف الأجهزة المتصلة **دلوقتي** بالاسم، ويبعت لجهاز محدد بدل
+    // "الفرع/الرئيسي" (الطابعات كلها في مكتب الكاشير في الفرع أصلًا).
+    // أي مستخدم مسجّل دخول يقدر يسجّل جهازه هو ويحدّثه، ويقرأ القايمة.
     match /printStations/{deviceId} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn()
