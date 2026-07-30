@@ -129,7 +129,7 @@ function openUserAdmin() {
           <div class="field">
             <label>اسم الدخول</label>
             <input class="input" id="nu-username" required autocomplete="off" placeholder="مثال: Test-Print" />
-            <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;" id="nu-username-hint">
+            <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">
               اكتب أي اسم عادي — النظام بيكمّل الباقي لوحده. لو عايز تستخدم
               إيميل حقيقي، اكتبه كامل وهو هيتقبل زي ما هو.
             </div>

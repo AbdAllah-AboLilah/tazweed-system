@@ -92,10 +92,6 @@ function loadProducts(force) {
   return productsLoading;
 }
 
-function productsCount() {
-  return productsCache ? productsCache.length : 0;
-}
-
 function productDepartments() {
   const set = new Set();
   (productsCache || []).forEach((p) => {
