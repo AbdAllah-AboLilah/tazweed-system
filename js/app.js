@@ -960,20 +960,53 @@ function gradeTableHTML() {
   // كام وبتطبع كام من غير ما تعد بنفسك.
   const selected = Object.entries(state.gradeLabelQty || {}).filter(([, n]) => n > 0);
   const totalLabels = selected.reduce((s, [, n]) => s + n, 0);
-  const labelBarHTML = state.gradeLabelMode
-    ? `
-    <div class="card" style="margin-bottom:0.75rem; padding:0.75rem; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-      <span style="font-size:13px;">
-        محدّد <strong>${selected.length}</strong> درجة —
-        إجمالي <strong>${totalLabels}</strong> ملصق
-      </span>
-      <button class="btn btn-primary" id="print-grade-labels-btn" ${totalLabels ? '' : 'disabled'}>🏷️ اطبع المحدّد</button>
-      <button class="btn" id="clear-grade-labels-btn">مسح التحديد</button>
-      <span style="font-size:11px; color:var(--text-secondary);">
-        الملصق نص بس: ${escapeHTML((state.categories.find((c) => c.id === state.activeCategoryId) || {}).name || '')} + رقم الدرجة
-      </span>
-    </div>`
-    : '';
+  // ------------------------------------------------------------
+  // شريط الأوامر السفلي (ثابت في أسفل الشاشة)
+  // ------------------------------------------------------------
+  // المشكلة اللي بيحلها: الفئة فيها 165 درجة. كنت بتنزل تحدّد، وبعدين
+  // لازم ترجع لفوق تاني عشان توصل لزرار الطباعة. الشريط ده بيفضل قدام
+  // عينك في أي مكان في الصفحة.
+  //
+  // اختاره تحت مش فوق عن قصد: فوق فيه خلاص 5 صفوف (الشريط العلوي +
+  // التابات + بيانات الصنف + الأزرار + الفلاتر)، وسادس كان هياكل نص
+  // شاشة الموبايل. وتحت هو مكان الصباع أصلًا وانت ماشي بالقايمة.
+  //
+  // وبيظهر **بس** وانت في وضع تحديد — مش موجود في الشغل العادي.
+  const pendingInCategory = state.grades.filter((g) => g.status === 'pending').length;
+
+  let actionBarHTML = '';
+  if (state.gradeLabelMode) {
+    actionBarHTML = `
+    <div class="action-bar" id="action-bar">
+      <div class="action-bar-inner">
+        <span class="action-bar-info">
+          محدّد <strong>${selected.length}</strong> درجة —
+          إجمالي <strong>${totalLabels}</strong> ملصق
+        </span>
+        <button class="btn btn-primary" id="print-grade-labels-btn" ${totalLabels ? '' : 'disabled'}>🏷️ اطبع المحدّد</button>
+        <button class="btn" id="clear-grade-labels-btn" ${totalLabels ? '' : 'disabled'}>مسح التحديد</button>
+        <button class="btn" id="exit-label-mode-btn">✔️ تم</button>
+        <span class="action-bar-hint">
+          الملصق نص بس: ${escapeHTML((state.categories.find((c) => c.id === state.activeCategoryId) || {}).name || '')} + رقم الدرجة
+        </span>
+      </div>
+    </div>`;
+  } else if (state.bulkRequestMode) {
+    actionBarHTML = `
+    <div class="action-bar" id="action-bar">
+      <div class="action-bar-inner">
+        <span class="action-bar-info">
+          <strong>${pendingInCategory}</strong> درجة مطلوب تزويدها في الفئة دي
+        </span>
+        <button class="btn btn-primary" id="exit-bulk-mode-btn">✔️ تم</button>
+        <span class="action-bar-hint">علّم على اللي خلصت من العرض — الطلب بيتسجّل فورًا</span>
+      </div>
+    </div>`;
+  }
+
+  // مساحة فاضية تحت القايمة بقدر الشريط، عشان آخر درجة ما تختفيش تحته.
+  // الارتفاع الدقيق بيتظبط بعد الرسم في syncActionBarSpacer().
+  const spacerHTML = actionBarHTML ? '<div class="action-bar-spacer" id="action-bar-spacer"></div>' : '';
 
   const addGradeFormHTML = state.showAddGradeForm
     ? `
@@ -1047,13 +1080,13 @@ function gradeTableHTML() {
   // على الموبايل بنرسم كارتس بدل الجدول (مش الاتنين) — عشان منضاعفش
   // عدد العناصر في الصفحة لما الفئة يكون فيها مئات الدرجات.
   if (state.isNarrow) {
-    return `${infoBarHTML}${toolbarHTML}${filterBarHTML}${labelBarHTML}${addGradeFormHTML}${
+    return `${infoBarHTML}${toolbarHTML}${filterBarHTML}${addGradeFormHTML}${
       shownGrades.length ? gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) : emptyFilterHTML
-    }`;
+    }${spacerHTML}${actionBarHTML}`;
   }
 
   return `
-    ${infoBarHTML}${toolbarHTML}${filterBarHTML}${labelBarHTML}${addGradeFormHTML}${emptyFilterHTML}
+    ${infoBarHTML}${toolbarHTML}${filterBarHTML}${addGradeFormHTML}${emptyFilterHTML}
     <div class="card" style="padding:0; overflow:auto; max-height:70vh;">
       <table>
         <thead>
@@ -1067,7 +1100,8 @@ function gradeTableHTML() {
         </thead>
         <tbody>${rows}</tbody>
       </table>
-    </div>`;
+    </div>
+    ${spacerHTML}${actionBarHTML}`;
 }
 
 function activityLogHTML() {
@@ -1140,7 +1174,8 @@ function activityLogHTML() {
         </thead>
         <tbody>${rows}</tbody>
       </table>
-    </div>`;
+    </div>
+    ${spacerHTML}${actionBarHTML}`;
 }
 
 function openCategory(categoryId) {
@@ -1323,6 +1358,25 @@ function attachDashboardEvents() {
       if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
     });
   });
+
+  // زرار "تم" اللي في الشريط السفلي — بيعمل نفس اللي الزرار اللي فوق بيعمله،
+  // عشان تقدر تخرج من وضع التحديد وانت تحت من غير ما تطلع.
+  const exitLabelModeBtn = document.getElementById('exit-label-mode-btn');
+  if (exitLabelModeBtn) {
+    exitLabelModeBtn.addEventListener('click', () => {
+      state.gradeLabelMode = false;
+      state.gradeLabelQty = {};
+      render();
+    });
+  }
+
+  const exitBulkModeBtn = document.getElementById('exit-bulk-mode-btn');
+  if (exitBulkModeBtn) {
+    exitBulkModeBtn.addEventListener('click', () => {
+      state.bulkRequestMode = false;
+      render();
+    });
+  }
 
   const clearGradeLabelsBtn = document.getElementById('clear-grade-labels-btn');
   if (clearGradeLabelsBtn) {
@@ -1672,7 +1726,22 @@ function attachDashboardEvents() {
   document.querySelectorAll('[data-reset-out-id]').forEach((btn) => {
     btn.addEventListener('click', () => resetOutOfStock(btn.dataset.resetOutId));
   });
+
+  syncActionBarSpacer();
 }
+
+// الشريط السفلي ثابت، فبياخد مكانه من فوق المحتوى. بنقيس ارتفاعه الفعلي
+// (بيتغيّر لو لفّ على سطرين على شاشة ضيّقة) ونسيب مساحة بقدره تحت القايمة،
+// عشان آخر درجة تفضل توصلها وتكتب فيها عادي.
+function syncActionBarSpacer() {
+  const bar = document.getElementById('action-bar');
+  const spacer = document.getElementById('action-bar-spacer');
+  if (!bar || !spacer) return;
+  spacer.style.height = bar.offsetHeight + 16 + 'px';
+}
+
+// لو الشاشة اتقلبت أو الحجم اتغيّر، الشريط ممكن يلف على سطرين — نعيد القياس.
+window.addEventListener('resize', syncActionBarSpacer);
 
 // ============================================================
 // إدارة الفئات والدرجات (إضافة/حذف)

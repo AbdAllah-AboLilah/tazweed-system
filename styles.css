@@ -575,6 +575,49 @@ th {
 }
 
 /* ============================================================
+   شريط الأوامر السفلي (ثابت في أسفل الشاشة)
+   ============================================================ */
+/* بيظهر بس في وضع تحديد الدرجات (طباعة ملصقات / طلب تزويد) عشان
+   زرار التنفيذ يفضل قدام عينك وانت نازل في 165 درجة. */
+.action-bar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 1000;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+  padding: 10px 12px;
+  /* مساحة أمان لشريط الهوم في الموبايلات اللي مالهاش زرار */
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+
+.action-bar-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-bar-info {
+  font-size: 13px;
+}
+
+.action-bar-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* الارتفاع ده قيمة احتياطية — الرقم الدقيق بيتحسب بعد الرسم في
+   syncActionBarSpacer() عشان يطابق ارتفاع الشريط الفعلي. */
+.action-bar-spacer {
+  height: 88px;
+}
+
+/* ============================================================
    عناوين مجموعات الألوان جوه الفئة
    ============================================================ */
 .group-head {
@@ -712,6 +755,10 @@ tr.grade-base td:first-child {
 @media (max-width: 640px) {
   th, td { padding: 8px 4px; font-size: 12px; }
   .cat-chip { min-height: 34px; }
+
+  /* التلميح مالوش مكان على شاشة ضيّقة — الأزرار أهم */
+  .action-bar-hint { display: none; }
+  .action-bar-info { font-size: 12px; width: 100%; text-align: center; }
 
   /* مساحات لمس أكبر: الأزرار الصغيرة كانت ~24px وصعب تظبط عليها
      بالصباع، خصوصًا أزرار +/− اللي بتتضغط طول اليوم. */
