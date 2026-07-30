@@ -24,13 +24,14 @@
 #    tazweed-system وبس — مايقدرش يقرا بيانات ولا يمسح ولا يلمس أي مشروع
 #    تاني. الخطوات في README قسم "رفع القواعد تلقائيًا".
 
-name: رفع قواعد Firestore
+name: رفع قواعد وفهارس Firestore
 
 on:
   push:
     branches: [main]
     paths:
       - 'firestore.rules'
+      - 'firestore.indexes.json'
       - 'firebase.json'
       - '.github/workflows/deploy-firestore-rules.yml'
   # زرار يدوي من تبويب Actions، لو حبيت ترفع القواعد من غير أي تعديل.
@@ -79,6 +80,41 @@ jobs:
             --only firestore:rules \
             --project tazweed-system \
             --non-interactive
+
+      # ------------------------------------------------------------
+      # الفهارس (indexes) — خطوة مستقلة عن القواعد عن قصد
+      # ------------------------------------------------------------
+      # ليه مستقلة؟ لأن رفع الفهارس محتاج صلاحية **زيادة** على رفع القواعد
+      # (Cloud Datastore Index Admin). مفتاح الخدمة اللي اتعمل للقواعد بس
+      # مش هينفع هنا، والرفع هيفشل بخطأ صلاحيات.
+      #
+      # لو الخطوة دي فشلت، القواعد تكون اترفعت خلاص (وهي الأهم أمنيًا)،
+      # والرسالة تحت بتقول بالظبط إيه المطلوب — بدل ما الشغل كله يفشل.
+      #
+      # ⚠️ الفهارس بتاخد دقايق عشان "تتبني" بعد الرفع. الاستعلامات بترجع
+      # failed-precondition لحد ما البناء يخلص، وده طبيعي.
+      - name: رفع الفهارس على Firebase
+        id: indexes
+        continue-on-error: true
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+        run: |
+          firebase deploy \
+            --only firestore:indexes \
+            --project tazweed-system \
+            --non-interactive
+
+      - name: توضيح سبب فشل الفهارس (لو فشلت)
+        if: steps.indexes.outcome == 'failure'
+        run: |
+          echo "::error::رفع الفهارس فشل. القواعد اترفعت تمام، الفهارس بس هي اللي وقفت."
+          echo "::error::السبب المتوقع: مفتاح الخدمة FIREBASE_SERVICE_ACCOUNT مالوش صلاحية إنشاء فهارس."
+          echo "::error::الحل: من Google Cloud Console ← IAM ← الحساب بتاع المفتاح ← ضيف الدور:"
+          echo "::error::  Cloud Datastore Index Admin  (roles/datastore.indexAdmin)"
+          echo "::error::وبعدها شغّل الـworkflow ده تاني من زرار Run workflow."
+          echo "::error::بديل يدوي: Firebase Console ← Firestore ← Indexes ← Single field ← Add exemption"
+          echo "::error::  للحقول: status و isBase و branchQty في مجموعة grades، بنطاق Collection group."
+          exit 1
 
       - name: مسح المفتاح من الجهاز المؤقت
         if: always()

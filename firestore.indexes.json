@@ -1,0 +1,50 @@
+{
+  "//": "فهارس Firestore — الملف ده بيتنشر تلقائيًا مع القواعد (شوف .github/workflows/deploy-firestore-rules.yml)",
+  "// ليه الملف ده موجود": [
+    "الاستعلامات اللي بتقرا الدرجات في **كل الفئات مرة واحدة** (collectionGroup)",
+    "محتاجة فهرس بنطاق COLLECTION_GROUP. وFirestore بيعمل الفهارس التلقائية",
+    "بنطاق COLLECTION بس — يعني جوه فئة واحدة. عشان كده الاستعلامات الشاملة",
+    "كانت بترجع الخطأ failed-precondition، والعدّادات في القايمة الجانبية",
+    "كانت بتفضل صفر وانت شايف العكس في الجدول.",
+    "",
+    "⚠️ ملحوظة مهمة: أي fieldOverrides بيلغي الفهارس التلقائية للحقل ده",
+    "بالكامل — عشان كده بنكتب نطاق COLLECTION كمان مش COLLECTION_GROUP بس،",
+    "حتى لو مش مستخدم دلوقتي. لو شيلناه، أي استعلام جوه فئة واحدة على الحقل",
+    "ده هيقع فجأة."
+  ],
+
+  "indexes": [],
+
+  "fieldOverrides": [
+    {
+      "// status": "بيستخدم في: طلبات التزويد المعلّقة + الدرجات اللي خلصت (لوحة التحكم والقايمة الجانبية)",
+      "collectionGroup": "grades",
+      "fieldPath": "status",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "// isBase": "بيستخدم في: تنبيه الدرجات الأساسية (أبيض/أسود/أوف وايت) اللي قرّبت تخلص",
+      "collectionGroup": "grades",
+      "fieldPath": "isBase",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "// branchQty": "بيستخدم في: تنبيه 'قرّبت تخلص'. الاستعلام ده مابيشتغلش إلا لما تحدّد حد أدنى لفئة — فلو الفهرس ده ناقص، المشكلة مابتظهرش إلا بعد ما تحدّد الحد.",
+      "collectionGroup": "grades",
+      "fieldPath": "branchQty",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}
