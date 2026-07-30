@@ -1367,12 +1367,31 @@ function activityLogHTML() {
     </div>`;
 }
 
+// ------------------------------------------------------------
+// ⭐ الفلتر بيمشي معاك من القايمة الجانبية لجوه الفئة
+// ------------------------------------------------------------
+// المشكلة اللي بيحلها: بتشوف نقطة صفراء مكتوب فيها 1 قدام الفئة، تدخل
+// عليها وتلاقي 24 درجة كلها عادية — والدرجة المطلوبة ضايعة بينهم، أو
+// أسوأ: تلاقي "مفيش درجات بالفلتر ده" لأن فيه فلتر قديم لسه شغّال من
+// فئة قبلها.
+//
+// النقطة الصفراء معناها "هنا فيه طلب تزويد"، فلما تضغط عليها المفروض
+// توديك على الطلب ده مباشرة — مش تسيبك تدوّر.
+function gradeFilterForEntry() {
+  const f = state.categoryFilter || 'all';
+  return f === 'pending' || f === 'out' || f === 'low' ? f : 'all';
+}
+
 function openCategory(categoryId) {
   const cameFromElsewhere = state.screen !== 'sheets';
   state.screen = 'sheets';
   state.sideMenuOpen = false;
   if (categoryId === state.activeCategoryId) {
-    if (cameFromElsewhere) render();
+    // نفس الفئة: برضه بنظبّط الفلتر ونرسم — من غير كده الضغطة كانت
+    // مابتعملش أي حاجة، والفلتر القديم يفضل مخبّي كل حاجة.
+    state.gradeFilter = gradeFilterForEntry();
+    state.gradeGroupFilter = '';
+    render();
     return;
   }
   state.activeCategoryId = categoryId;
@@ -1382,7 +1401,9 @@ function openCategory(categoryId) {
   state.resolvingGradeId = null;
   state.confirmingOutGradeId = null;
   state.bulkRequestMode = false;
-  state.gradeFilter = 'all';
+  state.gradeSelectMode = false;
+  state.gradeSelected = {};
+  state.gradeFilter = gradeFilterForEntry();
   state.gradeGroupFilter = '';
   // التحديد مرتبط بدرجات الفئة اللي كنا فيها، فلازم يتصفّر مع التبديل
   // عشان مايتطبعش بالغلط على فئة تانية.
@@ -2772,10 +2793,32 @@ async function registerPrintStation() {
   }
 }
 
+// ⚠️ لازم يفضل فيه catch على النبضة دي.
+//
+// المشكلة اللي كانت بتحصل: registerPrintStation دالة async بتنادي
+// ensureQZConnected، ودي بتتعامل مع مكتبة QZ Tray. على التليفون مفيش QZ
+// أصلًا، والمكتبة ساعات بترمي خطأ **فوري** (مش وعد مرفوض) من جواها.
+// وقتها الوعد بتاع الدالة بيترفض ومفيش حد ماسكه — فيظهر للمستخدم شريط
+// أحمر مكتوب فيه "Promise: Cannot read properties of undefined"، وبيتكرر
+// مع كل نبضة (عشان كده كان بيظهر ×5).
+//
+// الخطأ ده مالوش أي تأثير على الشغل (الجهاز ده أصلًا مش نقطة طباعة)،
+// فمكانه الكونسول مش وش المستخدم.
+function safeRegisterPrintStation() {
+  try {
+    const p = registerPrintStation();
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => console.warn('تعذّر تسجيل الجهاز كنقطة طباعة:', err));
+    }
+  } catch (err) {
+    console.warn('تعذّر تسجيل الجهاز كنقطة طباعة:', err);
+  }
+}
+
 function startStationHeartbeat() {
   stopStationHeartbeat();
-  registerPrintStation();
-  stationHeartbeatTimer = setInterval(registerPrintStation, STATION_HEARTBEAT_MS);
+  safeRegisterPrintStation();
+  stationHeartbeatTimer = setInterval(safeRegisterPrintStation, STATION_HEARTBEAT_MS);
 }
 
 function stopStationHeartbeat() {
@@ -3046,7 +3089,139 @@ function promptLabelSize(callback, hideCopies) {
 // الطباعة. السبب: لما QZ Tray بياخد الـHTML، هو بيرسمه بمحرك داخلي بتاع
 // Java، ومش مضمون إنه يستنى سكريبت خارجي يتحمّل ويولّد الكود قبل ما يطبع.
 // الصورة الجاهزة بتشيل الاحتمال ده خالص (وكمان بتخلي المعاينة فورية).
+// ============================================================
+// ⭐ توليد الـQR — أكبر مربعات ممكنة وأعلى تصحيح أخطاء
+// ============================================================
+// السبب اللي خلانا نعيد كتابة الجزء ده: ملصق صنف حقيقي طلع صعب القراءة،
+// وملصق الفئة على نفس الطابعة كان شغّال عادي. الفرق الوحيد بينهم طول
+// الرقم:
+//
+//   باركود الفئة  = 28144            (5 أرقام)
+//   باركود الصنف  = 6291108735848   (13 رقم — EAN-13)
+//
+// والقياس الفعلي على نفس المساحة (10.7 ملم) بالمكتبة القديمة:
+//
+//   5 أرقام   → 21 مربع → كل مربع 4.08 نقطة طباعة  ✅
+//   13 رقم    → 25 مربع → كل مربع 3.42 نقطة طباعة  ❌
+//
+// الطابعة الحرارية دقتها 203 نقطة/إنش، يعني النقطة 0.125 ملم. تحت 4 نقط
+// للمربع تقريبًا، القارئ مابيعرفش يفصل المربعات عن بعضها.
+//
+// ------------------------------------------------------------
+// حاجتين اتصلحوا
+// ------------------------------------------------------------
+// 1) **الوضع الرقمي (Numeric).** معيار الـQR فيه وضع خاص للأرقام بيخزّن
+//    كل 3 أرقام في 10 بت بدل 24 بت. المكتبة القديمة (qrcodejs) مابتعرفش
+//    الوضع ده خالص — بتخزّن كل رقم كحرف كامل. ومعظم الباركودات عندنا
+//    أرقام صافية، فكنا بندفع ضعف المساحة على الفاضي.
+//
+// 2) **المكتبة القديمة بتختار نسخة أكبر من اللازم.** قِسنا نفس المحتوى
+//    (13 رقم، وضع أحرف، مستوى M) على المكتبتين: القديمة طلّعت 25 مربع،
+//    والجديدة 21. يعني كان فيه هدر حتى من غير الوضع الرقمي.
+//
+// النتيجة بعد التعديل:
+//
+//   5 أرقام   → 21 مربع بمستوى تصحيح H (الأعلى) — نفس الحجم، تصحيح أقوى
+//   13 رقم    → 21 مربع بمستوى تصحيح H          — أكبر **و** تصحيح أقوى
+//   18 رقم    → 21 مربع بمستوى تصحيح Q
+//
+// يعني مفيش أي مقايضة هنا: المربعات أكبر أو زيها، وتصحيح الأخطاء أعلى أو
+// زيه. الاتنين في صالحنا.
+//
+// ⚠️ المكتبة الجديدة **جوه المستودع** (js/vendor) مش من سيرفر خارجي —
+// عشان تشتغل من غير نت من أول لحظة.
+
+// بترجّع كائن الكود بأقل عدد مربعات ممكن، أو null لو المكتبة مش موجودة.
+//
+// ------------------------------------------------------------
+// ⚠️ ترتيب الاختيار هنا مش عشوائي — اتبنى على قياس
+// ------------------------------------------------------------
+// جرّبنا 8 باركودات حقيقية على فاكّ QR مع محاكاة الطباعة الحرارية، وطلع:
+//
+//   • الوضع الرقمي (Numeric) بيغيّر شكل مصفوفة الكود كلها. للأرقام
+//     الطويلة ده مكسب كبير، لكن للأرقام القصيرة الكود بيتملي "حشو" ثابت
+//     ومتكرر، والنتيجة قراءة **أسوأ** — قِسناها: 0 من 6 نجحت بالوضع
+//     الرقمي مقابل 3 من 6 بالوضع العادي.
+//
+//   • والمفاجأة: المكتبة الجديدة بتطلّع باركود الـ13 رقم في 21 مربع
+//     **حتى بالوضع العادي** (القديمة كانت بتطلّعه 25). يعني المكسب كله
+//     كان جاي من إن المكتبة القديمة بتختار نسخة أكبر من اللازم، مش من
+//     الوضع الرقمي.
+//
+// فالقاعدة: نبدأ بـ**نفس الإعداد اللي شغّال دلوقتي** (وضع عادي + مستوى M)،
+// ومانغيّرش غير لو التغيير **بيقلّل عدد المربعات فعلًا**. كده الباركودات
+// اللي بتتقرا كويس دلوقتي مابتتغيّرش بأي حرف، والباركودات الطويلة بس هي
+// اللي بتستفيد.
+function buildBestQR(content) {
+  if (typeof qrcode !== 'function') return null;
+
+  const isDigits = /^[0-9]+$/.test(content);
+  // بالترتيب: الأول هو إعداد النظام الحالي، وبعده البدائل اللي ممكن تصغّر
+  // الكود. أول واحد يوصل لأقل عدد مربعات هو اللي بياخدها (التعادل للأول).
+  const combos = [
+    { mode: 'Byte', level: 'M' },
+    ...(isDigits ? [{ mode: 'Numeric', level: 'M' }] : []),
+    { mode: 'Byte', level: 'L' },
+    ...(isDigits ? [{ mode: 'Numeric', level: 'L' }] : []),
+  ];
+
+  let best = null;
+  for (const combo of combos) {
+    try {
+      const qr = qrcode(0, combo.level);
+      qr.addData(content, combo.mode);
+      qr.make();
+      const count = qr.getModuleCount();
+      if (!best || count < best.count) best = { qr, count, ...combo };
+    } catch (err) {
+      // المحتوى مش داخل في الإعداد ده — عادي، نجرّب اللي بعده
+    }
+  }
+  return best;
+}
+
 function generateQRDataURL(text, sizePx) {
+  const content = String(text || '');
+
+  const best = buildBestQR(content);
+  if (best) {
+    // بنرسم المربعات بنفسنا على مقاس **من مضاعفات عددها بالظبط**، فكل
+    // مربع بيطلع بنفس عدد البكسلات من غير تقريب.
+    //
+    // ⚠️ والمقاس بيفضل قريب من 200 بكسل زي ما كان. جرّبنا قبل كده نكبّره
+    // لـ400 عشان "الدقة" والنتيجة كانت **أسوأ** على الطابعة: الصورة بتتصغّر
+    // لـ86 نقطة طباعة، وكل ما التصغير يزيد بيضيع تفاصيل أكتر. (التفاصيل
+    // في README — v0.23.1)
+    const target = Number(sizePx) || 200;
+    const scale = Math.max(1, Math.round(target / best.count));
+    const side = best.count * scale;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = side;
+    canvas.height = side;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, side, side);
+      ctx.fillStyle = '#000000';
+      for (let row = 0; row < best.count; row++) {
+        for (let col = 0; col < best.count; col++) {
+          if (best.qr.isDark(row, col)) ctx.fillRect(col * scale, row * scale, scale, scale);
+        }
+      }
+      try {
+        return Promise.resolve(canvas.toDataURL('image/png'));
+      } catch (err) {
+        /* هنكمّل للطريقة القديمة تحت */
+      }
+    }
+  }
+
+  // احتياطي: المكتبة القديمة، لو الجديدة مش متحمّلة لأي سبب.
+  return legacyQRDataURL(content, sizePx);
+}
+
+function legacyQRDataURL(text, sizePx) {
   return new Promise((resolve) => {
     if (typeof QRCode === 'undefined') {
       resolve('');
@@ -3062,8 +3237,6 @@ function generateQRDataURL(text, sizePx) {
       resolve('');
       return;
     }
-    // المكتبة بترسم على canvas فورًا في المتصفحات الحديثة، وبتقع على img
-    // في القديمة — بنتعامل مع الحالتين.
     setTimeout(() => {
       let dataUrl = '';
       const canvas = holder.querySelector('canvas');
@@ -3079,33 +3252,6 @@ function generateQRDataURL(text, sizePx) {
     }, 60);
   });
 }
-
-// ============================================================
-// ⚠️ درس: تجربة "إعادة رسم الـQR بمربعات متساوية" فشلت على الورق
-// ============================================================
-// في v0.23.0 عملنا حاجة كانت منطقية على الورق النظري: المكتبة بترسم الكود
-// بعرض 200 بكسل على 21 وحدة (9.524 بكسل للوحدة)، فبتقرّب وحدة لـ9 وحدة
-// لـ10. فأعدنا رسمه على 399 بكسل (مضاعف دقيق لـ21) عشان كل مربع يطلع
-// بنفس الحجم بالظبط.
-//
-// **والنتيجة الحقيقية كانت أسوأ.** المستخدم قال الباركود بقى أصعب في
-// القراءة من قبل.
-//
-// ليه القياس اللي عملناه كان غلط؟ لأننا حسبنا إن البكسلات اللي في الصورة
-// هي اللي بتتطبع. وده مش صحيح: الصورة بتتحط في مربع 10.7 ملم، والطابعة
-// الحرارية دقتها 203 نقطة/إنش، يعني المربع كله ~85 نقطة طباعة. فالصورة
-// **بتتصغّر** قبل الطباعة:
-//   • 200 بكسل → 85 نقطة = تصغير 2.3 مرة
-//   • 399 بكسل → 85 نقطة = تصغير 4.7 مرة
-//
-// وكل ما التصغير يزيد، محرك العرض بيخلط بكسلات أكتر مع بعضها في النقطة
-// الواحدة (وساعات بيرمي أعمدة كاملة لو بيستخدم أقرب-جار). فالمربعات
-// المتساوية في الصورة الكبيرة ضاعت في التصغير، والنتيجة حروف أوسخ من
-// الأصل.
-//
-// الخلاصة العملية: **حجم الصورة يفضل قريب من عدد نقط الطباعة الفعلية**،
-// مش أكبر ما يمكن. وأي "تحسين" للملصق لازم يتجرّب على طابعة حقيقية قبل
-// ما يترفع — المحاكاة مش كفاية هنا.
 
 // شكل الملصق مأخوذ من صورة الملصق الحقيقي (Crepe Sadda Luxe) اللي بعتها:
 //   [ QR ]   اسم الصنف
@@ -3155,7 +3301,19 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   // (نفس 10.7 ملم اللي كانت شغّالة)، بس بقى فيه فسحة تستحمل التقريب.
   const QR_SLACK_MM = 0.4;
   const qrBox = Math.min(contentH - QR_SLACK_MM, 11);
-  const textW = pageWidthMm - qrBox - pad * 3;
+
+  // ------------------------------------------------------------
+  // ⭐ الـQR بعيد عن حرف اللاصقة الشمال
+  // ------------------------------------------------------------
+  // الحشو الجانبي كان 0.4 ملم بس، والـQR أول حاجة على الشمال — فأي زحلقة
+  // بسيطة في تغذية الورق (أو حرف اللاصقة نفسه المدوّر) كانت بتاكل عمود من
+  // مربعاته. والعمود ده من نمط التصويب، فالقارئ بيتوه.
+  //
+  // 1.2 ملم على الجانبين = تلات أضعاف اللي كان. والعرض 38 ملم، فالمساحة
+  // الباقية للنص لسه أكتر من كفاية (24 ملم).
+  const padX = 1.2;
+  const gapX = 0.8;
+  const textW = pageWidthMm - qrBox - padX * 2 - gapX;
 
   // اسم الصنف بيتقاس فعليًا: لو داخل في سطر واحد يبقى سطر، ولو أطول
   // بيتقسم على سطرين بدل ما يتقطع بنقط (...) زي ما كان بيحصل.
@@ -3201,8 +3359,8 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
         .label + .label { page-break-before: always; break-before: page; }
         .half {
           height: ${halfHeight}mm; width: 100%;
-          display: flex; align-items: center; gap: ${pad}mm;
-          padding: ${pad}mm ${pad}mm ${pad + SAFETY_MM}mm;
+          display: flex; align-items: center; gap: ${gapX}mm;
+          padding: ${pad}mm ${padX}mm ${pad + SAFETY_MM}mm;
           overflow: hidden;
         }
         .qr { width: ${qrBox}mm; height: ${qrBox}mm; flex: 0 0 ${qrBox}mm; display: block; }
@@ -3214,7 +3372,9 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
           display: -webkit-box; -webkit-line-clamp: ${nameLines}; -webkit-box-orient: vertical;
           overflow: hidden;
         }
-        .code { font-size: ${codeSize.toFixed(2)}mm; letter-spacing: 0.15mm; }
+        /* الرقم bold: على الطابعة الحرارية الخط الرفيع بيطلع باهت ومتقطّع،
+           والرقم ده هو خطة الطوارئ لو الباركود مارضيش يتقرا — فلازم يبان. */
+        .code { font-size: ${codeSize.toFixed(2)}mm; letter-spacing: 0.15mm; font-weight: bold; }
         .price { font-size: ${priceSize.toFixed(2)}mm; display: flex; justify-content: center; gap: ${pad * 2}mm; white-space: nowrap; }
         .price s { font-weight: normal; }
         .price b { font-weight: bold; }
@@ -3773,8 +3933,20 @@ async function ensureQZConnected() {
   if (!isQZAvailable()) return false;
   if (qzConnected) return true;
   if (qzConnecting) return qzConnecting;
-  qzConnecting = qz.websocket
-    .connect()
+
+  // ⚠️ qz.websocket.connect() ساعات بترمي خطأ **فوري** بدل ما ترجّع وعد
+  // مرفوض (بيحصل على الأجهزة اللي مفيهاش QZ Tray). من غير الـtry دي،
+  // الخطأ كان بيطلع بره الدالة ويظهر للمستخدم كشريط أحمر.
+  let attempt;
+  try {
+    attempt = qz.websocket.connect();
+  } catch (err) {
+    console.warn('تعذّر الاتصال بـ QZ Tray:', err);
+    return false;
+  }
+  if (!attempt || typeof attempt.then !== 'function') return false;
+
+  qzConnecting = attempt
     .then(() => {
       qzConnected = true;
       return true;
