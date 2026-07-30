@@ -44,9 +44,11 @@ function reportOverviewError(what, err) {
   // إنجليزي مالوش معنى. وساعات الرسالة الأصلية جواها رابط بيعمل الفهرس
   // بضغطة — فبنعرضها كاملة تحت العربي.
   if (code === 'failed-precondition') {
+    scheduleOverviewRetry();
     showFatalError(
       `"${what}": الفهرس المطلوب في Firestore مش موجود أو لسه بيتبني. ` +
-        `العدّادات في القايمة الجانبية هتبان ناقصة لحد ما يخلص (دقايق). ` +
+        `العدّادات في القايمة الجانبية هتبان ناقصة لحد ما يخلص — والنظام ` +
+        `هيحاول لوحده كل دقيقتين، فمش محتاج تعمل حاجة. ` +
         (raw ? `[التفاصيل: ${raw}]` : '')
     );
     return;
@@ -56,6 +58,36 @@ function reportOverviewError(what, err) {
     `تعذّر قراءة "${what}" من السحابة${code ? ` (${code})` : ''} — العدّادات في القايمة الجانبية ممكن تبان ناقصة.` +
       (raw ? ` [${raw}]` : '')
   );
+}
+
+// ------------------------------------------------------------
+// إعادة المحاولة بعد فشل بسبب فهرس ناقص
+// ------------------------------------------------------------
+// لما الاستعلام يفشل، Firestore **بيقفل المتابعة خلاص** ومابيحاولش تاني.
+// معنى كده إنك لو صلّحت الفهرس، النظام مايحسّش — لازم تعمل ري فريش.
+//
+// عشان ما نطلبش ده من المستخدم، بنعيد المحاولة لوحدنا 3 مرات كل دقيقتين.
+// دقيقتين × 3 بيغطّي وقت بناء الفهرس في Firestore عادةً.
+//
+// ليه 3 مرات وبس؟ لأن لو الفهرس مش موجود أصلًا (مش بس بيتبني)، إعادة
+// المحاولة للأبد بتستهلك من حد الاستعلامات المجاني على الفاضي.
+const OVERVIEW_RETRY_MS = 2 * 60 * 1000;
+const OVERVIEW_RETRY_LIMIT = 3;
+let overviewRetries = 0;
+let overviewRetryTimer = null;
+
+function scheduleOverviewRetry() {
+  if (overviewRetryTimer || overviewRetries >= OVERVIEW_RETRY_LIMIT) return;
+  overviewRetries++;
+  overviewRetryTimer = setTimeout(() => {
+    overviewRetryTimer = null;
+    console.warn(`إعادة محاولة قراءة الملخّص (${overviewRetries}/${OVERVIEW_RETRY_LIMIT})...`);
+    subscribeOverview();
+    subscribeBaseGrades();
+    // لازم نصفّر الحد المحفوظ، وإلا subscribeLowStock بتخرج من غير ما تعمل حاجة.
+    lowStockThreshold = null;
+    subscribeLowStock();
+  }, OVERVIEW_RETRY_MS);
 }
 
 let unsubPendingOverview = null;
@@ -243,6 +275,8 @@ function subscribeLowStock() {
 }
 
 function stopOverview() {
+  if (overviewRetryTimer) { clearTimeout(overviewRetryTimer); overviewRetryTimer = null; }
+  overviewRetries = 0;
   if (unsubPendingOverview) { unsubPendingOverview(); unsubPendingOverview = null; }
   if (unsubOutOverview) { unsubOutOverview(); unsubOutOverview = null; }
   if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
