@@ -35,10 +35,27 @@ function renderIfOpen() {
 // نفضل نخمّن.
 function reportOverviewError(what, err) {
   const code = (err && err.code) || '';
+  const raw = (err && err.message) || '';
   console.error(`فشل استعلام "${what}":`, err);
-  if (typeof showFatalError === 'function') {
-    showFatalError(`تعذّر قراءة "${what}" من السحابة${code ? ` (${code})` : ''} — العدّادات في القايمة الجانبية ممكن تبان ناقصة.`);
+  if (typeof showFatalError !== 'function') return;
+
+  // failed-precondition من Firestore معناها حاجة واحدة تقريبًا دايمًا:
+  // **الفهرس ناقص**. بنقول ده بالعربي بدل ما نسيب المستخدم قدام كود
+  // إنجليزي مالوش معنى. وساعات الرسالة الأصلية جواها رابط بيعمل الفهرس
+  // بضغطة — فبنعرضها كاملة تحت العربي.
+  if (code === 'failed-precondition') {
+    showFatalError(
+      `"${what}": الفهرس المطلوب في Firestore مش موجود أو لسه بيتبني. ` +
+        `العدّادات في القايمة الجانبية هتبان ناقصة لحد ما يخلص (دقايق). ` +
+        (raw ? `[التفاصيل: ${raw}]` : '')
+    );
+    return;
   }
+
+  showFatalError(
+    `تعذّر قراءة "${what}" من السحابة${code ? ` (${code})` : ''} — العدّادات في القايمة الجانبية ممكن تبان ناقصة.` +
+      (raw ? ` [${raw}]` : '')
+  );
 }
 
 let unsubPendingOverview = null;
