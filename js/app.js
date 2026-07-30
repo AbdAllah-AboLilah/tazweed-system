@@ -534,7 +534,7 @@ function categoryDotsHTML(flags) {
 }
 
 function sideMenuHTML() {
-  const canManageCatalog = hasFullAccess(state.profile);
+  const canManageCatalog = can(state.profile, 'manageCategories');
   const filter = state.categoryFilter || 'all';
   const search = normalizeArabic(state.categorySearch || '');
   // الترتيب بيتحرّك في القايمة الكاملة بس: لو فيه فلتر أو بحث، الفئة اللي
@@ -633,7 +633,7 @@ function sideMenuHTML() {
 
 function dashboardHTML() {
   const roleLabel = ROLE_LABELS_AR[state.profile?.role] || '';
-  const canManageCatalog = hasFullAccess(state.profile);
+  const canManageCatalog = can(state.profile, 'manageCategories');
 
   // حساب "موظف طباعة" بيفتح على شاشة الطباعة وبس — مفيش شيتات ولا لوحة
   // تحكم ولا قايمة فئات، عشان مايقدرش يلمس المخزن أصلًا.
@@ -699,6 +699,10 @@ function dashboardHTML() {
     bodyHTML = productsScreenHTML();
   } else if (state.screen === 'print') {
     bodyHTML = printScreenHTML();
+  } else if (state.screen === 'users') {
+    bodyHTML = can(state.profile, 'manageUsers')
+      ? usersScreenHTML()
+      : `<div class="home-empty" style="padding:2rem; text-align:center;">مالكش صلاحية على الشاشة دي.</div>`;
   } else if (state.categories.length === 0) {
     bodyHTML = `
       <div style="padding:2rem; text-align:center; color:var(--text-secondary);">
@@ -729,7 +733,8 @@ function dashboardHTML() {
       ${navBtn('home', '🏠 الرئيسية')}
       ${navBtn('sheets', sheetTabLabel)}
       ${canUsePrintScreen(state.profile) ? navBtn('print', '🏷️ طباعة') : ''}
-      ${navBtn('products', '📦 الأصناف')}
+      ${can(state.profile, 'viewProducts') ? navBtn('products', '📦 الأصناف') : ''}
+      ${can(state.profile, 'manageUsers') ? navBtn('users', '👥 الحسابات') : ''}
     </div>
     ${state.screen === 'sheets' ? addCategoryFormHTML : ''}`;
 
@@ -751,11 +756,11 @@ function dashboardHTML() {
           <button class="btn menu-toggle" id="menu-toggle-btn" title="القائمة" aria-label="القائمة">☰</button>
           <div class="menu-panel" id="menu-panel">
             ${isBarcodeScanSupported() ? `<button class="btn" id="scan-barcode-btn">📷 مسح باركود</button>` : ''}
-            ${canManageCatalog ? `<button class="btn" id="import-btn">📥 استيراد من إكسل</button>` : ''}
-            <button class="btn" id="export-btn">📤 تصدير نسخة احتياطية</button>
+            ${can(state.profile, 'excelTools') ? `<button class="btn" id="import-btn">📥 استيراد من إكسل</button>` : ''}
+            ${can(state.profile, 'excelTools') ? `<button class="btn" id="export-btn">📤 تصدير نسخة احتياطية</button>` : ''}
             ${canManageUsers(state.profile) ? `<button class="btn" id="users-btn">👥 الحسابات</button>` : ''}
             ${state.canInstallApp ? `<button class="btn" id="install-app-btn">⬇️ تثبيت التطبيق</button>` : ''}
-            <button class="btn" id="activity-log-btn">${state.screen === 'activity' ? '📋 رجوع' : '📋 سجل العمليات'}</button>
+            ${can(state.profile, 'viewActivity') ? `<button class="btn" id="activity-log-btn">${state.screen === 'activity' ? '📋 رجوع' : '📋 سجل العمليات'}</button>` : ''}
             <button class="btn" id="logout-btn">🚪 تسجيل خروج</button>
           </div>
         </div>
@@ -793,7 +798,7 @@ function qtyCellHTML(categoryId, gradeId, field, value, canEdit) {
 function categoryInfoBarHTML() {
   const cat = state.categories.find((c) => c.id === state.activeCategoryId);
   if (!cat) return '';
-  const canManageCatalog = hasFullAccess(state.profile);
+  const canManageCatalog = can(state.profile, 'manageCategories');
 
   if (state.showEditCategoryInfoForm) {
     return `
@@ -833,8 +838,8 @@ function categoryInfoBarHTML() {
       <span>الباركود: <strong style="color:var(--text-primary);">${escapeHTML(cat.barcodeNumber || '—')}</strong></span>
       <span>السعر: <strong style="color:var(--text-primary);">${cat.sellingPrice ? `<s style="color:var(--text-muted);">${escapeHTML(cat.originalPrice || 0)}</s> ${escapeHTML(cat.sellingPrice)}` : '—'}</strong></span>
       ${canManageCatalog ? `<button class="btn" id="edit-category-info-btn" style="padding:3px 10px; font-size:12px;">تعديل</button>` : ''}
-      <button class="btn" id="print-label-btn" style="padding:3px 10px; font-size:12px;">🏷️ طباعة ملصق</button>
-      <button class="btn" id="print-restock-btn" style="padding:3px 10px; font-size:12px;">🖨️ طباعة ورقة تزويد</button>
+      ${can(state.profile, 'printLabel') ? `<button class="btn" id="print-label-btn" style="padding:3px 10px; font-size:12px;">🏷️ طباعة ملصق</button>` : ''}
+      ${can(state.profile, 'printRestock') ? `<button class="btn" id="print-restock-btn" style="padding:3px 10px; font-size:12px;">🖨️ طباعة ورقة تزويد</button>` : ''}
       <button class="btn" id="printer-settings-btn" style="padding:3px 10px; font-size:12px;" title="إعدادات طابعات هذا الجهاز">⚙️ إعدادات الطابعة</button>
     </div>`;
 }
@@ -985,7 +990,7 @@ function qtyControlsHTML(categoryId, gradeId, field, value, canEdit) {
 // السبب: خمس أعمدة بمساحات لمس محترمة مش بيدخلوا في عرض 360px — الجدول
 // بيطلع 425px ويحتاج سحب أفقي، وعمود الحالة (أهم عمود في الشغل) بيختفي
 // بره الشاشة. الكارت بيحل ده: كل حاجة تحت بعضها، مفيش أي سحب.
-function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
+function gradeCardsHTML(canEditBranch, canEditMain, canDeleteGrades) {
   const cat = state.categories.find((c) => c.id === state.activeCategoryId);
   const sections = groupedGrades(visibleGrades(), cat);
   return sections
@@ -1032,7 +1037,7 @@ function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
             <div class="gc-head">
               <span class="gc-num">${escapeHTML(gradeDisplayName(g))}</span>
               ${
-                canManageCatalog
+                canDeleteGrades
                   ? `<button class="btn gc-del" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(gradeDisplayName(g))}">حذف</button>`
                   : ''
               }
@@ -1057,7 +1062,10 @@ function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
 function gradeTableHTML() {
   const canEditBranch = canEditWarehouse(state.profile, 'branch');
   const canEditMain = canEditWarehouse(state.profile, 'main');
-  const canManageCatalog = hasFullAccess(state.profile);
+  // ⭐ كل زرار بقى بمفتاحه هو، مش بـ"صلاحية كاملة" واحدة بتفتح كل حاجة.
+  const canAddGrades = can(state.profile, 'addGrades');
+  const canDeleteGrades = can(state.profile, 'deleteGrades');
+  const canManageCatalog = can(state.profile, 'manageCategories');
 
   const infoBarHTML = categoryInfoBarHTML();
 
@@ -1069,25 +1077,25 @@ function gradeTableHTML() {
     state.gradeLabelMode ? '✔️ تم' : '🏷️ طباعة ملصقات درجات'
   }</button>`;
 
-  const selectModeBtn = canManageCatalog
+  const selectModeBtn = canDeleteGrades
     ? `<button class="btn ${state.gradeSelectMode ? 'btn-primary' : ''}" id="toggle-grade-select-btn">${
         state.gradeSelectMode ? '✔️ تم' : '☑️ تحديد للحذف'
       }</button>`
     : '';
 
-  const missingBase = canManageCatalog && !state.grades.some((g) => g.isBase);
+  const missingBase = canAddGrades && !state.grades.some((g) => g.isBase);
 
   const toolbarHTML = `
     <div style="display:flex; gap:8px; margin-bottom:0.75rem; flex-wrap:wrap;">
       ${bulkToggleBtn}
       ${labelModeBtn}
       ${selectModeBtn}
-      ${canManageCatalog ? `<button class="btn" id="add-grade-btn">+ إضافة درجة</button>` : ''}
-      ${canManageCatalog ? `<button class="btn" id="add-grade-range-btn">+ إضافة درجات دفعة</button>` : ''}
+      ${canAddGrades ? `<button class="btn" id="add-grade-btn">+ إضافة درجة</button>` : ''}
+      ${canAddGrades ? `<button class="btn" id="add-grade-range-btn">+ إضافة درجات دفعة</button>` : ''}
       ${missingBase ? `<button class="btn" id="add-base-grades-btn">+ الدرجات الأساسية</button>` : ''}
       ${canManageCatalog ? `<button class="btn" id="color-groups-btn">🎨 مجموعات الألوان</button>` : ''}
       ${canEditBranch ? `<button class="btn" id="bulk-branch-qty-btn">⬆️ ظبط كميات الفرع</button>` : ''}
-      ${canManageCatalog ? `<button class="btn" id="delete-category-btn">حذف الفئة دي</button>` : ''}
+      ${can(state.profile, 'deleteCategories') ? `<button class="btn" id="delete-category-btn">حذف الفئة دي</button>` : ''}
     </div>`;
 
   // فلتر سريع: بدل ما تدوّر بعينك في 200 درجة على اللي محتاج تزويد.
@@ -1244,12 +1252,12 @@ function gradeTableHTML() {
         ${qtyCellHTML(state.activeCategoryId, g.id, 'branchQty', g.branchQty, canEditBranch)}
         ${qtyCellHTML(state.activeCategoryId, g.id, 'mainQty', g.mainQty, canEditMain)}
         ${statusColumnHTML(g)}
-        ${canManageCatalog ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(gradeDisplayName(g))}">حذف</button></td>` : ''}
+        ${canDeleteGrades ? `<td><button class="btn" style="padding:4px 10px; font-size:12px;" data-delete-grade-id="${escapeHTML(g.id)}" data-delete-grade-number="${escapeHTML(gradeDisplayName(g))}">حذف</button></td>` : ''}
       </tr>`;
 
   // لو الفئة مقسّمة لمجموعات ألوان، كل مجموعة بيتحطّ قبلها صف عنوان
   // بيمتد على عرض الجدول كله.
-  const colCount = 4 + (canManageCatalog ? 1 : 0);
+  const colCount = 4 + (canDeleteGrades ? 1 : 0);
   const rows = groupedGrades(shownGrades, cat)
     .map((section) => {
       const header = section.name
@@ -1263,7 +1271,7 @@ function gradeTableHTML() {
   // عدد العناصر في الصفحة لما الفئة يكون فيها مئات الدرجات.
   if (state.isNarrow) {
     return `${infoBarHTML}${toolbarHTML}${filterBarHTML}${addGradeFormHTML}${
-      shownGrades.length ? gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) : emptyFilterHTML
+      shownGrades.length ? gradeCardsHTML(canEditBranch, canEditMain, canDeleteGrades) : emptyFilterHTML
     }${spacerHTML}${actionBarHTML}`;
   }
 
@@ -1285,7 +1293,7 @@ function gradeTableHTML() {
                     ? 'تحديد'
                     : 'الحالة'
             }</th>
-            ${canManageCatalog ? '<th class="sticky-th"></th>' : ''}
+            ${canDeleteGrades ? '<th class="sticky-th"></th>' : ''}
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -1426,6 +1434,7 @@ function attachDashboardEvents() {
   if (state.screen === 'home') attachHomeEvents();
   if (state.screen === 'products') attachProductsEvents();
   if (state.screen === 'print') attachPrintScreenEvents();
+  if (state.screen === 'users') attachUsersScreenEvents();
 
   // ---- التنقّل بين الشاشات ----
   document.querySelectorAll('[data-screen]').forEach((btn) => {
@@ -1438,6 +1447,7 @@ function attachDashboardEvents() {
       if (screen === 'products' || screen === 'print') {
         if (!productsCache) loadProducts().then(render).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
       }
+      if (screen === 'users') subscribeUsers();
     });
   });
 
@@ -1764,7 +1774,12 @@ function attachDashboardEvents() {
   }
   wire('scan-barcode-btn', () => safeAsync(() => openBarcodeScanner(), 'فتح الكاميرا'));
   wire('import-btn', () => openImportDialog());
-  wire('users-btn', () => openUserAdmin());
+  wire('users-btn', () => {
+    state.screen = 'users';
+    state.sideMenuOpen = false;
+    render();
+    subscribeUsers();
+  });
   wire('install-app-btn', () => promptAppInstall());
   wire('export-btn', async (e) => {
     const btn = document.getElementById('export-btn');
@@ -3673,6 +3688,13 @@ function openAddGradeRangeDialog(categoryId) {
 // نفسه قبل ما يروح للطابعة، مع تكبير مرئي عشان يبان على الموبايل.
 // بترجّع true لو المستخدم ضغط "طباعة"، false لو ألغى.
 function showPrintPreview(html, sizeOptions, copies) {
+  // ورقة التزويد رول 80مم بارتفاع مفتوح، فحساب التكبير بتاعها مختلف تمامًا
+  // عن الملصق (اللي مقاسه ثابت من الاتجاهين). بنفصلها في دالة لوحدها
+  // **عشان مسار الملصق ما يتلمسش بأي حرف** — هو شغّال ومظبوط ومش عايزين
+  // نلعب فيه عشان ميزة في حاجة تانية.
+  if (sizeOptions && sizeOptions.autoHeight) {
+    return showRollPreview(html, sizeOptions);
+  }
   return new Promise((resolve) => {
     // المعاينة كانت صغيرة أوي على شاشة الكمبيوتر. دلوقتي بنحسب التكبير من
     // المساحة المتاحة فعلًا بدل رقم ثابت — كبيرة على الكمبيوتر ومناسبة
@@ -3732,6 +3754,81 @@ function showPrintPreview(html, sizeOptions, copies) {
     };
     document.getElementById('preview-cancel').addEventListener('click', () => close(false));
     document.getElementById('preview-print').addEventListener('click', () => close(true));
+  });
+}
+
+// ------------------------------------------------------------
+// معاينة ورقة التزويد (رول بارتفاع مفتوح)
+// ------------------------------------------------------------
+// الفرق عن الملصق: العرض ثابت (80مم) والارتفاع بيطلع من المحتوى نفسه —
+// ورقة فيها 20 درجة مش زي ورقة فيها 165. فبنكتب المحتوى الأول، نقيس
+// ارتفاعه الحقيقي من جوه الإطار، وبعدين نظبّط الصندوق عليه.
+function showRollPreview(html, sizeOptions) {
+  return new Promise((resolve) => {
+    const widthMm = sizeOptions.pageWidthMm || 80;
+    const PX_PER_MM = 3.7795;
+    const isNarrow = window.innerWidth <= NARROW_BREAKPOINT;
+    const boxW = Math.min(window.innerWidth - 60, isNarrow ? 300 : 420);
+    const zoom = Math.min(boxW / (widthMm * PX_PER_MM), isNarrow ? 1.4 : 1.8);
+    const shownW = widthMm * PX_PER_MM * zoom;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+    overlay.innerHTML = `
+      <div class="card" style="max-width:${Math.round(shownW) + 60}px; width:100%; text-align:center;">
+        <div style="font-size:14px; font-weight:500; margin-bottom:4px;">معاينة ورقة التزويد</div>
+        <div style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
+          عرض الورقة ${escapeHTML(widthMm)} ملم — الطول على حسب عدد الدرجات
+        </div>
+        <!-- نفس درس معاينة الملصق: الصفحة RTL، فالحاوية لازم تبقى LTR
+             والإطار في الركن الشمال بالظبط، وإلا التكبير بيطلّع المحتوى بره. -->
+        <div id="roll-box" style="margin:0 auto 12px; width:${Math.round(shownW)}px; max-height:55vh;
+                    border:1px solid var(--border); background:#fff; overflow:auto;
+                    position:relative; direction:ltr;">
+          <div id="roll-inner" style="position:relative; width:100%;">
+            <iframe id="roll-frame" scrolling="no"
+                    style="position:absolute; top:0; left:0; width:${widthMm}mm; border:0;
+                           transform:scale(${zoom}); transform-origin:top left; display:block;"></iframe>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; justify-content:center;">
+          <button class="btn" id="roll-cancel">إلغاء</button>
+          <button class="btn btn-primary" id="roll-print">🖨️ طباعة</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const frame = overlay.querySelector('#roll-frame');
+    const doc = frame.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    // القياس بعد ما المتصفح يرسم المحتوى فعلًا.
+    const fit = () => {
+      let h = 400;
+      try {
+        h = Math.max(
+          doc.body ? doc.body.scrollHeight : 0,
+          doc.documentElement ? doc.documentElement.scrollHeight : 0,
+          200
+        );
+      } catch (err) {
+        /* لو القياس فشل لأي سبب، بنسيب الارتفاع الافتراضي بدل ما نقع */
+      }
+      frame.style.height = h + 'px';
+      overlay.querySelector('#roll-inner').style.height = Math.round(h * zoom) + 'px';
+    };
+    setTimeout(fit, 60);
+    setTimeout(fit, 350);
+
+    const close = (result) => {
+      if (overlay.parentNode) document.body.removeChild(overlay);
+      resolve(result);
+    };
+    overlay.querySelector('#roll-cancel').addEventListener('click', () => close(false));
+    overlay.querySelector('#roll-print').addEventListener('click', () => close(true));
   });
 }
 
@@ -3905,6 +4002,12 @@ async function printRestockPaper(cat, grades) {
   if (groupName === null) return;
 
   const html = buildRestockHTML(cat, grades, groupName);
+
+  // معاينة قبل الطباعة — نفس فكرة الملصق: تشوف اللي هيطلع قبل ما تحرق ورق.
+  // ورقة التزويد ممكن تبقى متر كامل لو الفئة فيها 165 درجة.
+  const approved = await showPrintPreview(html, { pageWidthMm: 80, autoHeight: true });
+  if (!approved) return;
+
   // ورقة التزويد رول مستمر (الارتفاع مفتوح)، فمش بنفرض مقاس على QZ.
   await deliverPrint('restock', html, null, 'width=700,height=800');
 }

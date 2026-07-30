@@ -20,25 +20,73 @@ service cloud.firestore {
       return userProfile().role;
     }
 
-    function isAdmin() {
-      return isSignedIn() && role() == 'admin';
+    // ============================================================
+    // ⭐ نظام المفاتيح — نفس اللي في js/permissions.js بالظبط
+    // ============================================================
+    // القاعدة اللي بيمشي عليها كل شيء تحت:
+    //
+    //   1) لو الحساب فيه استثناء متسجّل على المفتاح ده → ياخد بيه
+    //   2) وإلا → قالب رتبته
+    //   3) وإلا → مقفول
+    //
+    // ⚠️ ليه ده مكتوب هنا كمان مع إنه مكتوب في الواجهة؟ لأن إخفاء الزرار
+    // من الشاشة **مش حماية**. أي حد فاهم يقدر يبعت الطلب مباشرة للسحابة
+    // من غير ما يفتح الشاشة أصلًا. الواجهة بتمنع الغلط، والقواعد دي هي
+    // اللي بتمنع الاختراق.
+    //
+    // ⚠️ وأي مفتاح جديد يتضاف في permissions.js **لازم** يتضاف هنا كمان،
+    // وإلا هيبقى مجرد ديكور.
+
+
+    // قوالب الرتب — لازم تفضل مطابقة لـ ROLE_PRESETS في permissions.js
+    function presetHas(key) {
+      return (role() in ['owner', 'admin'])
+        || (role() == 'branch_manager' && key != 'manageUsers')
+        || (role() == 'supervisor' && key in ['manageCategories', 'addGrades', 'printLabel', 'printRestock', 'printScreen', 'remotePrint', 'viewProducts', 'excelTools', 'viewActivity'])
+        || (role() == 'warehouse_keeper' && key in ['editBranchQty', 'editMainQty', 'addGrades', 'printLabel', 'printRestock', 'printScreen', 'viewProducts', 'viewActivity'])
+        || (role() == 'print_operator' && key in ['printLabel', 'printScreen', 'remotePrint'])
+        || (role() == 'user' && key in ['printLabel', 'printScreen', 'viewProducts', 'viewActivity']);
     }
 
-    // مدير الفرع والمشرف: كل الصلاحيات مؤقتًا (سيُخصَّص لاحقًا حسب الاتفاق)
-    function isFullAccess() {
-      return isSignedIn() && role() in ['admin', 'branch_manager', 'supervisor'];
+    // ⚠️ الشكل ده بالذات (مسار متداخل في get واحدة) مقصود:
+    // الشكل التاني — userProfile().get('perms', {}).get(key, ...) — بيرمي
+    // "evaluation error" في Firestore لما الحساب مالوش حقل perms أصلًا،
+    // وده حال كل الحسابات القديمة. أمسكناها بالمحاكي قبل ما توصل للمحل.
+    function can(key) {
+      return isSignedIn() && userProfile().get(['perms', key], presetHas(key)) == true;
+    }
+
+    // منشئ النظام — بيتربط بمعرّف الحساب تحت (OWNER_UID) عشان محدش يقدر
+    // ينزّل رتبته من جوه النظام.
+    function isOwnerRole() {
+      return isSignedIn() && role() in ['owner', 'admin'];
+    }
+
+    // ⬇️⬇️ حطّ هنا معرّف حساب صاحب المحل (بيظهر في شاشة الحسابات) ⬇️⬇️
+    // لحد ما يتحطّ، الحماية بتعتمد على الرتبة بس.
+    function ownerUid() {
+      return 'REPLACE_WITH_OWNER_UID';
+    }
+
+    function isTheOwner() {
+      return isSignedIn() && request.auth.uid == ownerUid();
+    }
+
+    function isAdmin() {
+      return can('manageUsers');
     }
 
     function warehouseAccess() {
-      return userProfile().warehouseAccess;
+      return userProfile().get('warehouseAccess', 'both');
     }
 
+    // مفتاح "يقدر" + خانة "أنهي مخزن" — الاتنين لازم يوافقوا.
     function isBranchKeeper() {
-      return role() == 'warehouse_keeper' && warehouseAccess() in ['branch', 'both'];
+      return can('editBranchQty') && (warehouseAccess() in ['branch', 'both'] || warehouseAccess() == null);
     }
 
     function isMainKeeper() {
-      return role() == 'warehouse_keeper' && warehouseAccess() in ['main', 'both'];
+      return can('editMainQty') && (warehouseAccess() in ['main', 'both'] || warehouseAccess() == null);
     }
 
     function onlyChangedKeys(keys) {
@@ -94,15 +142,34 @@ service cloud.firestore {
       );
     }
 
+    // ⚠️ نقطة دقيقة اتفصلت هنا عن قصد:
+    //
+    // اللي بيدير الفئات بيحتاج يعدّل حقول **الكتالوج** في الدرجة (مجموعة
+    // اللون، اسم الدرجة الأساسية، حدها الحرج) — لكن ده **مش** معناه إنه
+    // يقدر يلمس الكميات. رتبة "المشرف" بالظبط كده: بينظّم الشيت ومايعدّلش
+    // في الأرقام.
+    //
+    // فالكتالوج ليه مساره، والكميات ليها مسارها، وكل واحد بمفتاحه.
+    function catalogGradeEdit() {
+      return can('manageCategories')
+        && onlyChangedKeys(['group', 'name', 'criticalQty', 'number', 'isBase']);
+    }
+
     function canUpdateGrade() {
-      return isFullAccess() || branchAction() || mainAction();
+      return catalogGradeEdit() || branchAction() || mainAction();
     }
 
     // حسابات المستخدمين: القراءة لأي مستخدم مسجّل دخول (عشان نعرض الاسم/الدور)،
     // والكتابة (إنشاء/تعديل/حذف حسابات) للمدير فقط.
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+
+      // ⚠️ حماية منشئ النظام: حسابه مايتعدّلش ولا يتحذف من أي حد تاني.
+      // من غير السطر ده، أي حساب معاه مفتاح "إدارة الحسابات" كان يقدر
+      // ينزّل رتبة صاحب المحل ويقفل عليه نظامه — ومفيش طريقة يرجّعها من
+      // جوه النظام.
+      allow create: if isAdmin();
+      allow update, delete: if isAdmin() && (userId != ownerUid() || isTheOwner());
 
       // استثناء ضيّق: أي مستخدم يقدر يحدّث **حقل lastSeen بتاعه هو بس**
       // (بيتحدّث كل 5 دقايق) عشان لوحة التحكم توري مين شغّال دلوقتي.
@@ -115,11 +182,13 @@ service cloud.firestore {
 
     match /categories/{categoryId} {
       allow read: if isSignedIn();
-      allow write: if isFullAccess();
+      allow create, update: if can('manageCategories');
+      allow delete: if can('deleteCategories');
 
       match /grades/{gradeId} {
         allow read: if isSignedIn();
-        allow create, delete: if isFullAccess();
+        allow create: if can('addGrades');
+        allow delete: if can('deleteGrades');
         allow update: if canUpdateGrade();
       }
     }
@@ -147,9 +216,7 @@ service cloud.firestore {
     // أو أصحاب الصلاحية الكاملة. أي مستخدم مسجّل دخول يقدر "يستلم" الطلب
     // ويعلّمه كـ printed (الجهاز المستقبِل)، لكن مش يغيّر حاجة تانية غير كده.
     function canSendPrintJob() {
-      return isFullAccess()
-        || userProfile().canSendRemotePrint == true
-        || role() == 'print_operator';
+      return can('remotePrint');
     }
 
     match /printJobs/{jobId} {
@@ -158,7 +225,7 @@ service cloud.firestore {
       allow update: if isSignedIn()
         && onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt', 'error'])
         && oldStatus() == 'pending' && newStatus() in ['printed', 'failed'];
-      allow delete: if isFullAccess();
+      allow delete: if can('manageCategories');
     }
 
     // قاعدة بيانات الأصناف: محفوظة على شكل "قطع" (كل قطعة مستند فيه آلاف
@@ -168,7 +235,7 @@ service cloud.firestore {
     // الصلاحية الكاملة بس.
     match /products/{docId} {
       allow read: if isSignedIn();
-      allow write: if isFullAccess();
+      allow write: if can('importProducts');
     }
 
     // نقاط الطباعة: كل جهاز عليه QZ Tray وطابعة محفوظة بيسجّل نفسه هنا
@@ -180,7 +247,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn()
         && request.resource.data.updatedByUid == request.auth.uid;
-      allow delete: if isFullAccess();
+      allow delete: if can('manageCategories');
     }
   }
 }
