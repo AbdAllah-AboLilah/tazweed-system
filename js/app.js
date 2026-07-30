@@ -25,8 +25,12 @@ const state = {
   categoryFilter: 'all', // all | pending | out | low — فلترة قايمة الفئات
   gradeFilter: 'all', // all | pending | out | low | base — فلترة الدرجات جوه الفئة
   gradeGroupFilter: '', // فلترة بمجموعة الألوان ('' = الكل)
+  categoryOrderMode: false, // وضع ترتيب الفئات في القايمة الجانبية
+  gradeSelectMode: false, // وضع تحديد درجات للحذف الجماعي
+  gradeSelected: {}, // { gradeId: true } — الدرجات المحددة للحذف
   productSearch: '',
   productDept: '',
+  productSubDept: '',
   productPage: 1,
   printSearch: '',
   printCart: [], // [{ key, product, qty }] — سلة شاشة الطباعة
@@ -331,10 +335,62 @@ function render() {
   }
 
   if (state.view === 'dashboard') {
+    const scroll = captureScrollState();
     root.innerHTML = dashboardHTML();
     attachDashboardEvents();
+    restoreScrollState(scroll);
     return;
   }
+}
+
+// ============================================================
+// ⭐ الحفاظ على مكان التمرير بعد كل رسم
+// ============================================================
+// المشكلة اللي كانت بتحصل على الكمبيوتر بس: انت نازل لدرجة 40 في الجدول،
+// بتغيّر كميتها، والشاشة بترجعك لأول درجة.
+//
+// السبب: على الكمبيوتر الدرجات بتظهر في **جدول جوه صندوق بيمرّر لوحده**
+// (max-height + overflow:auto). أي تغيير بيعيد بناء الصندوق من الصفر،
+// والصندوق الجديد بيبدأ من أوله إجباريًا. على التليفون الدرجات كروت
+// بتمشي مع الصفحة كلها، والمتصفح بيحافظ على مكان الصفحة لوحده — عشان كده
+// المشكلة كانت على الكمبيوتر بس.
+//
+// الحل: نسجّل مكان التمرير قبل الرسم ونرجّعه بعده. وبنرجّعه **بس** لو
+// إحنا في نفس الشاشة ونفس الفئة — عشان لما تفتح فئة تانية تبدأ من فوق
+// طبيعي، مش من نص الجدول.
+function currentScrollKey() {
+  return `${state.view}|${state.screen}|${state.activeCategoryId || ''}`;
+}
+
+// ⚠️ نقطة دقيقة: مقارنة المفتاح لازم تكون مع **المفتاح بتاع الرسمة اللي
+// إحنا بنقيسها**، مش المفتاح الحالي. لما تفتح فئة تانية، الكود بيغيّر
+// activeCategoryId **قبل** ما ينادي render() — فلو قرينا المفتاح وقت
+// القياس كنا هنقرا الفئة الجديدة، والمفتاحين يطلعوا متساويين، ونرجّع
+// التمرير في فئة انت لسه فاتحها (لازم تبدأ من فوق).
+let lastRenderedScrollKey = '';
+
+function captureScrollState() {
+  const boxes = {};
+  document.querySelectorAll('[data-keep-scroll]').forEach((el) => {
+    boxes[el.getAttribute('data-keep-scroll')] = el.scrollTop;
+  });
+  return {
+    key: lastRenderedScrollKey,
+    boxes,
+    windowY: window.scrollY || window.pageYOffset || 0,
+  };
+}
+
+function restoreScrollState(saved) {
+  const key = currentScrollKey();
+  if (saved && saved.key === key) {
+    document.querySelectorAll('[data-keep-scroll]').forEach((el) => {
+      const value = saved.boxes[el.getAttribute('data-keep-scroll')];
+      if (value) el.scrollTop = value;
+    });
+    if (saved.windowY) window.scrollTo(0, saved.windowY);
+  }
+  lastRenderedScrollKey = key;
 }
 
 function notConfiguredHTML() {
@@ -448,6 +504,11 @@ function sideMenuHTML() {
   const canManageCatalog = hasFullAccess(state.profile);
   const filter = state.categoryFilter || 'all';
   const search = normalizeArabic(state.categorySearch || '');
+  // الترتيب بيتحرّك في القايمة الكاملة بس: لو فيه فلتر أو بحث، الفئة اللي
+  // فوقها/تحتها على الشاشة مش هي اللي فوقها/تحتها في الحقيقة — فالسهم
+  // كان هيحرّكها لمكان مش متوقع. عشان كده الأسهم بتتقفل.
+  const orderMode = canManageCatalog && state.categoryOrderMode;
+  const canReorder = orderMode && filter === 'all' && !search;
 
   const list = state.categories.filter((cat) => {
     const flags = categoryNeedsFlags(cat.id);
@@ -473,8 +534,25 @@ function sideMenuHTML() {
     <aside class="side-menu ${state.sideMenuOpen ? 'open' : ''}" id="side-menu">
       <div class="side-head">
         <span>الفئات (${escapeHTML(state.categories.length)})</span>
-        <button class="btn side-close" id="side-close-btn" aria-label="إغلاق">✕</button>
+        <span style="display:flex; gap:6px; align-items:center;">
+          ${
+            canManageCatalog
+              ? `<button class="btn ${orderMode ? 'btn-primary' : ''}" id="cat-order-btn"
+                         style="padding:3px 8px; font-size:12px;" title="ترتيب الفئات">${orderMode ? '✔️ تم' : '↕️ ترتيب'}</button>`
+              : ''
+          }
+          <button class="btn side-close" id="side-close-btn" aria-label="إغلاق">✕</button>
+        </span>
       </div>
+
+      ${
+        orderMode
+          ? `<div style="font-size:11px; color:var(--text-secondary); padding:0 4px 8px; line-height:1.7;">
+               اضغط ▲ أو ▼ عشان تحرّك الفئة. الترتيب بيتحفظ على طول ويظهر لكل الناس.
+               ${filter !== 'all' || search ? '<br><strong style="color:var(--danger-text);">شيل الفلتر والبحث الأول</strong> — الترتيب بيتحرّك في القايمة الكاملة بس.' : ''}
+             </div>`
+          : ''
+      }
 
       <div class="side-filters">
         ${chip('all', 'الكل', 0)}
@@ -490,8 +568,20 @@ function sideMenuHTML() {
         ${
           list.length
             ? list
-                .map((cat) => {
+                .map((cat, idx) => {
                   const flags = categoryNeedsFlags(cat.id);
+                  if (orderMode) {
+                    return `
+            <div class="side-item side-item-order">
+              <span class="side-item-name">${escapeHTML(cat.name)}</span>
+              <span style="display:flex; gap:4px;">
+                <button class="btn" style="padding:2px 8px;" data-cat-move-up="${escapeHTML(cat.id)}"
+                        ${canReorder && idx > 0 ? '' : 'disabled'} title="لفوق">▲</button>
+                <button class="btn" style="padding:2px 8px;" data-cat-move-down="${escapeHTML(cat.id)}"
+                        ${canReorder && idx < list.length - 1 ? '' : 'disabled'} title="لتحت">▼</button>
+              </span>
+            </div>`;
+                  }
                   return `
             <button class="side-item ${cat.id === state.activeCategoryId && state.screen === 'sheets' ? 'side-item-active' : ''}"
                     data-category-id="${escapeHTML(cat.id)}">
@@ -884,6 +974,13 @@ function gradeCardsHTML(canEditBranch, canEditMain, canManageCatalog) {
                        inputmode="numeric" style="width:72px; padding:6px;" />
               </span>
             </div>`
+            : state.gradeSelectMode
+              ? `
+            <div class="gc-line">
+              <span class="gc-label">تحديد للحذف</span>
+              <input type="checkbox" class="grade-select-checkbox" data-grade-select-id="${escapeHTML(g.id)}"
+                     ${(state.gradeSelected || {})[g.id] ? 'checked' : ''} style="width:20px; height:20px;" />
+            </div>`
             : state.bulkRequestMode
               ? `
             <div class="gc-line">
@@ -939,12 +1036,19 @@ function gradeTableHTML() {
     state.gradeLabelMode ? '✔️ تم' : '🏷️ طباعة ملصقات درجات'
   }</button>`;
 
+  const selectModeBtn = canManageCatalog
+    ? `<button class="btn ${state.gradeSelectMode ? 'btn-primary' : ''}" id="toggle-grade-select-btn">${
+        state.gradeSelectMode ? '✔️ تم' : '☑️ تحديد للحذف'
+      }</button>`
+    : '';
+
   const missingBase = canManageCatalog && !state.grades.some((g) => g.isBase);
 
   const toolbarHTML = `
     <div style="display:flex; gap:8px; margin-bottom:0.75rem; flex-wrap:wrap;">
       ${bulkToggleBtn}
       ${labelModeBtn}
+      ${selectModeBtn}
       ${canManageCatalog ? `<button class="btn" id="add-grade-btn">+ إضافة درجة</button>` : ''}
       ${canManageCatalog ? `<button class="btn" id="add-grade-range-btn">+ إضافة درجات دفعة</button>` : ''}
       ${missingBase ? `<button class="btn" id="add-base-grades-btn">+ الدرجات الأساسية</button>` : ''}
@@ -1026,6 +1130,20 @@ function gradeTableHTML() {
         <span class="action-bar-hint">علّم على اللي خلصت من العرض — الطلب بيتسجّل فورًا</span>
       </div>
     </div>`;
+  } else if (state.gradeSelectMode) {
+    const selectedCount = Object.keys(state.gradeSelected || {}).filter((k) => state.gradeSelected[k]).length;
+    actionBarHTML = `
+    <div class="action-bar" id="action-bar">
+      <div class="action-bar-inner">
+        <span class="action-bar-info">محدّد <strong>${selectedCount}</strong> درجة</span>
+        <button class="btn" id="select-all-grades-btn">علّم على الظاهر</button>
+        <button class="btn" id="clear-grade-select-btn" ${selectedCount ? '' : 'disabled'}>مسح التحديد</button>
+        <button class="btn" id="delete-selected-grades-btn" ${selectedCount ? '' : 'disabled'}
+                style="background:var(--danger-bg); color:var(--danger-text);">🗑️ احذف المحدّد</button>
+        <button class="btn" id="exit-grade-select-btn">✔️ تم</button>
+        <span class="action-bar-hint">الحذف الجماعي مالوش تراجع — التأكيد بيوريك الأسماء قبله</span>
+      </div>
+    </div>`;
   }
 
   // مساحة فاضية تحت القايمة بقدر الشريط، عشان آخر درجة ما تختفيش تحته.
@@ -1037,7 +1155,7 @@ function gradeTableHTML() {
     <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
       <form id="add-grade-form" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
         <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" data-draft="grade_num" required /></div>
-        <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="0" /></div>
+        <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="1" /></div>
         <div class="field" style="margin-bottom:0;"><label>الرئيسي</label><input class="input" style="width:70px;" type="number" id="new-grade-main" value="0" /></div>
         ${groupSelectHTML('new-grade-group', cat)}
         <button class="btn btn-primary" type="submit">إضافة</button>
@@ -1060,6 +1178,13 @@ function gradeTableHTML() {
           <input type="number" class="input grade-label-qty" data-grade-qty-id="${escapeHTML(g.id)}"
                  value="${qty || ''}" min="0" max="200" placeholder="عدد" inputmode="numeric"
                  style="width:62px; display:inline-block; margin-inline-start:6px; padding:3px 6px; font-size:12px;" />
+        </td>`;
+    }
+    if (state.gradeSelectMode) {
+      return `
+        <td style="text-align:center;">
+          <input type="checkbox" class="grade-select-checkbox" data-grade-select-id="${escapeHTML(g.id)}"
+                 ${(state.gradeSelected || {})[g.id] ? 'checked' : ''} style="width:18px; height:18px;" />
         </td>`;
     }
     if (!state.bulkRequestMode) return statusCellHTML(g, canEditBranch, canEditMain);
@@ -1111,14 +1236,22 @@ function gradeTableHTML() {
 
   return `
     ${infoBarHTML}${toolbarHTML}${filterBarHTML}${addGradeFormHTML}${emptyFilterHTML}
-    <div class="card" style="padding:0; overflow:auto; max-height:70vh;">
+    <div class="card" data-keep-scroll="grades" style="padding:0; overflow:auto; max-height:70vh;">
       <table>
         <thead>
           <tr>
             <th class="sticky-th">الدرجة</th>
             <th class="sticky-th">الفرع</th>
             <th class="sticky-th">الرئيسي</th>
-            <th class="sticky-th">${state.gradeLabelMode ? 'اطبع كام؟' : state.bulkRequestMode ? 'طلب تزويد' : 'الحالة'}</th>
+            <th class="sticky-th">${
+              state.gradeLabelMode
+                ? 'اطبع كام؟'
+                : state.bulkRequestMode
+                  ? 'طلب تزويد'
+                  : state.gradeSelectMode
+                    ? 'تحديد'
+                    : 'الحالة'
+            }</th>
             ${canManageCatalog ? '<th class="sticky-th"></th>' : ''}
           </tr>
         </thead>
@@ -1198,8 +1331,7 @@ function activityLogHTML() {
         </thead>
         <tbody>${rows}</tbody>
       </table>
-    </div>
-    ${spacerHTML}${actionBarHTML}`;
+    </div>`;
 }
 
 function openCategory(categoryId) {
@@ -1306,6 +1438,21 @@ function attachDashboardEvents() {
     btn.addEventListener('click', () => openCategory(btn.dataset.categoryId));
   });
 
+  // ---- ترتيب الفئات ----
+  const catOrderBtn = document.getElementById('cat-order-btn');
+  if (catOrderBtn) {
+    catOrderBtn.addEventListener('click', () => {
+      state.categoryOrderMode = !state.categoryOrderMode;
+      render();
+    });
+  }
+  document.querySelectorAll('[data-cat-move-up]').forEach((btn) => {
+    btn.addEventListener('click', () => safeAsync(() => moveCategory(btn.getAttribute('data-cat-move-up'), -1), 'ترتيب الفئات'));
+  });
+  document.querySelectorAll('[data-cat-move-down]').forEach((btn) => {
+    btn.addEventListener('click', () => safeAsync(() => moveCategory(btn.getAttribute('data-cat-move-down'), 1), 'ترتيب الفئات'));
+  });
+
   // ---- فلتر الدرجات جوه الفئة ----
   document.querySelectorAll('[data-grade-filter]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1325,8 +1472,73 @@ function attachDashboardEvents() {
   if (toggleBulkRequestBtn) {
     toggleBulkRequestBtn.addEventListener('click', () => {
       state.bulkRequestMode = !state.bulkRequestMode;
+      if (state.bulkRequestMode) {
+        state.gradeLabelMode = false;
+        state.gradeSelectMode = false;
+      }
       render();
     });
+  }
+
+  // ---- وضع تحديد درجات للحذف الجماعي ----
+  const toggleGradeSelectBtn = document.getElementById('toggle-grade-select-btn');
+  if (toggleGradeSelectBtn) {
+    toggleGradeSelectBtn.addEventListener('click', () => {
+      state.gradeSelectMode = !state.gradeSelectMode;
+      // الأوضاع التلاتة بتتشارك نفس العمود، فواحد بس بيشتغل في المرة.
+      if (state.gradeSelectMode) {
+        state.gradeLabelMode = false;
+        state.bulkRequestMode = false;
+      } else {
+        state.gradeSelected = {};
+      }
+      render();
+    });
+  }
+
+  document.querySelectorAll('.grade-select-checkbox').forEach((box) => {
+    box.addEventListener('change', () => {
+      const id = box.dataset.gradeSelectId;
+      state.gradeSelected = state.gradeSelected || {};
+      if (box.checked) state.gradeSelected[id] = true;
+      else delete state.gradeSelected[id];
+      render();
+    });
+  });
+
+  const selectAllGradesBtn = document.getElementById('select-all-grades-btn');
+  if (selectAllGradesBtn) {
+    // "الظاهر" مش "الكل" عن قصد: لو انت فالتر على مجموعة أو على "خلصت"،
+    // التعليم بيشتغل على اللي قدامك بس — مش على درجات مش شايفها.
+    selectAllGradesBtn.addEventListener('click', () => {
+      state.gradeSelected = state.gradeSelected || {};
+      visibleGrades().forEach((g) => (state.gradeSelected[g.id] = true));
+      render();
+    });
+  }
+
+  const clearGradeSelectBtn = document.getElementById('clear-grade-select-btn');
+  if (clearGradeSelectBtn) {
+    clearGradeSelectBtn.addEventListener('click', () => {
+      state.gradeSelected = {};
+      render();
+    });
+  }
+
+  const exitGradeSelectBtn = document.getElementById('exit-grade-select-btn');
+  if (exitGradeSelectBtn) {
+    exitGradeSelectBtn.addEventListener('click', () => {
+      state.gradeSelectMode = false;
+      state.gradeSelected = {};
+      render();
+    });
+  }
+
+  const deleteSelectedGradesBtn = document.getElementById('delete-selected-grades-btn');
+  if (deleteSelectedGradesBtn) {
+    deleteSelectedGradesBtn.addEventListener('click', () =>
+      safeAsync(() => deleteSelectedGrades(), 'حذف الدرجات المحددة')
+    );
   }
 
   document.querySelectorAll('.bulk-request-checkbox').forEach((checkbox) => {
@@ -1346,8 +1558,12 @@ function attachDashboardEvents() {
     toggleGradeLabelBtn.addEventListener('click', () => {
       state.gradeLabelMode = !state.gradeLabelMode;
       if (!state.gradeLabelMode) state.gradeLabelQty = {};
-      // الوضعين مايشتغلوش مع بعض — عمود الحالة واحد.
-      if (state.gradeLabelMode) state.bulkRequestMode = false;
+      // الأوضاع مابتشتغلش مع بعض — عمود الحالة واحد.
+      if (state.gradeLabelMode) {
+        state.bulkRequestMode = false;
+        state.gradeSelectMode = false;
+        state.gradeSelected = {};
+      }
       saveWorkState();
       render();
     });
@@ -1593,6 +1809,16 @@ function attachDashboardEvents() {
       const mainQty = Number(document.getElementById('new-grade-main').value) || 0;
       const groupEl = document.getElementById('new-grade-group');
       const group = groupEl ? groupEl.value : '';
+
+      // التكرار بيتحسب جوه المجموعة بس (ترقيم مستقل لكل مجموعة).
+      const clash = state.grades.some(
+        (g) => !g.isBase && (g.group || '') === group && Number(g.number) === number
+      );
+      if (clash) {
+        alert(`درجة ${number} موجودة خلاص${group ? ` في "${group}"` : ''}.`);
+        return;
+      }
+
       await addGrade(state.activeCategoryId, { number, branchQty, mainQty, group });
       clearDrafts('grade_');
       state.showAddGradeForm = false;
@@ -1839,6 +2065,96 @@ async function deleteCategory(categoryId, categoryName) {
     state.activeCategoryId = null;
     state.grades = [];
   }
+}
+
+// ------------------------------------------------------------
+// ترتيب الفئات (تحريك فئة لفوق أو لتحت)
+// ------------------------------------------------------------
+// الفئات بتتقرا من Firestore بـorderBy('order')، فالترتيب بيبقى واحد على
+// كل الأجهزة. التحريك = تبديل الفئة مع اللي جنبها، وبعدين إعادة ترقيم
+// الترتيب 1..n.
+//
+// ليه بنعيد الترقيم كله مش بنبدّل رقمين وخلاص؟ لأن الفئات القديمة اللي
+// اتضافت قبل ما نضيف حقل order مالهاش رقم أصلًا (بتتحسب صفر)، فتبديل رقمين
+// فيهم كان ممكن يسيب فئتين بنفس الرقم والترتيب يبقى عشوائي. إعادة الترقيم
+// بتصحّح ده لوحدها من أول تحريكة.
+//
+// وبنكتب **بس** الفئات اللي رقمها اتغيّر فعلًا — في الحالة العادية دي
+// فئتين، مش 26.
+async function moveCategory(categoryId, direction) {
+  const list = state.categories.slice();
+  const i = list.findIndex((c) => c.id === categoryId);
+  if (i === -1) return;
+  const j = i + direction;
+  if (j < 0 || j >= list.length) return;
+
+  const tmp = list[i];
+  list[i] = list[j];
+  list[j] = tmp;
+
+  const batch = db.batch();
+  let writes = 0;
+  list.forEach((cat, idx) => {
+    const order = idx + 1;
+    if ((Number(cat.order) || 0) !== order) {
+      batch.update(db.collection('categories').doc(cat.id), { order });
+      cat.order = order;
+      writes++;
+    }
+  });
+
+  // الشاشة بتتحدّث فورًا من غير ما تنتظر السحابة — مهم جدًا وانت أوفلاين.
+  state.categories = list;
+  render();
+
+  if (writes) fireWrite(batch.commit(), 'ترتيب الفئات');
+}
+
+// ------------------------------------------------------------
+// حذف مجموعة درجات مرة واحدة
+// ------------------------------------------------------------
+// الفئة فيها 165 درجة. لو عايز تشيل 30 منهم، الحذف درجة درجة معناه 30
+// تأكيد و30 ضغطة — فبقى فيه وضع تحديد بيخلّي الحذف ضغطة واحدة.
+//
+// ⚠️ الحذف الجماعي **مش داخل في التراجع** عن قصد: التراجع مبني على حركة
+// واحدة على درجة واحدة، وإرجاع 30 درجة محتاج تأكيد مختلف تمامًا. عشان كده
+// التأكيد هنا بيكتب العدد والأسماء قبل أي حذف.
+async function deleteSelectedGrades() {
+  const ids = Object.keys(state.gradeSelected || {}).filter((id) => state.gradeSelected[id]);
+  if (!ids.length) return;
+
+  const categoryId = state.activeCategoryId;
+  const chosen = state.grades.filter((g) => ids.includes(g.id));
+  if (!chosen.length) return;
+
+  const names = chosen.slice(0, 8).map(gradeDisplayName).join('، ');
+  const more = chosen.length > 8 ? ` و${chosen.length - 8} غيرهم` : '';
+  const ok = confirm(
+    `هتحذف ${chosen.length} درجة نهائيًا:\n${names}${more}\n\n` +
+      `الحذف ده مالوش تراجع. تكمّل؟`
+  );
+  if (!ok) return;
+
+  const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
+  // دفعات من 400 — الحد الأقصى للدفعة الواحدة في Firestore هو 500.
+  for (let i = 0; i < chosen.length; i += 400) {
+    const batch = db.batch();
+    chosen.slice(i, i + 400).forEach((g) => batch.delete(gradesRef.doc(g.id)));
+    fireWrite(batch.commit(), 'حذف درجات');
+  }
+
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
+  logActivity({
+    action: 'delete_grade_bulk',
+    categoryId,
+    categoryName,
+    newValue: chosen.length,
+    oldValue: chosen.map(gradeDisplayName).join('، ').slice(0, 400),
+  });
+
+  state.gradeSelected = {};
+  state.gradeSelectMode = false;
+  render();
 }
 
 async function addGrade(categoryId, data) {
@@ -2508,31 +2824,35 @@ function choosePrintTarget() {
 // بيوصّل الطباعة لوجهتها: يا إما الجهاز ده مباشرة، يا إما بيبعتها لجهاز تاني.
 // html: صفحة واحدة أو مصفوفة صفحات (لـQZ). browserHTML: مستند واحد بفواصل
 // صفحات، بيستخدم مع نافذة طباعة المتصفح لأنها بتتعامل مع مستند واحد بس.
+// بترجّع true لو الطباعة اتبعتت فعلًا (لطابعة هنا أو لجهاز تاني)، وfalse
+// لو المستخدم ألغى أو حصلت مشكلة — الشاشات بتستخدم ده عشان تعرف تفضّي
+// السلة ولا لأ.
 async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML) {
   const target = await choosePrintTarget();
-  if (target === null) return;
+  if (target === null) return false;
 
   if (target !== 'local') {
     await sendPrintJob(type, target, html, sizeOptions, browserHTML);
-    return;
+    return true;
   }
 
   const printedViaQZ = await tryPrintViaQZ(type, html, sizeOptions);
-  if (printedViaQZ) return;
+  if (printedViaQZ) return true;
 
   const list = normalizePrintJobs(html);
   const single = browserHTML || (list.length ? list[0].html : '');
   if (!single) {
     alert('حصلت مشكلة في تجهيز محتوى الطباعة. حدّث الصفحة وحاول تاني.');
-    return;
+    return false;
   }
   const win = window.open('', '_blank', winFeatures);
   if (!win) {
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
-    return;
+    return false;
   }
   win.document.write(single);
   win.document.close();
+  return true;
 }
 
 // بنبعت الـHTML جاهز بالكامل (بما فيه صورة الـQR) بدل ما الجهاز المستقبِل
@@ -2659,15 +2979,12 @@ function promptLabelSize(callback, hideCopies) {
         <label>عدد اللاصقات</label>
         <input class="input" type="number" id="label-copies" value="1" min="1" max="200" inputmode="numeric" />
       </div>
-      <div style="margin-bottom:4px; font-size:13px;">اختار المقاس</div>
-      <div style="margin-bottom:12px; font-size:11px; color:var(--text-secondary);">
-        اللاصقة المقسومة نصين = مقاس واحد، والمحتوى بيتكرر في النصين
+      <div style="margin-bottom:12px; font-size:11px; color:var(--text-secondary); line-height:1.7;">
+        المقاس: <strong>38×25 ملم مقسومة نصين</strong> — ده مقاس اللفة اللي عندنا،
+        والمحتوى بيتكرر في نصّي اللاصقة.
       </div>
       <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;">
-        <button class="btn btn-primary" id="size-measured">38×25 ملم — مقسومة نصين ✅</button>
-        <button class="btn" id="size-38x25">38×25 ملم — قطعة واحدة</button>
-        <button class="btn" id="size-38x18">38×18 ملم</button>
-        <button class="btn" id="size-2x4">2×4 إنش</button>
+        <button class="btn btn-primary" id="size-measured">🖨️ كمّل</button>
       </div>
       <button class="btn" id="size-cancel">إلغاء</button>
     </div>`;
@@ -2682,10 +2999,11 @@ function promptLabelSize(callback, hideCopies) {
 
   // halves = عدد الأقسام اللي اللاصقة الواحدة مقسومة لها والماكينة بتحسبهم
   // لاصقة واحدة. المحتوى بيتكرر في كل قسم.
+  //
+  // المقاسات التانية (38×25 قطعة واحدة، 38×18، 2×4 إنش) اتشالت خلاص:
+  // اللفة اللي في المحل مقاس واحد، والخيارات الزيادة كانت بس فرصة إن حد
+  // يختار غلط ويطلع ورق مقصوص. لو جِبنا لفة تانية، يترجّع سطر واحد هنا.
   pick('size-measured', { pageWidthMm: 38, pageHeightMm: 25, halves: 2 });
-  pick('size-38x25', { pageWidthMm: 38, pageHeightMm: 25, halves: 1 });
-  pick('size-38x18', { pageWidthMm: 38, pageHeightMm: 18, halves: 1 });
-  pick('size-2x4', { pageWidthMm: 50.8, pageHeightMm: 101.6, halves: 1 });
   document.getElementById('size-cancel').addEventListener('click', () => {
     document.body.removeChild(overlay);
   });
@@ -2718,7 +3036,7 @@ function generateQRDataURL(text, sizePx) {
       const canvas = holder.querySelector('canvas');
       const img = holder.querySelector('img');
       try {
-        if (canvas) dataUrl = canvas.toDataURL('image/png');
+        if (canvas) dataUrl = redrawQRCrisp(canvas, sizePx) || canvas.toDataURL('image/png');
         else if (img && img.src) dataUrl = img.src;
       } catch (err) {
         dataUrl = '';
@@ -2727,6 +3045,82 @@ function generateQRDataURL(text, sizePx) {
       resolve(dataUrl);
     }, 60);
   });
+}
+
+// ============================================================
+// ⭐ إعادة رسم الـQR بمربعات متساوية بالظبط (سبب بطء القراءة)
+// ============================================================
+// المشكلة اللي قِسناها: المكتبة بترسم الكود بعرض ثابت (200 بكسل مثلًا) على
+// عدد وحدات مش بيقسم العرض بالتساوي. 200 ÷ 21 وحدة = 9.524 بكسل للوحدة،
+// فالمكتبة بتقرّب: وحدة بـ9 بكسل، واللي بعدها بـ10، وهكذا — يعني **فرق
+// 10% في حجم كل مربع** جوه نفس الكود.
+//
+// على الشاشة الفرق مش باين. لكن على الطابعة الحرارية الوحدة كلها ~4 نقط
+// طباعة، فالفرق بيبقى نقطة كاملة، وبتزيد مع "تشبّع" الحبر الحراري. وقت
+// القراءة، الكاميرا بتحدد شبكة الوحدات من مسافات ثابتة — والمربعات غير
+// المتساوية بتخلي الشبكة تزحلق، فالقارئ بيحتاج محاولات كتير لحد ما يوفّق
+// زاوية ومسافة تظبط. ده بالظبط "الباركود بياخد وقت في القراءة".
+//
+// الحل: نقرا الكود اللي المكتبة رسمته وحدة وحدة، ونعيد رسمه على مقاس
+// **من مضاعفات عدد الوحدات بالظبط** — فكل مربع بيطلع بنفس الحجم تمامًا،
+// من غير أي تقريب.
+//
+// قياس معملي (قراءة فعلية بفاكّ QR مع محاكاة تشبّع الحبر وتشويش الكاميرا):
+//   النسخة القديمة (200 بكسل، وحدات غير متساوية) → فشلت من أول درجة تشويش
+//   النسخة الجديدة (وحدات متساوية)              → قرأت لحد درجة تشويش 4
+//
+// ⚠️ ما بنضيفش "هامش أبيض" (quiet zone) جوه نفس المربع: القياس أثبت إنه
+// بيصغّر الوحدة لأقل من 4 نقط طباعة والنتيجة تبقى **أسوأ**. وشكل الملصق
+// ومقاساته مالهمش أي علاقة بالتعديل ده — الصورة بتنزل في نفس المربع.
+function redrawQRCrisp(canvas, sizePx) {
+  const w = canvas.width;
+  const h = canvas.height;
+  if (!w || !h || w !== h) return '';
+
+  const src = canvas.getContext('2d');
+  if (!src) return '';
+  const data = src.getImageData(0, 0, w, h).data;
+
+  const isDark = (x, y) => {
+    const i = (y * w + x) * 4;
+    // القيمة 128 وسط الرمادي — أي حاجة أغمق منها نعتبرها مربع أسود.
+    return data[i] < 128 && data[i + 3] > 32;
+  };
+
+  // عدد الوحدات: أول شريط أسود في أول سطر هو ركن التصويب (finder) وعرضه
+  // 7 وحدات دايمًا في أي نسخة QR — منه نحسب حجم الوحدة وعدد الوحدات.
+  let run = 0;
+  while (run < w && isDark(run, 0)) run++;
+  if (run < 7) return '';
+  const moduleSize = run / 7;
+  const count = Math.round(w / moduleSize);
+  // فحص سلامة: عدد وحدات أي QR بيبدأ من 21 وبيزيد 4 كل نسخة (21، 25، 29...).
+  if (count < 21 || count > 177 || (count - 21) % 4 !== 0) return '';
+
+  // مقاس الخروج: أكبر مضاعف لعدد الوحدات قريب من ضعف المقاس المطلوب —
+  // كل وحدة بتبقى عدد صحيح من البكسلات، وده كل المطلوب.
+  const target = Math.max(2, Math.round((Number(sizePx) || w) * 2));
+  let scale = Math.max(4, Math.round(target / count));
+  if (count * scale > 1400) scale = Math.floor(1400 / count);
+  const out = document.createElement('canvas');
+  out.width = count * scale;
+  out.height = count * scale;
+  const ctx = out.getContext('2d');
+  if (!ctx) return '';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.fillStyle = '#000000';
+
+  for (let my = 0; my < count; my++) {
+    // بناخد نقطة من **نُص** الوحدة عشان نبعد عن حدودها المتذبذبة.
+    const sy = Math.min(h - 1, Math.floor((my + 0.5) * moduleSize));
+    for (let mx = 0; mx < count; mx++) {
+      const sx = Math.min(w - 1, Math.floor((mx + 0.5) * moduleSize));
+      if (isDark(sx, sy)) ctx.fillRect(mx * scale, my * scale, scale, scale);
+    }
+  }
+
+  return out.toDataURL('image/png');
 }
 
 // شكل الملصق مأخوذ من صورة الملصق الحقيقي (Crepe Sadda Luxe) اللي بعتها:
@@ -2989,7 +3383,8 @@ function openAddGradeRangeDialog(categoryId) {
       <div style="font-size:15px; font-weight:500; margin-bottom:4px;">إضافة درجات دفعة واحدة</div>
       <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; line-height:1.7;">
         اكتب من رقم كام لرقم كام، والنظام هيضيفهم كلهم مرة واحدة.
-        الأرقام الموجودة عندك خلاص هيتخطّاها.
+        الأرقام الموجودة <strong>في نفس المجموعة</strong> هيتخطّاها — يعني كل
+        مجموعة ترقيمها مستقل وتقدر تبدأ من 1 من جديد.
       </div>
       <div style="display:flex; gap:8px;">
         <div class="field" style="flex:1;"><label>من</label>
@@ -3034,7 +3429,17 @@ function openAddGradeRangeDialog(categoryId) {
       return;
     }
 
-    const existing = new Set(state.grades.map((g) => Number(g.number)));
+    // ------------------------------------------------------------
+    // ⭐ ترقيم مستقل لكل مجموعة
+    // ------------------------------------------------------------
+    // "الوان" في كريب سادة لازم تقدر تبدأ من 1 حتى لو "بيجات" فيها 1
+    // أصلًا — بالظبط زي الشيت الأصلي. فالتكرار بيتحسب **جوه المجموعة
+    // المختارة بس**، مش في الفئة كلها.
+    const groupEl = document.getElementById('range-group');
+    const group = groupEl ? groupEl.value : '';
+    const existing = new Set(
+      state.grades.filter((g) => (g.group || '') === group).map((g) => Number(g.number))
+    );
     const toAdd = [];
     for (let n = from; n <= to; n++) if (!existing.has(n)) toAdd.push(n);
 
@@ -3049,8 +3454,6 @@ function openAddGradeRangeDialog(categoryId) {
     statusEl.textContent = `جارٍ إضافة ${toAdd.length} درجة...`;
 
     try {
-      const groupEl = document.getElementById('range-group');
-      const group = groupEl ? groupEl.value : '';
       const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
       // دفعات من 400 — الحد الأقصى للدفعة الواحدة في Firestore هو 500.
       for (let i = 0; i < toAdd.length; i += 400) {
@@ -3074,8 +3477,9 @@ function openAddGradeRangeDialog(categoryId) {
       });
 
       const skipped = to - from + 1 - toAdd.length;
+      const where = group ? ` في "${group}"` : '';
       statusEl.style.color = '#2e7d32';
-      statusEl.textContent = `✅ اتضافت ${toAdd.length} درجة${skipped ? ` (${skipped} كانوا موجودين)` : ''}.`;
+      statusEl.textContent = `✅ اتضافت ${toAdd.length} درجة${where}${skipped ? ` (${skipped} كانوا موجودين)` : ''}.`;
       setTimeout(close, 1200);
     } catch (err) {
       console.error(err);
@@ -3465,11 +3869,42 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     // ما نعتمدش على سلوك مش متأكدين منه في نسخة QZ اللي على الجهاز.
     const config = qz.configs.create(printerName, size ? { size, units: 'mm' } : {});
 
+    // ------------------------------------------------------------
+    // ⭐ كل اللاصقات في **أمر طباعة واحد** مش أمر لكل لاصقة
+    // ------------------------------------------------------------
+    // المشكلة اللي بيحلها ده: لما كنا بنطبع 40 ملصق، الكود كان بيبعت 40 أمر
+    // طباعة مستقل، كل واحد بيستنى الطابعة ترد عليه قبل اللي بعده. الطابعة
+    // الحرارية بتاخد كل أمر كـ"وظيفة" لوحدها (تجهيز + معايرة + إنهاء)،
+    // فالـ40 ملصق كانوا بياخدوا وقت طويل والطابعة بتفضل واقفة بينهم — وده
+    // بالظبط اللي كنت شايفه: "بتفضل تاخد أمر أمر".
+    //
+    // الصح إن أمر الطباعة الواحد يبقى فيه **كل الصفحات**. QZ بيقبل مصفوفة
+    // عناصر، وكل عنصر بيطلع صفحة (لاصقة) في نفس الوظيفة — فالطابعة بتشتغل
+    // مرة واحدة متواصلة.
+    //
+    // ⚠️ شرط لازم يفضل محفوظ: data في كل عنصر **نص HTML وبس**، مش مصفوفة
+    // ولا كائن — ده اللي طبع نص خام على اللاصقة قبل كده.
+    const pages = [];
     for (const job of list) {
       for (let i = 0; i < job.copies; i++) {
-        await qz.print(config, [
-          { type: 'pixel', format: 'html', flavor: 'plain', data: job.html },
-        ]);
+        pages.push({ type: 'pixel', format: 'html', flavor: 'plain', data: job.html });
+      }
+    }
+
+    // بنقسّم على دفعات عشان ما نبعتش رسالة ضخمة للطابعة مرة واحدة
+    // (كل لاصقة فيها صورة QR بالـbase64، فـ200 لاصقة = ميجات).
+    const BATCH = 40;
+    try {
+      for (let i = 0; i < pages.length; i += BATCH) {
+        await qz.print(config, pages.slice(i, i + BATCH));
+      }
+    } catch (errBatch) {
+      // لو نسخة QZ أو الطابعة مابتقبلش أكتر من صفحة في الأمر الواحد،
+      // بنرجع للطريقة القديمة (واحدة واحدة) — بطيئة بس مضمونة، وأهم حاجة
+      // إن المستخدم ما يخرجش من غير ملصقات خالص.
+      console.warn('الطباعة المجمّعة مانفعتش — بنرجع لواحدة واحدة:', errBatch);
+      for (const page of pages) {
+        await qz.print(config, [page]);
       }
     }
     return true;
@@ -3923,10 +4358,14 @@ function init() {
       state.categoryFilter = 'all';
       state.gradeFilter = 'all';
       state.gradeGroupFilter = '';
+      state.categoryOrderMode = false;
+      state.gradeSelectMode = false;
+      state.gradeSelected = {};
       state.printCart = [];
       state.printSearch = '';
       state.productSearch = '';
       state.productDept = '';
+      state.productSubDept = '';
       state.productPage = 1;
       state.presence = [];
       state.stockTotals = null;

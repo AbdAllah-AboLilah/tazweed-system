@@ -575,6 +575,17 @@ th {
   flex: 0 0 auto;
 }
 
+/* صف الفئة في وضع الترتيب: مش زرار، فمالوش تأثير ضغط ولا مؤشر يد —
+   اللي بيتضغط هنا هو سهم ▲/▼ بس. */
+.side-item-order {
+  cursor: default;
+  background: var(--surface-muted);
+}
+
+.side-item-order:hover {
+  background: var(--surface-muted);
+}
+
 /* نقطة ملوّنة بعدد جواها: الأصفر = فيها طلبات تزويد معلّقة،
    البرتقالي = قرّبت تخلص، الأحمر = خلصت نهائيًا. */
 .cat-dot {

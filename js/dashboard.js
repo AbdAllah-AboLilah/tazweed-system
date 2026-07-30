@@ -7,6 +7,22 @@
 // ملحوظة عن التكلفة: بنقرا **الدرجات اللي حالتها معلّقة أو خلصت بس** —
 // مش كل الـ2000 درجة. دول مجموعتين صغيرتين بطبيعتهم، فالشاشة خفيفة.
 
+// ⚠️ نقطة اتصلحت من مشكلة حقيقية:
+// بيانات "المعلّق / خلصت / قرّبت تخلص" كانت بترسم الشاشة **بس لو انت في
+// لوحة التحكم** (`if (state.screen === 'home')`). ده كان منطقي لما البيانات
+// دي كانت تخص لوحة التحكم لوحدها.
+//
+// لكن من v0.19 بقت **قايمة الفئات الجانبية** بتستخدم نفس البيانات في كل
+// الشاشات (النقط الملوّنة قدام كل فئة + شرايط الفلترة فوقها). فالنتيجة:
+// تطلب تزويد لدرجة وانت في شاشة الشيت → الحالة بتتغيّر في الجدول (ده
+// اشتراك تاني)، لكن النقطة والعدّاد في القايمة الجانبية **مايتحدّثوش**،
+// وفلتر "مطلوب تزويد" مايجيبش الفئة دي.
+//
+// فالرسم بقى مربوط بإن النظام مفتوح، مش بشاشة معيّنة.
+function renderIfOpen() {
+  if (state.view === 'dashboard') render();
+}
+
 let unsubPendingOverview = null;
 let unsubOutOverview = null;
 let unsubLowStock = null;
@@ -40,6 +56,8 @@ function startPresenceHeartbeat() {
   unsubPresence = db.collection('users').onSnapshot(
     (snap) => {
       state.presence = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // الحضور بيظهر في لوحة التحكم بس، وبيتحدّث كل 5 دقايق لكل مستخدم —
+      // فمش منطقي يعيد رسم شاشة انت بتكتب فيها.
       if (state.screen === 'home') render();
     },
     (err) => console.warn('تعذّر قراءة حالة المستخدمين:', err)
@@ -68,7 +86,7 @@ function subscribeOverview() {
       (snap) => {
         state.pendingByCategory = groupByCategory(snap);
         state.pendingCount = snap.size;
-        if (state.screen === 'home') render();
+        renderIfOpen();
       },
       (err) => console.warn('تعذّر قراءة الطلبات المعلّقة:', err)
     );
@@ -80,7 +98,7 @@ function subscribeOverview() {
       (snap) => {
         state.outByCategory = groupByCategory(snap);
         state.outCount = snap.size;
-        if (state.screen === 'home') render();
+        renderIfOpen();
       },
       (err) => console.warn('تعذّر قراءة الدرجات اللي خلصت:', err)
     );
@@ -116,7 +134,7 @@ function recomputeLowStock() {
   add(state.lowStockBase);
   state.lowStockByCategory = merged;
   state.lowStockCount = Object.values(merged).reduce((s, a) => s + a.length, 0);
-  if (state.screen === 'home') render();
+  renderIfOpen();
 }
 
 // الدرجات الأساسية قليلة جدًا (3 لكل فئة = ~75 مستند لـ25 فئة)، فاستعلام
