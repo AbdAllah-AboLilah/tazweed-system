@@ -3026,7 +3026,8 @@ function hatchSVG() {
   return `<svg class="hatch" viewBox="0 0 100 20" preserveAspectRatio="none">${lines.join('')}</svg>`;
 }
 
-function buildRestockHTML(cat, grades) {
+// groupName: اسم مجموعة ألوان واحدة عشان تتطبع لوحدها، أو '' للورقة كلها.
+function buildRestockHTML(cat, grades, groupName) {
   const now = new Date().toLocaleString('ar-EG');
   // الدرجات الأساسية (أبيض/أسود/أوف وايت) **مابتظهرش في الورقة المطبوعة**:
   // الورقة دي شبكة أرقام بتمشي بيها على الرف، والدرجات دي من غير أرقام
@@ -3037,22 +3038,33 @@ function buildRestockHTML(cat, grades) {
         <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
       </div>`;
 
-  // لو الفئة مقسّمة لمجموعات ألوان، الورقة بتتطبع مجموعة مجموعة تحت
-  // عنوانها — بالظبط زي شكل الشيت في ملف الإكسل الأصلي.
-  const rowsHTML = groupedGrades(grades.filter((g) => !g.isBase), cat)
-    .map(
-      (section) => `
+  const numbered = grades.filter((g) => !g.isBase);
+
+  // مجموعة واحدة: الورقة كلها بقت للمجموعة دي، فاسمها بيروح **للعنوان
+  // فوق** (كريب سادة لوكس — بيجات) ومفيش داعي لعنوان جوّه.
+  // الورقة الكاملة: كل مجموعة تحت عنوانها، زي شكل الشيت الأصلي.
+  const scoped = groupName
+    ? numbered.filter((g) => (g.group || UNGROUPED_LABEL) === groupName)
+    : numbered;
+
+  const rowsHTML = groupName
+    ? `<div class="grid">${scoped.map(rowHTML).join('')}</div>`
+    : groupedGrades(scoped, cat)
+        .map(
+          (section) => `
       ${section.name ? `<div class="group-title">${escapeHTML(section.name)}</div>` : ''}
       <div class="grid">${section.grades.map(rowHTML).join('')}</div>`
-    )
-    .join('');
+        )
+        .join('');
+
+  const sheetTitle = groupName ? `${cat.name} — ${groupName}` : cat.name;
 
   return `
     <!doctype html>
     <html dir="rtl" lang="ar">
     <head>
       <meta charset="UTF-8">
-      <title>ورقة تزويد - ${escapeHTML(cat.itemName || cat.name)}</title>
+      <title>ورقة تزويد - ${escapeHTML(sheetTitle)}</title>
       <style>
         @page { size: 80mm auto; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; box-sizing: border-box; }
@@ -3097,7 +3109,7 @@ function buildRestockHTML(cat, grades) {
     </head>
     <body>
       <div class="header">
-        <div class="tab-name">${escapeHTML(cat.name)}</div>
+        <div class="tab-name">${escapeHTML(sheetTitle)}</div>
         ${cat.itemName ? `<div class="item-name">${escapeHTML(cat.itemName)}</div>` : ''}
         <div class="time">${escapeHTML(now)}</div>
       </div>
@@ -3110,8 +3122,66 @@ function buildRestockHTML(cat, grades) {
   `;
 }
 
+// بيسأل تطبع أنهي مجموعة قبل الطباعة (بس لو الفئة مقسّمة فعلًا).
+// بيرجّع '' للورقة كلها، اسم المجموعة لواحدة بعينها، أو null لو ألغى.
+function chooseRestockGroup(cat, grades) {
+  return new Promise((resolve) => {
+    const groups = categoryGroups(cat);
+    const numbered = grades.filter((g) => !g.isBase);
+    const countOf = (name) => numbered.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
+
+    // فئة مش مقسّمة → مفيش سؤال، نطبع على طول زي الأول.
+    if (!groups.length) {
+      resolve('');
+      return;
+    }
+
+    const options = groups.filter((n) => countOf(n) > 0);
+    if (countOf(UNGROUPED_LABEL) > 0) options.push(UNGROUPED_LABEL);
+    if (options.length < 2) {
+      resolve('');
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+    overlay.innerHTML = `
+      <div class="card" style="max-width:340px; width:100%; text-align:center;">
+        <div style="font-size:15px; font-weight:500; margin-bottom:4px;">تطبع أنهي جزء؟</div>
+        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; line-height:1.7;">
+          اسم المجموعة هيتكتب في عنوان الورقة
+          (مثال: ${escapeHTML(cat.name)} — ${escapeHTML(options[0])})
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+          <button class="btn btn-primary" data-rg="">📄 الورقة كلها (${escapeHTML(numbered.length)} درجة)</button>
+          ${options
+            .map(
+              (name) =>
+                `<button class="btn" data-rg="${escapeHTML(name)}">${escapeHTML(name)} (${escapeHTML(countOf(name))} درجة)</button>`
+            )
+            .join('')}
+        </div>
+        <button class="btn" data-rg-cancel="1">إلغاء</button>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const close = (value) => {
+      if (overlay.parentNode) document.body.removeChild(overlay);
+      resolve(value);
+    };
+    overlay.querySelectorAll('[data-rg]').forEach((btn) => {
+      btn.addEventListener('click', () => close(btn.getAttribute('data-rg')));
+    });
+    overlay.querySelector('[data-rg-cancel]').addEventListener('click', () => close(null));
+  });
+}
+
 async function printRestockPaper(cat, grades) {
-  const html = buildRestockHTML(cat, grades);
+  const groupName = await chooseRestockGroup(cat, grades);
+  if (groupName === null) return;
+
+  const html = buildRestockHTML(cat, grades, groupName);
   // ورقة التزويد رول مستمر (الارتفاع مفتوح)، فمش بنفرض مقاس على QZ.
   await deliverPrint('restock', html, null, 'width=700,height=800');
 }
