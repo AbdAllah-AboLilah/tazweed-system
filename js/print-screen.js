@@ -98,6 +98,8 @@ function addProductToPrintCart(product) {
   } else {
     state.printCart.push({ key, product, qty: 1 });
   }
+  // السلة بتتحفظ على الجهاز — لو التطبيق قفل، بترجع زي ما هي.
+  saveWorkState();
 }
 
 function attachPrintScreenEvents() {
@@ -152,6 +154,7 @@ function attachPrintScreenEvents() {
     const cart = state.printCart || [];
     if (!cart[i]) return;
     cart[i].qty = Math.max(1, Math.min(200, next));
+    saveWorkState();
     render();
   };
 
@@ -177,6 +180,7 @@ function attachPrintScreenEvents() {
     btn.addEventListener('click', () => {
       const i = Number(btn.getAttribute('data-cart-del'));
       (state.printCart || []).splice(i, 1);
+      saveWorkState();
       render();
     });
   });
@@ -185,6 +189,7 @@ function attachPrintScreenEvents() {
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
       state.printCart = [];
+      saveWorkState();
       render();
     });
   }

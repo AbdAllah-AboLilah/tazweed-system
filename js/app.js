@@ -30,6 +30,7 @@ const state = {
   productPage: 1,
   printSearch: '',
   printCart: [], // [{ key, product, qty }] — سلة شاشة الطباعة
+  undoCount: 0, // عدد الحركات المتاحة للتراجع (من الحفظ المحلي)
   activityLog: [],
   pendingByCategory: {}, // { categoryId: [أرقام الدرجات المعلّقة] }
   outByCategory: {}, // { categoryId: [أرقام الدرجات اللي خلصت] }
@@ -105,6 +106,8 @@ async function promptAppInstall() {
 // بيمنع إعادة بناء الاشتراكات مع كل تغيير في مستند الحساب — شوف الشرح
 // المفصّل جوه init() عند sessionStarted.
 let sessionStarted = false;
+// الاسترجاع بيحصل مرة واحدة لكل دخول — مش مع كل تحديث لمستند الحساب.
+let workStateRestored = false;
 
 let unsubProfile = null;
 let unsubCategories = null;
@@ -304,10 +307,25 @@ function render() {
   }
 
   if (state.view === 'no-profile') {
-    root.innerHTML = `
-      <div style="padding:2rem; text-align:center;">
-        الحساب مسجّل دخول لكن لا يوجد له صلاحية مُعرَّفة بعد. اطلب من المدير
-        إنشاء بروفايل الصلاحية في users/{uid}.
+    // الرسالة بتفرّق بين حالتين مختلفتين تمامًا، عشان المستخدم مايفتكرش
+    // إن حسابه اتلغى وهو أصلًا مجرد مش متصل بالنت.
+    root.innerHTML = state.isOnline
+      ? `
+      <div class="card" style="max-width:420px; margin:60px auto; text-align:center;">
+        <div style="font-size:15px; font-weight:500; margin-bottom:8px;">الحساب لسه مالوش صلاحية</div>
+        <div style="font-size:13px; color:var(--text-secondary); line-height:1.8;">
+          الحساب مسجّل دخول، لكن المدير لسه ما حدّدش صلاحيته.
+          اطلب منه يفتح شاشة <strong>الحسابات</strong> ويحدّد رتبتك.
+        </div>
+      </div>`
+      : `
+      <div class="card" style="max-width:420px; margin:60px auto; text-align:center;">
+        <div style="font-size:15px; font-weight:500; margin-bottom:8px;">📴 مش متصل بالإنترنت</div>
+        <div style="font-size:13px; color:var(--text-secondary); line-height:1.8;">
+          دي أول مرة تفتح الحساب ده على الجهاز ده، فبيانات الصلاحية لسه
+          مانزلتش عليه.<br>
+          اتصل بالنت مرة واحدة بس، وبعدها النظام هيفتح من غير نت عادي.
+        </div>
       </div>`;
     return;
   }
@@ -346,8 +364,11 @@ function loginHTML() {
         ${state.loginError ? `<div class="error-text">${escapeHTML(state.loginError)}</div>` : ''}
 
         <div class="field">
-          <label for="email">البريد الإلكتروني</label>
-          <input class="input" type="email" id="email" required />
+          <label for="email">اسم الدخول</label>
+          <input class="input" id="email" required autocomplete="username" />
+          <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+            الاسم اللي اداك المدير — أو إيميلك لو بتستخدم إيميل
+          </div>
         </div>
 
         <div class="field">
@@ -371,7 +392,9 @@ function attachLoginEvents() {
   const form = document.getElementById('login-form');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const email = document.getElementById('email').value;
+    // الموظف بيكتب اسمه المجرد، والنظام بيكمّله للشكل اللي Firebase بيفهمه
+    // — نفس التحويل اللي حصل بالظبط وقت إنشاء الحساب.
+    const email = usernameToEmail(document.getElementById('email').value);
     const password = document.getElementById('password').value;
     const keepLoggedIn = document.getElementById('keep').checked;
 
@@ -386,7 +409,7 @@ function attachLoginEvents() {
       await auth.signInWithEmailAndPassword(email, password);
       // onAuthStateChanged هيتكفل بتغيير الشاشة بعد كده
     } catch (err) {
-      state.loginError = 'بيانات الدخول غير صحيحة، أو الحساب غير موجود.';
+      state.loginError = 'اسم الدخول أو الباسورد غلط. راجعهم مع المدير.';
       state.loginBusy = false;
       render();
     }
@@ -515,27 +538,27 @@ function dashboardHTML() {
       <form id="add-category-form" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
         <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
           <label>اسم الفئة (التاب)</label>
-          <input class="input" id="new-category-name" required />
+          <input class="input" id="new-category-name" data-draft="cat_name" required />
         </div>
         <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
           <label>اسم الصنف (زي الكاشير)</label>
-          <input class="input" id="new-category-item-name" />
+          <input class="input" id="new-category-item-name" data-draft="cat_item" />
         </div>
         <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
           <label>الباركود</label>
-          <input class="input" id="new-category-barcode" />
+          <input class="input" id="new-category-barcode" data-draft="cat_barcode" />
         </div>
         <div class="field" style="width:100px; margin-bottom:0;">
           <label>السعر الأصلي</label>
-          <input class="input" type="number" id="new-category-original-price" />
+          <input class="input" type="number" id="new-category-original-price" data-draft="cat_orig" />
         </div>
         <div class="field" style="width:100px; margin-bottom:0;">
           <label>سعر البيع</label>
-          <input class="input" type="number" id="new-category-selling-price" />
+          <input class="input" type="number" id="new-category-selling-price" data-draft="cat_sell" />
         </div>
         <div class="field" style="width:110px; margin-bottom:0;">
           <label>الحد الأدنى</label>
-          <input class="input" type="number" id="new-category-min-qty" min="0" placeholder="0 = مقفول" />
+          <input class="input" type="number" id="new-category-min-qty" min="0" placeholder="0 = مقفول" data-draft="cat_min" />
         </div>
         <button class="btn" type="button" id="pick-product-new">🔎 اختار من الأصناف</button>
         <button class="btn btn-primary" type="submit">إضافة</button>
@@ -596,6 +619,7 @@ function dashboardHTML() {
         </div>
         <div class="topbar-meta">
           ${connectionDotHTML()}
+          ${undoButtonHTML()}
           ${state.pendingCount > 0 ? `<span class="badge badge-purple">${state.pendingCount} طلب معلّق</span>` : ''}
           <span>
             ${escapeHTML(APP_NAME)}
@@ -1012,7 +1036,7 @@ function gradeTableHTML() {
     ? `
     <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
       <form id="add-grade-form" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
-        <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" required /></div>
+        <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" data-draft="grade_num" required /></div>
         <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="0" /></div>
         <div class="field" style="margin-bottom:0;"><label>الرئيسي</label><input class="input" style="width:70px;" type="number" id="new-grade-main" value="0" /></div>
         ${groupSelectHTML('new-grade-group', cat)}
@@ -1199,6 +1223,7 @@ function openCategory(categoryId) {
   // عشان مايتطبعش بالغلط على فئة تانية.
   state.gradeLabelMode = false;
   state.gradeLabelQty = {};
+  saveWorkState();
   render();
   subscribeGrades(categoryId);
 }
@@ -1323,6 +1348,7 @@ function attachDashboardEvents() {
       if (!state.gradeLabelMode) state.gradeLabelQty = {};
       // الوضعين مايشتغلوش مع بعض — عمود الحالة واحد.
       if (state.gradeLabelMode) state.bulkRequestMode = false;
+      saveWorkState();
       render();
     });
   }
@@ -1338,6 +1364,7 @@ function attachDashboardEvents() {
       } else {
         delete state.gradeLabelQty[id];
       }
+      saveWorkState();
       render();
     });
   });
@@ -1351,6 +1378,7 @@ function attachDashboardEvents() {
       state.gradeLabelQty = state.gradeLabelQty || {};
       if (n > 0) state.gradeLabelQty[id] = n;
       else delete state.gradeLabelQty[id];
+      saveWorkState();
       render();
     };
     input.addEventListener('blur', commit);
@@ -1366,6 +1394,7 @@ function attachDashboardEvents() {
     exitLabelModeBtn.addEventListener('click', () => {
       state.gradeLabelMode = false;
       state.gradeLabelQty = {};
+      saveWorkState();
       render();
     });
   }
@@ -1382,6 +1411,7 @@ function attachDashboardEvents() {
   if (clearGradeLabelsBtn) {
     clearGradeLabelsBtn.addEventListener('click', () => {
       state.gradeLabelQty = {};
+      saveWorkState();
       render();
     });
   }
@@ -1530,6 +1560,7 @@ function attachDashboardEvents() {
       const minQty = Number(document.getElementById('new-category-min-qty').value) || 0;
       if (!name) return;
       await addCategory(name, itemName, barcodeNumber, originalPrice, sellingPrice, minQty);
+      clearDrafts('cat_');
       state.showAddCategoryForm = false;
       render();
     });
@@ -1538,6 +1569,7 @@ function attachDashboardEvents() {
   const cancelAddCategory = document.getElementById('cancel-add-category');
   if (cancelAddCategory) {
     cancelAddCategory.addEventListener('click', () => {
+      clearDrafts('cat_');
       state.showAddCategoryForm = false;
       render();
     });
@@ -1562,6 +1594,7 @@ function attachDashboardEvents() {
       const groupEl = document.getElementById('new-grade-group');
       const group = groupEl ? groupEl.value : '';
       await addGrade(state.activeCategoryId, { number, branchQty, mainQty, group });
+      clearDrafts('grade_');
       state.showAddGradeForm = false;
       render();
     });
@@ -1570,6 +1603,7 @@ function attachDashboardEvents() {
   const cancelAddGrade = document.getElementById('cancel-add-grade');
   if (cancelAddGrade) {
     cancelAddGrade.addEventListener('click', () => {
+      clearDrafts('grade_');
       state.showAddGradeForm = false;
       render();
     });
@@ -1727,12 +1761,38 @@ function attachDashboardEvents() {
     btn.addEventListener('click', () => resetOutOfStock(btn.dataset.resetOutId));
   });
 
+  const undoBtn = document.getElementById('undo-btn');
+  if (undoBtn) {
+    undoBtn.addEventListener('click', () =>
+      safeAsync(async () => {
+        undoBtn.disabled = true;
+        const msg = await undoLastAction();
+        if (msg) alert(msg);
+        render();
+      }, 'التراجع')
+    );
+  }
+
+  // الحفظ التلقائي لأي خانة عليها data-draft — بيرجّع اللي كتبته لو
+  // التطبيق قفل قبل ما تحفظ.
+  wireDraftFields();
+
+  syncStickyOffsets();
   syncActionBarSpacer();
 }
 
 // الشريط السفلي ثابت، فبياخد مكانه من فوق المحتوى. بنقيس ارتفاعه الفعلي
 // (بيتغيّر لو لفّ على سطرين على شاشة ضيّقة) ونسيب مساحة بقدره تحت القايمة،
 // عشان آخر درجة تفضل توصلها وتكتب فيها عادي.
+// الشريط العلوي ثابت وارتفاعه بيتغيّر (بيلف على سطرين على شاشة ضيّقة).
+// بنقيسه ونحطّه في متغيّر CSS عشان القايمة الجانبية تلزق تحته بالظبط
+// مش وراه.
+function syncStickyOffsets() {
+  const bar = document.querySelector('.topbar');
+  if (!bar) return;
+  document.documentElement.style.setProperty('--topbar-h', bar.offsetHeight + 'px');
+}
+
 function syncActionBarSpacer() {
   const bar = document.getElementById('action-bar');
   const spacer = document.getElementById('action-bar-spacer');
@@ -1741,7 +1801,10 @@ function syncActionBarSpacer() {
 }
 
 // لو الشاشة اتقلبت أو الحجم اتغيّر، الشريط ممكن يلف على سطرين — نعيد القياس.
-window.addEventListener('resize', syncActionBarSpacer);
+window.addEventListener('resize', () => {
+  syncStickyOffsets();
+  syncActionBarSpacer();
+});
 
 // ============================================================
 // إدارة الفئات والدرجات (إضافة/حذف)
@@ -3514,6 +3577,14 @@ async function requestShortage(gradeId) {
   const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
   const snap = await gradeRef.get();
   fireWrite(gradeRef.update({ status: 'pending' }), 'طلب تزويد');
+  pushUndo({
+    label: `${gradeDisplayName(snap.data())} — طلب تزويد`,
+    categoryId: state.activeCategoryId,
+    gradeId,
+    gradeLabel: gradeDisplayName(snap.data()),
+    before: { status: snap.data().status || 'normal' },
+    after: { status: 'pending' },
+  });
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
   logActivity({
     action: 'request_shortage',
@@ -3528,6 +3599,14 @@ async function cancelShortage(gradeId) {
   const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
   const snap = await gradeRef.get();
   fireWrite(gradeRef.update({ status: 'normal' }), 'إلغاء طلب تزويد');
+  pushUndo({
+    label: `${gradeDisplayName(snap.data())} — إلغاء طلب التزويد`,
+    categoryId: state.activeCategoryId,
+    gradeId,
+    gradeLabel: gradeDisplayName(snap.data()),
+    before: { status: snap.data().status || 'pending' },
+    after: { status: 'normal' },
+  });
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
   logActivity({
     action: 'cancel_shortage',
@@ -3546,6 +3625,14 @@ async function fulfillShortage(gradeId, qty) {
   const newMainQty = Math.max(0, (data.mainQty || 0) - transferQty);
   const newBranchQty = (data.branchQty || 0) + transferQty;
   fireWrite(gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty }), 'تزويد');
+  pushUndo({
+    label: `${gradeDisplayName(data)} — تزويد بكمية ${transferQty}`,
+    categoryId: state.activeCategoryId,
+    gradeId,
+    gradeLabel: gradeDisplayName(data),
+    before: { status: data.status || 'pending', mainQty: data.mainQty || 0, branchQty: data.branchQty || 0 },
+    after: { status: 'normal', mainQty: newMainQty, branchQty: newBranchQty },
+  });
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
   logActivity({
     action: 'fulfill_shortage',
@@ -3561,6 +3648,14 @@ async function markOutOfStock(gradeId) {
   const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
   const snap = await gradeRef.get();
   fireWrite(gradeRef.update({ status: 'out' }), 'خلصت نهائيًا');
+  pushUndo({
+    label: `${gradeDisplayName(snap.data())} — خلصت نهائيًا`,
+    categoryId: state.activeCategoryId,
+    gradeId,
+    gradeLabel: gradeDisplayName(snap.data()),
+    before: { status: snap.data().status || 'pending' },
+    after: { status: 'out' },
+  });
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
   logActivity({
     action: 'mark_out_of_stock',
@@ -3575,6 +3670,14 @@ async function resetOutOfStock(gradeId) {
   const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
   const snap = await gradeRef.get();
   fireWrite(gradeRef.update({ status: 'normal' }), 'إرجاع للتوفر');
+  pushUndo({
+    label: `${gradeDisplayName(snap.data())} — رجّعها متاحة`,
+    categoryId: state.activeCategoryId,
+    gradeId,
+    gradeLabel: gradeDisplayName(snap.data()),
+    before: { status: snap.data().status || 'out' },
+    after: { status: 'normal' },
+  });
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
   logActivity({
     action: 'reset_available',
@@ -3586,7 +3689,28 @@ async function resetOutOfStock(gradeId) {
 }
 
 async function deleteGrade(categoryId, gradeId, gradeNumber) {
-  fireWrite(db.collection('categories').doc(categoryId).collection('grades').doc(gradeId).delete(), 'حذف درجة');
+  const gradeRef = db.collection('categories').doc(categoryId).collection('grades').doc(gradeId);
+
+  // قبل الحذف بناخد نسخة كاملة من الدرجة، عشان التراجع يقدر يرجّعها
+  // بكل بياناتها (الكميات والحالة والمجموعة).
+  try {
+    const snap = await gradeRef.get();
+    if (snap.exists) {
+      pushUndo({
+        type: 'delete',
+        label: `حذف ${gradeDisplayName(snap.data())}`,
+        categoryId,
+        gradeId,
+        gradeLabel: gradeDisplayName(snap.data()),
+        before: snap.data(),
+        after: {},
+      });
+    }
+  } catch (err) {
+    console.warn('تعذّر تسجيل الحذف للتراجع:', err);
+  }
+
+  fireWrite(gradeRef.delete(), 'حذف درجة');
   const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({ action: 'delete_grade', categoryId, categoryName, gradeId, gradeNumber });
 }
@@ -3674,6 +3798,20 @@ async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
   if (nextStatus) update.status = nextStatus;
 
   fireWrite(gradeRef.update(update), 'تعديل كمية');
+
+  // بنسجّل الحركة للتراجع: القيم **قبل** التعديل، واللي كتبناه بعده.
+  const fieldLabel = field === 'branchQty' ? 'الفرع' : 'الرئيسي';
+  pushUndo({
+    label: `${gradeDisplayName(data)} — ${fieldLabel}: ${oldValue} ← ${newValue}`,
+    categoryId: state.activeCategoryId,
+    gradeId: snap.id,
+    gradeLabel: gradeDisplayName(data),
+    before: nextStatus
+      ? { [field]: oldValue, status: data.status || 'normal' }
+      : { [field]: oldValue },
+    after: update,
+  });
+
   const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
   logActivity({
     action: 'edit',
@@ -3750,6 +3888,7 @@ function init() {
     state.user = user;
     // أي تغيير في حالة الدخول (دخول أو خروج) بيبدأ جلسة اشتراكات جديدة
     sessionStarted = false;
+    workStateRestored = false;
 
     if (unsubProfile) { unsubProfile(); unsubProfile = null; }
     if (unsubCategories) { unsubCategories(); unsubCategories = null; }
@@ -3796,6 +3935,12 @@ function init() {
       state.bulkRequestMode = false;
       state.loginBusy = false;
       state.loginError = '';
+      state.undoCount = 0;
+      // الخروج معناه إن حد تاني ممكن يدخل على الجهاز — فمنسيبش تحديداته
+      // ولا حركاته القابلة للتراجع لحد تاني.
+      clearWorkState();
+      clearUndoStack();
+      clearDrafts();
       state.view = 'login';
       render();
       return;
@@ -3805,12 +3950,47 @@ function init() {
     render();
 
     unsubProfile = db.collection('users').doc(user.uid).onSnapshot((snap) => {
-      state.profile = snap.exists ? snap.data() : null;
+      // ⚠️ نقطة اتصلحت من مشكلة حقيقية: النظام كان بيقول "الحساب مالوش
+      // صلاحية" لما تقفل النت.
+      //
+      // السبب: `snap.exists === false` ليها معنيين مختلفين تمامًا:
+      //   1) السيرفر ردّ وقال "المستند ده مش موجود"     → مفيش صلاحية فعلًا
+      //   2) إحنا أوفلاين والمستند مش في الذاكرة المحلية → **إحنا مش عارفين**
+      //
+      // والفرق بينهم موجود في snap.metadata.fromCache. الكود القديم كان
+      // بيخلط الاتنين، فالحالة التانية كانت بتطلّع رسالة مرعبة غلط.
+      //
+      // فبقينا نحفظ نسخة من بيانات الحساب محليًا، ونرجع لها في الحالة
+      // التانية بدل ما نقول للمستخدم إن حسابه بلا صلاحية.
+      if (snap.exists) {
+        state.profile = snap.data();
+        saveProfileLocally(user.uid, state.profile);
+      } else if (snap.metadata && snap.metadata.fromCache) {
+        state.profile = loadProfileLocally(user.uid);
+      } else {
+        // السيرفر أكّد إن المستند مش موجود — دي فعلًا مفيش صلاحية.
+        state.profile = null;
+        clearProfileLocally(user.uid);
+      }
 
       if (!state.profile) {
         state.view = 'no-profile';
         render();
         return;
+      }
+
+      // نرجّع اللي كان الجهاز فاكره: عدد الحركات القابلة للتراجع، وأي
+      // تحديدات أو سلة طباعة كانت شغّالة قبل ما التطبيق يقفل.
+      state.undoCount = getUndoStack().length;
+      if (!workStateRestored) {
+        workStateRestored = true;
+        const saved = restoreWorkState(user.uid);
+        if (saved) {
+          if (saved.activeCategoryId) state.activeCategoryId = saved.activeCategoryId;
+          state.gradeLabelMode = !!saved.gradeLabelMode;
+          state.gradeLabelQty = saved.gradeLabelQty || {};
+          state.printCart = saved.printCart || [];
+        }
       }
 
       // موظف الطباعة بيفتح على شاشته على طول ومايقدرش يخرج منها.
@@ -3916,6 +4096,15 @@ window.addEventListener('offline', () => {
   state.isOnline = false;
   render();
 });
+
+// زرار التراجع: بيظهر بس لما يكون فيه حركة تترجع فعلًا، ومكتوب في
+// tooltip بتاعه اسم الحركة الأخيرة عشان تعرف انت بترجع عن إيه.
+function undoButtonHTML() {
+  const n = state.undoCount || 0;
+  if (!n) return '';
+  const label = lastUndoLabel();
+  return `<button class="btn undo-btn" id="undo-btn" title="تراجع عن: ${escapeHTML(label)}">↩️ تراجع</button>`;
+}
 
 function connectionDotHTML() {
   let colorVar, label;
