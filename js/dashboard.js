@@ -83,16 +83,9 @@ function scheduleOverviewRetry() {
     overviewRetryTimer = null;
     console.warn(`إعادة محاولة قراءة الملخّص (${overviewRetries}/${OVERVIEW_RETRY_LIMIT})...`);
     subscribeOverview();
-    subscribeBaseGrades();
-    // لازم نصفّر الحد المحفوظ، وإلا subscribeLowStock بتخرج من غير ما تعمل حاجة.
-    lowStockThreshold = null;
-    subscribeLowStock();
   }, OVERVIEW_RETRY_MS);
 }
 
-let unsubPendingOverview = null;
-let unsubOutOverview = null;
-let unsubLowStock = null;
 let unsubPresence = null;
 let presenceTimer = null;
 
@@ -142,146 +135,154 @@ function categoryIdOfGrade(doc) {
   return parent ? parent.id : '';
 }
 
+// ============================================================
+// ⭐ استعلام واحد بدل أربعة — ومن غير أي فهارس مطلوبة
+// ============================================================
+// القصة: كان فيه 4 استعلامات منفصلة على كل الدرجات في كل الفئات:
+//   • اللي حالتها "معلّق"      (where status == pending)
+//   • اللي حالتها "خلصت"       (where status == out)
+//   • الدرجات الأساسية         (where isBase == true)
+//   • اللي كميتها تحت الحد     (where branchQty <= n)
+//
+// وكل استعلام فيه شرط where على حقل معيّن — و**ده اللي كان بيحتاج فهرس
+// خاص** في Firestore. الفهرس ده مابيتعملش لوحده، ورفعه محتاج صلاحية
+// إدارية على المشروع. النتيجة: الأربعة كانوا بيترفضوا
+// (failed-precondition)، وكل العدّادات والنقط الملوّنة بتفضل صفر.
+//
+// الحل: استعلام **واحد من غير أي شرط** — بنجيب الدرجات كلها ونحسب
+// الأربع حاجات على الجهاز في لفة واحدة.
+//
+// ليه ده مايحتاجش فهرس؟ لأن الشرط هو اللي بيحتاج فهرس. استعلام من غير
+// شرط بيمشي على الفهرس الأساسي اللي Firestore عامله لوحده من أول يوم.
+// (نفس النوع بالظبط اللي زرار "احسب الإجمالي" شغّال بيه من زمان.)
+//
+// ------------------------------------------------------------
+// التكلفة — الحساب مكتوب صريح عشان يتراجع لو الأرقام كبرت
+// ------------------------------------------------------------
+// بنقرا كل الدرجات مرة واحدة عند فتح النظام (~2000 قراءة)، وبعدها
+// المتابعة الحيّة **مابتحاسبش غير على اللي بيتغيّر فعلًا** — يعني درجة
+// تتعدّل = قراءة واحدة، مش 2000.
+//
+// الحد المجاني 50 ألف قراءة في اليوم، والتخزين المحلي بيقلّل حتى القراءة
+// الأولى دي في الفتحات اللي بعدها. لو عدد الدرجات وصل عشرات الآلاف يومًا
+// ما، ساعتها نرجع للاستعلامات المفلترة ونعمل الفهارس.
+//
+// ومكسب جانبي: تنبيه "قرّبت تخلص" بقى **مظبوط تمامًا**. قبل كده كان
+// بيستعلم بأكبر حد أدنى في كل الفئات وبعدين يفلتر على الجهاز — حيلة
+// كانت لازمة عشان Firestore مايقدرش يقارن كل درجة بحد فئتها. دلوقتي
+// الحساب كله على الجهاز أصلًا، فكل فئة بتتحاسب بحدها هي.
+let unsubAllGrades = null;
+let allGradesCache = null; // آخر نسخة من درجات كل الفئات
+
 function subscribeOverview() {
-  if (unsubPendingOverview) unsubPendingOverview();
-  if (unsubOutOverview) unsubOutOverview();
-
-  unsubPendingOverview = db
-    .collectionGroup('grades')
-    .where('status', '==', 'pending')
-    .onSnapshot(
-      (snap) => {
-        state.pendingByCategory = groupByCategory(snap);
-        state.pendingCount = snap.size;
-        renderIfOpen();
-      },
-      (err) => reportOverviewError('الطلبات المعلّقة', err)
-    );
-
-  unsubOutOverview = db
-    .collectionGroup('grades')
-    .where('status', '==', 'out')
-    .onSnapshot(
-      (snap) => {
-        state.outByCategory = groupByCategory(snap);
-        state.outCount = snap.size;
-        renderIfOpen();
-      },
-      (err) => reportOverviewError('الدرجات اللي خلصت', err)
-    );
+  if (unsubAllGrades) unsubAllGrades();
+  unsubAllGrades = db.collectionGroup('grades').onSnapshot(
+    (snap) => {
+      allGradesCache = snap.docs.map((d) => {
+        const g = d.data();
+        return {
+          catId: categoryIdOfGrade(d),
+          status: g.status,
+          isBase: !!g.isBase,
+          name: g.name,
+          number: g.number,
+          branchQty: Number(g.branchQty) || 0,
+          criticalQty: g.criticalQty,
+        };
+      });
+      recomputeOverview();
+    },
+    (err) => reportOverviewError('درجات كل الفئات', err)
+  );
 }
 
-// ------------------------------------------------------------
-// تنبيه "قرب يخلص"
-// ------------------------------------------------------------
-// الحد الأدنى بيتحدد **لكل فئة على حدة** (حقل minQty في الفئة، صفر = مقفول).
-// لكن Firestore مايقدرش يقارن كل درجة بحد مختلف حسب فئتها في استعلام واحد.
-//
-// الحل: بنستعلم بأكبر حد أدنى موجود في كل الفئات (رقم صغير عادة)، وبعدين
-// بنفلتر على الجهاز حسب حد كل فئة. كده استعلام واحد بسيط من غير أي فهرس
-// مركّب محتاج إعداد يدوي في Firebase — ولو مفيش أي فئة مفعّلة، مبنعملش
-// الاستعلام أصلًا (تكلفة صفر).
-let lowStockThreshold = null; // آخر حد اتبني عليه الاستعلام
-let unsubBaseGrades = null;
+function recomputeOverview() {
+  if (!allGradesCache) return;
 
-// تنبيه "قرّبت تخلص" بقى ليه مصدرين، وبنجمّعهم في مكان واحد:
-//   1) الدرجات المرقّمة اللي نزلت تحت الحد الأدنى بتاع فئتها
-//   2) الدرجات الأساسية (أبيض/أسود/أوف وايت) اللي نزلت تحت حدها الحرج
-function recomputeLowStock() {
-  const merged = {};
-  const add = (map) => {
-    Object.entries(map || {}).forEach(([catId, arr]) => {
-      if (!merged[catId]) merged[catId] = [];
-      arr.forEach((v) => {
-        if (merged[catId].indexOf(v) === -1) merged[catId].push(v);
-      });
-    });
+  const pending = {};
+  const out = {};
+  const low = {};
+  let pendingCount = 0;
+  let outCount = 0;
+  let lowCount = 0;
+
+  const catById = {};
+  state.categories.forEach((c) => (catById[c.id] = c));
+
+  const add = (map, catId, label) => {
+    if (!map[catId]) map[catId] = [];
+    map[catId].push(label);
   };
-  add(state.lowStockNumbered);
-  add(state.lowStockBase);
-  state.lowStockByCategory = merged;
-  state.lowStockCount = Object.values(merged).reduce((s, a) => s + a.length, 0);
+
+  allGradesCache.forEach((g) => {
+    if (!g.catId) return;
+    const label = g.isBase ? g.name || 'أساسية' : g.number;
+
+    if (g.status === 'pending') {
+      add(pending, g.catId, label);
+      pendingCount++;
+      return;
+    }
+    if (g.status === 'out') {
+      add(out, g.catId, label);
+      outCount++;
+      return;
+    }
+
+    // الباقي حالته عادية — نشوف قرّبت تخلص ولا لأ.
+    // الدرجات الأساسية ليها حدها الحرج الخاص، والباقي بياخد حد فئته.
+    const cat = catById[g.catId] || {};
+    const limit = g.isBase
+      ? Number(g.criticalQty) || DEFAULT_BASE_CRITICAL_QTY
+      : Number(cat.minQty) || 0;
+    if (limit > 0 && g.branchQty <= limit) {
+      add(low, g.catId, label);
+      lowCount++;
+    }
+  });
+
+  // الأرقام بترتّب تصاعدي، والأسماء (الدرجات الأساسية) بتيجي في الآخر.
+  const sortLabels = (map) =>
+    Object.values(map).forEach((arr) =>
+      arr.sort((a, b) => {
+        const na = typeof a === 'number';
+        const nb = typeof b === 'number';
+        if (na && nb) return a - b;
+        if (na) return -1;
+        if (nb) return 1;
+        return String(a).localeCompare(String(b), 'ar');
+      })
+    );
+  sortLabels(pending);
+  sortLabels(out);
+  sortLabels(low);
+
+  state.pendingByCategory = pending;
+  state.pendingCount = pendingCount;
+  state.outByCategory = out;
+  state.outCount = outCount;
+  state.lowStockByCategory = low;
+  state.lowStockCount = lowCount;
+
   renderIfOpen();
 }
 
-// الدرجات الأساسية قليلة جدًا (3 لكل فئة = ~75 مستند لـ25 فئة)، فاستعلام
-// مستقل ليها رخيص، وبيدينا الحد الحرج بتاع كل واحدة بدقة.
+// الدالتين دول بقوا مجرد أسماء محفوظة: الحساب كله بقى في recomputeOverview.
+// subscribeLowStock لسه بتتنادى من app.js مع كل تغيير في الفئات، وده مهم
+// فعلًا — لأن الحد الأدنى محفوظ على الفئة، فتغييره لازم يعيد الحساب.
 function subscribeBaseGrades() {
-  if (unsubBaseGrades) unsubBaseGrades();
-  unsubBaseGrades = db
-    .collectionGroup('grades')
-    .where('isBase', '==', true)
-    .onSnapshot(
-      (snap) => {
-        const map = {};
-        snap.docs.forEach((d) => {
-          const g = d.data();
-          if (g.status !== 'normal') return;
-          const limit = Number(g.criticalQty) || DEFAULT_BASE_CRITICAL_QTY;
-          if ((Number(g.branchQty) || 0) > limit) return;
-          const catId = categoryIdOfGrade(d);
-          if (!map[catId]) map[catId] = [];
-          map[catId].push(g.name || 'أساسية');
-        });
-        state.lowStockBase = map;
-        recomputeLowStock();
-      },
-      (err) => reportOverviewError('الدرجات الأساسية', err)
-    );
+  /* اتدمجت في subscribeOverview */
 }
 
 function subscribeLowStock() {
-  const maxThreshold = state.categories.reduce((m, c) => Math.max(m, Number(c.minQty) || 0), 0);
-
-  // الدالة دي بتتنادى مع كل تحديث للفئات. من غير الشرط ده كانت بتلغي
-  // وتعيد بناء الاشتراك في كل مرة من غير أي داعي — وكتر إلغاء وإعادة
-  // بناء الاشتراكات هو اللي بيطلّع خطأ Firestore الداخلي.
-  if (maxThreshold === lowStockThreshold) return;
-  lowStockThreshold = maxThreshold;
-
-  if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
-
-  if (!maxThreshold) {
-    state.lowStockNumbered = {};
-    recomputeLowStock();
-    return;
-  }
-
-  unsubLowStock = db
-    .collectionGroup('grades')
-    .where('branchQty', '<=', maxThreshold)
-    .onSnapshot(
-      (snap) => {
-        const map = {};
-        snap.docs.forEach((d) => {
-          const g = d.data();
-          // اللي معلّق أو خلص ليهم أقسامهم — مش تنبيه "قرب يخلص"
-          if (g.status !== 'normal') return;
-          // الدرجات الأساسية ليها استعلامها وحدها بحدها الحرج الخاص
-          if (g.isBase) return;
-          const catId = categoryIdOfGrade(d);
-          const cat = state.categories.find((c) => c.id === catId);
-          const limit = Number(cat && cat.minQty) || 0;
-          if (!limit || (g.branchQty || 0) > limit) return;
-          if (!map[catId]) map[catId] = [];
-          map[catId].push(g.number);
-        });
-        Object.values(map).forEach((arr) => arr.sort((a, b) => a - b));
-        state.lowStockNumbered = map;
-        recomputeLowStock();
-      },
-      (err) => reportOverviewError('الدرجات اللي قرّبت تخلص', err)
-    );
+  recomputeOverview();
 }
 
 function stopOverview() {
   if (overviewRetryTimer) { clearTimeout(overviewRetryTimer); overviewRetryTimer = null; }
   overviewRetries = 0;
-  if (unsubPendingOverview) { unsubPendingOverview(); unsubPendingOverview = null; }
-  if (unsubOutOverview) { unsubOutOverview(); unsubOutOverview = null; }
-  if (unsubLowStock) { unsubLowStock(); unsubLowStock = null; }
-  if (unsubBaseGrades) { unsubBaseGrades(); unsubBaseGrades = null; }
-  lowStockThreshold = null;
+  if (unsubAllGrades) { unsubAllGrades(); unsubAllGrades = null; }
+  allGradesCache = null;
   stopPresenceHeartbeat();
 }
 
@@ -449,8 +450,11 @@ function dashboardHomeHTML() {
 }
 
 function lowStockHTML() {
-  const anyBase = Object.keys(state.lowStockBase || {}).length > 0;
-  const anyThreshold = state.categories.some((c) => Number(c.minQty) > 0) || anyBase;
+  // الدرجات الأساسية ليها حد حرج جواها، فلو فيه أي واحدة قرّبت تخلص
+  // يبقى فيه تنبيه شغّال حتى لو مفيش فئة محدّد ليها حد أدنى.
+  const anyThreshold =
+    state.categories.some((c) => Number(c.minQty) > 0) ||
+    Object.keys(state.lowStockByCategory || {}).length > 0;
   if (!anyThreshold) {
     return `
       <div class="home-empty">
