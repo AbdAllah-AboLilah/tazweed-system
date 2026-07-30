@@ -23,6 +23,24 @@ function renderIfOpen() {
   if (state.view === 'dashboard') render();
 }
 
+// ------------------------------------------------------------
+// أخطاء الاستعلامات الشاملة لازم **تبان**، مش تختفي في الكونسول
+// ------------------------------------------------------------
+// الأربع استعلامات دي (معلّق / خلص / قرّب يخلص / الأساسية) هي مصدر كل
+// العدّادات والنقط الملوّنة في القايمة الجانبية. لو واحد فيهم فشل، كان
+// العدّاد بيفضل صفر **من غير أي علامة** — والمستخدم يفتكر إن مفيش نواقص،
+// وهو أصلًا شايف العكس في الجدول. الصمت هنا أخطر من رسالة الخطأ.
+//
+// دلوقتي بيظهر شريط أحمر مكتوب فيه العنصر اللي فشل، فنعرف نصلّحه بدل ما
+// نفضل نخمّن.
+function reportOverviewError(what, err) {
+  const code = (err && err.code) || '';
+  console.error(`فشل استعلام "${what}":`, err);
+  if (typeof showFatalError === 'function') {
+    showFatalError(`تعذّر قراءة "${what}" من السحابة${code ? ` (${code})` : ''} — العدّادات في القايمة الجانبية ممكن تبان ناقصة.`);
+  }
+}
+
 let unsubPendingOverview = null;
 let unsubOutOverview = null;
 let unsubLowStock = null;
@@ -88,7 +106,7 @@ function subscribeOverview() {
         state.pendingCount = snap.size;
         renderIfOpen();
       },
-      (err) => console.warn('تعذّر قراءة الطلبات المعلّقة:', err)
+      (err) => reportOverviewError('الطلبات المعلّقة', err)
     );
 
   unsubOutOverview = db
@@ -100,7 +118,7 @@ function subscribeOverview() {
         state.outCount = snap.size;
         renderIfOpen();
       },
-      (err) => console.warn('تعذّر قراءة الدرجات اللي خلصت:', err)
+      (err) => reportOverviewError('الدرجات اللي خلصت', err)
     );
 }
 
@@ -159,7 +177,7 @@ function subscribeBaseGrades() {
         state.lowStockBase = map;
         recomputeLowStock();
       },
-      (err) => console.warn('تعذّر قراءة الدرجات الأساسية:', err)
+      (err) => reportOverviewError('الدرجات الأساسية', err)
     );
 }
 
@@ -203,7 +221,7 @@ function subscribeLowStock() {
         state.lowStockNumbered = map;
         recomputeLowStock();
       },
-      (err) => console.warn('تعذّر قراءة الدرجات اللي قرّبت تخلص:', err)
+      (err) => reportOverviewError('الدرجات اللي قرّبت تخلص', err)
     );
 }
 
@@ -327,7 +345,8 @@ function recentActivityHTML() {
 
 function dashboardHomeHTML() {
   const canEditMain = canEditWarehouse(state.profile, 'main');
-  const pendingTotal = state.pendingCount || 0;
+  // نفس مصدر القايمة الجانبية والعدّاد اللي فوق — رقم واحد في كل مكان.
+  const pendingTotal = totalPendingNow();
   const outTotal = state.outCount || 0;
 
   return `
