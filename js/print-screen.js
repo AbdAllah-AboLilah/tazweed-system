@@ -70,7 +70,7 @@ function printScreenHTML() {
                  value="${escapeHTML(state.printSearch || '')}" placeholder="اسم الصنف أو الباركود..." />
           ${isBarcodeScanSupported() ? `<button class="btn btn-primary" id="print-scan-btn">📷 صوّر باركود</button>` : ''}
         </div>
-        <div style="max-height:34vh; overflow:auto;">${resultsHTML}</div>
+        <div data-keep-scroll="print-results" style="max-height:34vh; overflow:auto;">${resultsHTML}</div>
       </div>
 
       <div class="home-card">
@@ -78,7 +78,7 @@ function printScreenHTML() {
           🧺 سلة الطباعة
           <span class="home-hint">${cart.length} صنف — ${totalLabels} ملصق</span>
         </div>
-        <div style="max-height:38vh; overflow:auto;">${cartHTML}</div>
+        <div data-keep-scroll="print-cart" style="max-height:38vh; overflow:auto;">${cartHTML}</div>
         <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
           <button class="btn btn-primary" id="print-cart-btn" ${totalLabels ? '' : 'disabled'}>🖨️ اطبع المحدّد (${totalLabels})</button>
           <button class="btn" id="print-clear-btn" ${cart.length ? '' : 'disabled'}>تفريغ السلة</button>
@@ -89,14 +89,15 @@ function printScreenHTML() {
     </div>`;
 }
 
-function addProductToPrintCart(product) {
+function addProductToPrintCart(product, qty) {
   state.printCart = state.printCart || [];
+  const add = Math.max(1, Math.min(200, Number(qty) || 1));
   const key = product.barcode || product.code || product.name;
   const found = state.printCart.find((it) => it.key === key);
   if (found) {
-    found.qty = Math.min(200, (found.qty || 0) + 1);
+    found.qty = Math.min(200, (found.qty || 0) + add);
   } else {
-    state.printCart.push({ key, product, qty: 1 });
+    state.printCart.push({ key, product, qty: add });
   }
   // السلة بتتحفظ على الجهاز — لو التطبيق قفل، بترجع زي ما هي.
   saveWorkState();
@@ -122,18 +123,32 @@ function attachPrintScreenEvents() {
 
   const scanBtn = document.getElementById('print-scan-btn');
   if (scanBtn) {
-    // المسح بيحط الصنف في السلة على طول — ده أسرع مسار للشغل الحقيقي:
-    // صوّر، صوّر، صوّر، اطبع.
+    // بعد كل تصويرة، بيظهر كارت **جوه شاشة الكاميرا** فيه اسم الصنف
+    // والباركود وخانة العدد. تضغط "تم" فيتحوّل للسلة، والكاميرا تفضل
+    // مفتوحة للصنف اللي بعده — فمش محتاج تخرج وتدخل مع كل صنف.
     scanBtn.addEventListener('click', () =>
-      safeAsync(() => openBarcodeScanner((value) => {
-        const product = findProductByBarcode(value);
-        if (!product) {
-          alert(`مفيش صنف بالباركود ده في القاعدة:\n${value}`);
-          return;
-        }
-        addProductToPrintCart(product);
-        render();
-      }, true), 'فتح الكاميرا')
+      safeAsync(
+        () =>
+          openBarcodeScanner(
+            (value, qty) => {
+              const product = findProductByBarcode(value);
+              if (!product) return;
+              addProductToPrintCart(product, qty);
+              render();
+            },
+            true,
+            {
+              askQty: true,
+              lookup: (value) => {
+                const p = findProductByBarcode(value);
+                if (!p) return null;
+                const price = p.price ? ` — ${p.price} ج` : '';
+                return { title: p.name, subtitle: `${p.barcode || p.code || value}${price}` };
+              },
+            }
+          ),
+        'فتح الكاميرا'
+      )
     );
   }
 
@@ -146,7 +161,12 @@ function attachPrintScreenEvents() {
       const p = found[Number(btn.getAttribute('data-add-product'))];
       if (!p) return;
       addProductToPrintCart(p);
+      // خانة البحث بتتفضّى بعد الإضافة عشان تكتب اسم الصنف اللي بعده على
+      // طول — من غير ما تمسح اللي مكتوب بإيدك في كل مرة.
+      state.printSearch = '';
       render();
+      const searchAgain = document.getElementById('print-search');
+      if (searchAgain) searchAgain.focus();
     });
   });
 
@@ -239,5 +259,15 @@ async function printCartLabels(sizeOptions) {
   });
   const browserHTML = jobs[0].html.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
-  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML);
+  const delivered = await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML);
+
+  // السلة بتتفضّى **بس** لو الطباعة اتبعتت فعلًا. لو المستخدم ألغى اختيار
+  // الجهاز، أو فشل التجهيز، السلة بتفضل زي ما هي — عشان مايخسرش 20 صنف
+  // عدّهم بإيده على ضغطة غلط.
+  if (delivered) {
+    state.printCart = [];
+    state.printSearch = '';
+    saveWorkState();
+    render();
+  }
 }

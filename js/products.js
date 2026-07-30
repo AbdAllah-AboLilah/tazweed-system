@@ -54,7 +54,10 @@ function normalizeBarcode(value) {
 }
 
 function buildProductsIndex(list) {
-  return list.map((p) => normalizeSearchText(`${p.name} ${p.barcode} ${p.code} ${p.dept}`));
+  // p.code موجود لتوافق الاستيرادات القديمة اللي كانت بتحفظ كود منفصل
+  return list.map((p) =>
+    normalizeSearchText(`${p.name} ${p.barcode} ${p.code || ''} ${p.dept} ${p.subDept || ''}`)
+  );
 }
 
 // بيحمّل الأصناف مرة واحدة لكل جلسة. لو مفيش نت، Firestore بيرجّع النسخة
@@ -101,9 +104,20 @@ function productDepartments() {
   return [...set].sort();
 }
 
+// الأقسام الفرعية **اللي جوه قسم رئيسي معيّن** — عشان لو اخترت "ملابس"
+// تشوف الفرعية بتاعته بس، مش كل الفرعية في المحل.
+function productSubDepartments(dept) {
+  const set = new Set();
+  (productsCache || []).forEach((p) => {
+    if (dept && p.dept !== dept) return;
+    if (p.subDept) set.add(p.subDept);
+  });
+  return [...set].sort();
+}
+
 // بحث نصي في الفهرس الجاهز. كل الكلمات لازم تظهر (بحث "و" مش "أو")،
 // عشان لما تكتب "كريب اسود" ما يجيبش كل الكريب وكل الأسود.
-function searchProducts(query, dept, limit) {
+function searchProducts(query, dept, limit, subDept) {
   const list = productsCache || [];
   const words = normalizeSearchText(query).split(' ').filter(Boolean);
   const max = limit || 500;
@@ -111,6 +125,7 @@ function searchProducts(query, dept, limit) {
 
   for (let i = 0; i < list.length && out.length < max; i++) {
     if (dept && list[i].dept !== dept) continue;
+    if (subDept && list[i].subDept !== subDept) continue;
     if (words.length) {
       const hay = productsIndex[i];
       let ok = true;
@@ -181,28 +196,40 @@ async function saveProducts(list, onProgress) {
 // ملفات الكاشير بتختلف من محل لمحل: عمود الاسم ممكن يكون الأول أو التالت،
 // والباركود ممكن يكون اسمه "الكود" أو "Barcode". فبدل ما نخمّن، بنوري
 // عناوين الملف الحقيقية وانت تختار كل عمود بيقابل إيه.
+// ملحوظة مهمة اتصلحت: كان فيه حقل "كود الصنف" منفصل عن "الباركود".
+// في الواقع في ملفات الكاشير الاتنين نفس الحاجة، فكان بيتكرر ويلخبط.
+// بقى حقل واحد: الباركود.
+//
+// وضفنا "القسم الفرعي" — القسم الرئيسي فيه أقسام جواه (ملابس ← طرح ←
+// كريب مثلًا)، وده كان ناقص خالص.
 const PRODUCT_FIELDS = [
-  { key: 'name', label: 'اسم الصنف', required: true, hints: ['اسم', 'صنف', 'name', 'item', 'product', 'description'] },
-  { key: 'barcode', label: 'الباركود', required: false, hints: ['باركود', 'barcode', 'ean', 'upc'] },
-  { key: 'code', label: 'كود الصنف', required: false, hints: ['كود', 'code', 'sku', 'رقم'] },
-  // ترتيب التلميحات مهم: الأدق الأول. "سعر البيع" بتتجرّب قبل "سعر"
-  // المجردة، عشان الملف اللي فيه العمودين ما يتلخبطش.
-  { key: 'price', label: 'سعر البيع', required: false, hints: ['سعر البيع', 'بيع', 'price', 'sell', 'سعر'] },
-  { key: 'origPrice', label: 'السعر قبل الخصم', required: false, hints: ['قبل', 'اصلي', 'أصلي', 'original', 'old'] },
-  { key: 'dept', label: 'القسم', required: false, hints: ['قسم', 'مجموعة', 'category', 'dept', 'group'] },
+  { key: 'name', label: 'اسم الصنف', required: true, hints: ['اسم الصنف', 'الصنف', 'اسم', 'صنف', 'name', 'item', 'product', 'description'] },
+  { key: 'barcode', label: 'الباركود', required: false, hints: ['باركود', 'barcode', 'ean', 'upc', 'كود', 'code', 'sku'] },
+  // ترتيب التلميحات مهم: الأدق الأول. "بعد الخصم" هو سعر البيع الفعلي،
+  // و"سعر البيع" المجرد في ملفات كتير هو السعر قبل الخصم.
+  { key: 'price', label: 'سعر البيع (الفعلي)', required: false, hints: ['بعد الخصم', 'سعر البيع', 'بيع', 'price', 'sell', 'سعر'] },
+  { key: 'origPrice', label: 'السعر قبل الخصم', required: false, hints: ['قبل الخصم', 'قبل', 'اصلي', 'أصلي', 'original', 'old'] },
+  { key: 'dept', label: 'القسم الرئيسي', required: false, hints: ['القسم الرئيسي', 'رئيسي', 'قسم', 'مجموعة', 'category', 'dept', 'group'] },
+  { key: 'subDept', label: 'القسم الفرعي', required: false, hints: ['القسم الفرعي', 'فرعي', 'تحت', 'sub', 'subcategory'] },
 ];
 
-function guessColumn(headers, field) {
+// used: أرقام الأعمدة اللي اتحجزت لحقول قبل كده.
+// ⚠️ الفحص ده كان ناقص، وده اللي خلّى "الباركود" و"كود الصنف" يتخمّنوا
+// **نفس العمود** — عمود واحد مايقدرش يكون معناه حاجتين.
+function guessColumn(headers, field, used) {
   const norm = headers.map((h) => normalizeSearchText(h));
+  const free = (i) => i !== -1 && !(used || []).includes(i);
+
+  // مطابقة كاملة الأول (الأدق)، وبعدين مطابقة جزئية
   for (const hint of field.hints) {
     const h = normalizeSearchText(hint);
-    const exact = norm.findIndex((x) => x === h);
-    if (exact !== -1) return exact;
+    const i = norm.findIndex((x, idx) => x === h && free(idx));
+    if (i !== -1) return i;
   }
   for (const hint of field.hints) {
     const h = normalizeSearchText(hint);
-    const partial = norm.findIndex((x) => x && x.indexOf(h) !== -1);
-    if (partial !== -1) return partial;
+    const i = norm.findIndex((x, idx) => x && x.indexOf(h) !== -1 && free(idx));
+    if (i !== -1) return i;
   }
   return -1;
 }
@@ -273,6 +300,7 @@ function openProductsImportDialog(onDone) {
             <th style="text-align:start; padding:5px;">الباركود</th>
             <th style="text-align:start; padding:5px;">السعر</th>
             <th style="text-align:start; padding:5px;">القسم</th>
+            <th style="text-align:start; padding:5px;">الفرعي</th>
           </tr></thead>
           <tbody>
             ${list
@@ -283,6 +311,7 @@ function openProductsImportDialog(onDone) {
                   <td style="padding:4px 5px; border-top:1px solid var(--border);">${escapeHTML(p.barcode || '—')}</td>
                   <td style="padding:4px 5px; border-top:1px solid var(--border);">${escapeHTML(p.price || 0)}</td>
                   <td style="padding:4px 5px; border-top:1px solid var(--border);">${escapeHTML(p.dept || '—')}</td>
+                  <td style="padding:4px 5px; border-top:1px solid var(--border);">${escapeHTML(p.subDept || '—')}</td>
                 </tr>`
               )
               .join('')}
@@ -327,10 +356,19 @@ function openProductsImportDialog(onDone) {
       return;
     }
 
+    // بنخمّن الحقول بالترتيب، وكل حقل بيحجز عموده فمحدش ياخده تاني.
+    const usedCols = [];
+    const guesses = {};
+    PRODUCT_FIELDS.forEach((f) => {
+      const g = guessColumn(headers, f, usedCols);
+      guesses[f.key] = g;
+      if (g !== -1) usedCols.push(g);
+    });
+
     mapEl.innerHTML = `
       <div style="font-size:13px; font-weight:500; margin:6px 0 8px;">كل عمود معناه إيه؟</div>
       ${PRODUCT_FIELDS.map((f) => {
-        const guess = guessColumn(headers, f);
+        const guess = guesses[f.key];
         return `
         <div class="field" style="margin-bottom:8px;">
           <label>${escapeHTML(f.label)}${f.required ? ' *' : ''}</label>
@@ -397,18 +435,17 @@ function buildProductList(rows, map) {
     const name = pick(row, map.name);
     if (!name) return;
     const barcode = pick(row, map.barcode);
-    const code = pick(row, map.code);
-    // مفتاح التكرار: الباركود لو موجود، وإلا الكود، وإلا الاسم.
-    const key = barcode || code || name;
+    // مفتاح التكرار: الباركود لو موجود، وإلا الاسم.
+    const key = barcode || name;
     if (seen.has(key)) return;
     seen.add(key);
     out.push({
       name,
       barcode,
-      code,
       price: num(pick(row, map.price)),
       origPrice: num(pick(row, map.origPrice)),
       dept: pick(row, map.dept),
+      subDept: pick(row, map.subDept),
     });
   });
   return out;
@@ -441,12 +478,13 @@ function productsScreenHTML() {
       </div>`;
   }
 
-  const results = searchProducts(state.productSearch, state.productDept, 5000);
+  const results = searchProducts(state.productSearch, state.productDept, 5000, state.productSubDept);
   const pages = Math.max(1, Math.ceil(results.length / PRODUCTS_PAGE_SIZE));
   const page = Math.min(state.productPage || 1, pages);
   const start = (page - 1) * PRODUCTS_PAGE_SIZE;
   const shown = results.slice(start, start + PRODUCTS_PAGE_SIZE);
   const depts = productDepartments();
+  const subDepts = productSubDepartments(state.productDept);
 
   const rowsHTML = shown
     .map(
@@ -457,6 +495,7 @@ function productsScreenHTML() {
         <td style="white-space:nowrap;">${escapeHTML(p.barcode || p.code || '—')}</td>
         <td style="white-space:nowrap;">${p.price ? escapeHTML(p.price) : '—'}</td>
         <td>${escapeHTML(p.dept || '—')}</td>
+        <td>${escapeHTML(p.subDept || '—')}</td>
         <td style="white-space:nowrap;">
           <button class="btn" style="padding:4px 10px; font-size:12px;"
                   data-print-product="${escapeHTML(p.barcode || p.code || p.name)}">🏷️ طباعة</button>
@@ -474,7 +513,8 @@ function productsScreenHTML() {
         </div>
         <div class="gc-line"><span class="gc-label">الباركود</span><span>${escapeHTML(p.barcode || p.code || '—')}</span></div>
         <div class="gc-line"><span class="gc-label">السعر</span><span>${p.price ? escapeHTML(p.price) : '—'}</span></div>
-        <div class="gc-line"><span class="gc-label">القسم</span><span>${escapeHTML(p.dept || '—')}</span></div>
+        <div class="gc-line"><span class="gc-label">القسم الرئيسي</span><span>${escapeHTML(p.dept || '—')}</span></div>
+        <div class="gc-line"><span class="gc-label">القسم الفرعي</span><span>${escapeHTML(p.subDept || '—')}</span></div>
         <button class="btn" style="width:100%;" data-print-product="${escapeHTML(p.barcode || p.code || p.name)}">🏷️ طباعة ملصق</button>
       </div>`
     )
@@ -491,8 +531,8 @@ function productsScreenHTML() {
           </div>
           ${
             depts.length
-              ? `<div class="field" style="width:170px; margin-bottom:0;">
-                   <label>القسم</label>
+              ? `<div class="field" style="width:150px; margin-bottom:0;">
+                   <label>القسم الرئيسي</label>
                    <select class="input" id="products-dept">
                      <option value="">كل الأقسام</option>
                      ${depts
@@ -505,12 +545,28 @@ function productsScreenHTML() {
                  </div>`
               : ''
           }
+          ${
+            subDepts.length
+              ? `<div class="field" style="width:150px; margin-bottom:0;">
+                   <label>القسم الفرعي</label>
+                   <select class="input" id="products-sub-dept">
+                     <option value="">كل الفرعية</option>
+                     ${subDepts
+                       .map(
+                         (d) =>
+                           `<option value="${escapeHTML(d)}" ${d === state.productSubDept ? 'selected' : ''}>${escapeHTML(d)}</option>`
+                       )
+                       .join('')}
+                   </select>
+                 </div>`
+              : ''
+          }
           ${isBarcodeScanSupported() ? `<button class="btn" id="products-scan-btn">📷 مسح</button>` : ''}
           ${canManageProducts(state.profile) ? `<button class="btn" id="products-import-btn">📥 تحديث الملف</button>` : ''}
         </div>
         <div style="font-size:12px; color:var(--text-secondary); margin-top:10px;">
           إجمالي الأصناف: <strong>${escapeHTML(total)}</strong>
-          ${state.productSearch || state.productDept ? ` — نتيجة البحث: <strong>${escapeHTML(results.length)}</strong>` : ''}
+          ${state.productSearch || state.productDept || state.productSubDept ? ` — نتيجة البحث: <strong>${escapeHTML(results.length)}</strong>` : ''}
         </div>
       </div>
 
@@ -518,14 +574,15 @@ function productsScreenHTML() {
         results.length
           ? state.isNarrow
             ? `<div class="grade-cards">${cardsHTML}</div>`
-            : `<div class="card" style="padding:0; overflow:auto;">
+            : `<div class="card" data-keep-scroll="products" style="padding:0; overflow:auto;">
                  <table>
                    <thead><tr>
                      <th class="sticky-th">#</th>
                      <th class="sticky-th">اسم الصنف</th>
                      <th class="sticky-th">الباركود</th>
                      <th class="sticky-th">السعر</th>
-                     <th class="sticky-th">القسم</th>
+                     <th class="sticky-th">القسم الرئيسي</th>
+                     <th class="sticky-th">القسم الفرعي</th>
                      <th class="sticky-th"></th>
                    </tr></thead>
                    <tbody>${rowsHTML}</tbody>
@@ -574,6 +631,18 @@ function attachProductsEvents() {
   if (deptEl) {
     deptEl.addEventListener('change', () => {
       state.productDept = deptEl.value;
+      // القسم الفرعي المختار غالبًا مش موجود جوه القسم الرئيسي الجديد،
+      // فبنصفّره عشان ما تلاقيش نفسك ببحث مالوش نتيجة من غير سبب واضح.
+      state.productSubDept = '';
+      state.productPage = 1;
+      render();
+    });
+  }
+
+  const subDeptEl = document.getElementById('products-sub-dept');
+  if (subDeptEl) {
+    subDeptEl.addEventListener('change', () => {
+      state.productSubDept = subDeptEl.value;
       state.productPage = 1;
       render();
     });
@@ -621,8 +690,13 @@ function productAsLabelSource(product) {
   };
 }
 
-async function printProductLabel(product) {
-  promptLabelSize((sizeOptions) => printLabel(productAsLabelSource(product), sizeOptions));
+function printProductLabel(product) {
+  // safeAsync مهمة هنا: من غيرها أي فشل جوه printLabel بيطلع للمستخدم
+  // كرسالة إنجليزي خام تحت الشاشة مكتوب فيها "Promise: ..." — لأن الدالة
+  // بترجّع وعد مافيش حد ماسك فشله (الكلبك جوه promptLabelSize).
+  promptLabelSize((sizeOptions) =>
+    safeAsync(() => printLabel(productAsLabelSource(product), sizeOptions), 'طباعة الملصق')
+  );
 }
 
 // ============================================================

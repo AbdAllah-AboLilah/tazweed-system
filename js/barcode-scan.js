@@ -61,7 +61,16 @@ function openCameraChooser() {
     if (warmup) warmup.getTracks().forEach((t) => t.stop());
 
     if (!cams.length) {
-      alert('مش لاقي أي كاميرا على الجهاز ده.');
+      // ⚠️ ده **مش** معناه إن الجهاز مالوش كاميرا.
+      //
+      // في متصفحات كتير على الأندرويد، enumerateDevices() بترجع لستة فاضية
+      // لو الإذن مش مستقر لحظة السؤال — وكنا بنقول للمستخدم "مش لاقي أي
+      // كاميرا" وهي موجودة وشغّالة. لو الكاميرا نفسها فتحت (warmup) يبقى
+      // مفيش أي مشكلة أصلًا: نكمّل بالاختيار التلقائي (الكاميرا الخلفية).
+      saveCameraId('');
+      if (!warmup) {
+        alert('مقدرتش أفتح الكاميرا. اتأكد إنك سمحت للموقع باستخدامها من إعدادات المتصفح.');
+      }
       resolve('');
       return;
     }
@@ -114,12 +123,19 @@ function openCameraChooser() {
   });
 }
 
-// onResult: دالة تتنادى بالقيمة المقروءة. لو مبعتّهاش، السلوك الافتراضي
-// هو فتح الفئة اللي ليها الباركود ده (زي الأول).
+// onResult: دالة تتنادى بالقيمة المقروءة (والعدد لو الشاشة سألت عنه). لو
+// مبعتّهاش، السلوك الافتراضي هو فتح الفئة اللي ليها الباركود ده (زي الأول).
 // keepOpen: بيسيب الكاميرا شغّالة بعد كل قراءة عشان تصوّر أصناف ورا بعض
 // من غير ما تفتح الشاشة كل مرة (بيستخدم في شاشة الطباعة).
-async function openBarcodeScanner(onResult, keepOpen) {
+//
+// options.lookup(value) → { title, subtitle } أو null
+//   لو مبعوتة، بعد كل قراءة بتظهر **كارت تأكيد جوه شاشة الكاميرا نفسها**
+//   فيه اسم الصنف والباركود (وخانة عدد لو options.askQty). ده بيحل مشكلة
+//   حقيقية: كنت بتصوّر باركود وتسمع صوت وخلاص — من غير ما تشوف انت ضيفت
+//   إيه بالظبط ولا بكام، فلازم تخرج من الكاميرا وتراجع السلة كل مرة.
+async function openBarcodeScanner(onResult, keepOpen, options) {
   const handle = onResult || handleScannedBarcode;
+  const opts = options || {};
 
   const overlay = document.createElement('div');
   overlay.style.cssText =
@@ -129,6 +145,9 @@ async function openBarcodeScanner(onResult, keepOpen) {
       <video id="scan-video" playsinline muted style="width:100%; display:block;"></video>
       <!-- إطار التصويب: مجرد دليل بصري للمستخدم إنه يوجّه الكاميرا -->
       <div style="position:absolute; inset:18% 12%; border:3px solid rgba(255,255,255,0.85); border-radius:12px; pointer-events:none;"></div>
+      <!-- كارت التأكيد: بيغطي الكاميرا وقت ما يبان صنف، وبيختفي بعد "تم" -->
+      <div id="scan-card" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.82);
+                                 align-items:center; justify-content:center; padding:14px;"></div>
     </div>
     <div id="scan-msg" style="color:#fff; font-size:14px; margin-top:16px; text-align:center; padding:0 16px; line-height:1.7;">
       وجّه الكاميرا على الباركود
@@ -143,8 +162,16 @@ async function openBarcodeScanner(onResult, keepOpen) {
   // من شاشة مفتوحة، كل واحدة بتلاقي عناصرها هي.
   const video = overlay.querySelector('#scan-video');
   const msg = overlay.querySelector('#scan-msg');
+  const card = overlay.querySelector('#scan-card');
   let stream = null;
   let stopped = false;
+  // وقت ما كارت التأكيد مفتوح، بنوقف القراءة — عشان الباركود اللي لسه
+  // قدام الكاميرا مايفتحش كارت تاني فوق اللي انت بتراجعه.
+  let paused = false;
+  // وبعد ما الكارت يتقفل، بنستنى لحظة كمان: الصنف بيفضل قدام الكاميرا
+  // ثانية أو اتنين وانت بتنحّيه، ومن غير الوقفة دي الكارت كان بيفتح تاني
+  // على نفس الصنف فورًا في حلقة مالهاش نهاية.
+  let cooldownUntil = 0;
 
   const stopStream = () => {
     if (stream) stream.getTracks().forEach((t) => t.stop());
@@ -229,8 +256,85 @@ async function openBarcodeScanner(onResult, keepOpen) {
   let lastValue = '';
   let lastAt = 0;
 
+  // ------------------------------------------------------------
+  // كارت التأكيد جوه شاشة الكاميرا
+  // ------------------------------------------------------------
+  const hideCard = () => {
+    card.style.display = 'none';
+    card.innerHTML = '';
+    paused = false;
+    cooldownUntil = Date.now() + 1500;
+  };
+
+  const showCard = (value, info) => {
+    paused = true;
+    if (!info) {
+      card.innerHTML = `
+        <div class="card" style="width:100%; max-width:340px; text-align:center;">
+          <div style="font-size:14px; font-weight:500; margin-bottom:6px;">مفيش صنف بالباركود ده</div>
+          <div style="font-size:13px; direction:ltr; color:var(--text-secondary); margin-bottom:12px;">${escapeHTML(value)}</div>
+          <button class="btn btn-primary" id="scan-card-back" style="width:100%;">رجوع للتصوير</button>
+        </div>`;
+      card.style.display = 'flex';
+      card.querySelector('#scan-card-back').addEventListener('click', hideCard);
+      return;
+    }
+
+    card.innerHTML = `
+      <div class="card" style="width:100%; max-width:340px;">
+        <div style="font-size:14px; font-weight:500; line-height:1.6; margin-bottom:4px;">${escapeHTML(info.title || '')}</div>
+        <div style="font-size:12px; color:var(--text-secondary); direction:ltr; text-align:start; margin-bottom:12px;">
+          ${escapeHTML(info.subtitle || value)}
+        </div>
+        ${
+          opts.askQty
+            ? `<div class="field" style="margin-bottom:12px;">
+                 <label>عدد الملصقات</label>
+                 <div class="qty-cell">
+                   <button class="qty-btn" id="scan-card-dec" type="button">−</button>
+                   <input class="qty-input" id="scan-card-qty" type="number" value="1" min="1" max="200" inputmode="numeric" />
+                   <button class="qty-btn" id="scan-card-inc" type="button">+</button>
+                 </div>
+               </div>`
+            : ''
+        }
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" id="scan-card-ok" style="flex:1;">✔️ تم</button>
+          <button class="btn" id="scan-card-skip">إلغاء</button>
+        </div>
+      </div>`;
+    card.style.display = 'flex';
+
+    const qtyEl = card.querySelector('#scan-card-qty');
+    const bump = (delta) => {
+      const n = Math.max(1, Math.min(200, (parseInt(qtyEl.value, 10) || 1) + delta));
+      qtyEl.value = n;
+    };
+    if (qtyEl) {
+      card.querySelector('#scan-card-dec').addEventListener('click', () => bump(-1));
+      card.querySelector('#scan-card-inc').addEventListener('click', () => bump(1));
+    }
+
+    card.querySelector('#scan-card-skip').addEventListener('click', hideCard);
+    card.querySelector('#scan-card-ok').addEventListener('click', () => {
+      const qty = qtyEl ? Math.max(1, Math.min(200, parseInt(qtyEl.value, 10) || 1)) : 1;
+      hideCard();
+      msg.textContent = `✅ ${info.title || value}${opts.askQty ? ` × ${qty}` : ''}`;
+      if (keepOpen) {
+        handle(value, qty);
+      } else {
+        close();
+        handle(value, qty);
+      }
+    });
+  };
+
   const tick = async () => {
     if (stopped) return;
+    if (paused || Date.now() < cooldownUntil) {
+      requestAnimationFrame(tick);
+      return;
+    }
     try {
       const found = await detector.detect(video);
       if (found.length) {
@@ -241,12 +345,14 @@ async function openBarcodeScanner(onResult, keepOpen) {
         if (value && (value !== lastValue || now - lastAt > 1500)) {
           lastValue = value;
           lastAt = now;
-          if (keepOpen) {
+          if (typeof opts.lookup === 'function') {
+            showCard(value, opts.lookup(value));
+          } else if (keepOpen) {
             msg.textContent = `✅ ${value}`;
-            handle(value);
+            handle(value, 1);
           } else {
             close();
-            handle(value);
+            handle(value, 1);
             return;
           }
         }
