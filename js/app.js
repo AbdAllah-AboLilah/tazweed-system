@@ -2980,10 +2980,18 @@ function showPrintPreview(html, sizeOptions, copies) {
     overlay.innerHTML = `
       <div class="card" style="max-width:${Math.round(shownW) + 60}px; width:100%; text-align:center;">
         <div style="font-size:14px; font-weight:500; margin-bottom:12px;">معاينة الملصق قبل الطباعة</div>
+        <!-- ⚠️ الـiframe لازم يبقى position:absolute في الزاوية العليا
+             الشمال بالظبط. السبب: الصفحة كلها RTL، فالعنصر العادي بيتحاطط
+             من **اليمين**، ولما التكبير بيشتغل من نقطة top left بيمدّ
+             المحتوى لبره الحدود اليمين ويسيب فراغ على الشمال — وده اللي كان
+             بيخلي المعاينة تبان مقصوصة والاسم مش كامل.
+             direction:ltr على الحاوية بتشيل أي انعكاس تاني في المستقبل. -->
         <div style="margin:0 auto 12px; width:${Math.round(shownW)}px; height:${Math.round(shownH)}px;
-                    border:1px solid var(--border); background:#fff; overflow:hidden;">
+                    border:1px solid var(--border); background:#fff; overflow:hidden;
+                    position:relative; direction:ltr;">
           <iframe id="preview-frame" scrolling="no"
-                  style="width:${sizeOptions.pageWidthMm}mm; height:${sizeOptions.pageHeightMm}mm; border:0;
+                  style="position:absolute; top:0; left:0;
+                         width:${sizeOptions.pageWidthMm}mm; height:${sizeOptions.pageHeightMm}mm; border:0;
                          transform:scale(${zoom}); transform-origin:top left; display:block;"></iframe>
         </div>
         <div style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
