@@ -1,0 +1,76 @@
+<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>harness v23</title><link rel="stylesheet" href="../styles.css"></head><body>
+<div id="root"></div>
+    <script>
+      // الرسالة الواحدة بتتعرض مرة واحدة بس ومعاها عدّاد تكرار — قبل كده
+      // كان الخطأ المتكرر بيملا الشاشة كلها ويخفي النظام تحته.
+      var seenErrors = {};
+      function showFatalError(msg) {
+        var el = document.getElementById('fatal-error-box');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'fatal-error-box';
+          el.style.cssText =
+            'position:fixed;bottom:0;left:0;right:0;background:#fcebeb;color:#791f1f;' +
+            'padding:12px;font-family:sans-serif;font-size:13px;direction:rtl;text-align:right;' +
+            'z-index:9999;max-height:35vh;overflow:auto;border-top:3px solid #791f1f;';
+          var close = document.createElement('button');
+          close.textContent = '✕ إخفاء';
+          close.style.cssText =
+            'float:left;border:1px solid #791f1f;background:transparent;color:#791f1f;' +
+            'border-radius:8px;padding:4px 10px;cursor:pointer;font-size:12px;';
+          close.onclick = function () { el.remove(); };
+          el.appendChild(close);
+          document.body.appendChild(el);
+        }
+
+        var entry = seenErrors[msg];
+        if (entry) {
+          entry.count++;
+          entry.node.textContent = 'خطأ (×' + entry.count + '): ' + msg;
+          return;
+        }
+
+        // سقف أمان: لو ظهرت أنواع أخطاء كتير، منزوّدش أكتر من كده.
+        if (Object.keys(seenErrors).length >= 8) return;
+
+        var line = document.createElement('div');
+        line.style.marginBottom = '6px';
+        line.textContent = 'خطأ: ' + msg;
+        el.appendChild(line);
+        seenErrors[msg] = { count: 1, node: line };
+      }
+      window.addEventListener(
+        'error',
+        function (e) {
+          var msg = e.message || 'تعذّر تحميل ملف: ' + (e.target && e.target.src ? e.target.src : '');
+          showFatalError(msg + (e.filename ? ' — ' + e.filename + ':' + e.lineno : ''));
+        },
+        true
+      );
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+        showFatalError('Promise: ' + reason);
+      });
+    </script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsrsasign-all-min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx.full.min.js"></script>
+<script>
+  window.firebaseConfig = { apiKey: 'x', projectId: 'x' };
+  window.firebase = { firestore: { FieldValue: { serverTimestamp: () => 'TS' } }, initializeApp: () => ({ auth: () => ({}) }) };
+  window.FIREBASE_IS_CONFIGURED = true;
+  window.db = null; window.auth = { onAuthStateChanged: () => {}, signOut: () => {} };
+</script>
+<script src="../js/app-info.js"></script>
+<script src="../js/local-store.js"></script>
+<script src="../js/permissions.js"></script>
+<script src="../js/qz-signing.js"></script>
+<script src="../js/barcode-scan.js"></script>
+<script src="../js/import-export.js"></script>
+<script src="../js/products.js"></script>
+<script src="../js/print-screen.js"></script>
+<script src="../js/user-admin.js"></script>
+<script src="../js/dashboard.js"></script>
+<script src="../js/app.js"></script>
+</body></html>

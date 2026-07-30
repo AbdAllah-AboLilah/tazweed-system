@@ -304,17 +304,6 @@ async function computeStockTotals() {
   render();
 }
 
-function groupByCategory(snap) {
-  const map = {};
-  snap.docs.forEach((d) => {
-    const catId = categoryIdOfGrade(d);
-    if (!catId) return;
-    if (!map[catId]) map[catId] = [];
-    map[catId].push(d.data().number);
-  });
-  Object.values(map).forEach((arr) => arr.sort((a, b) => a - b));
-  return map;
-}
 
 function statTileHTML(value, label, color) {
   return `
