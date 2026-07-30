@@ -4524,8 +4524,6 @@ function init() {
       state.pendingByCategory = {};
       state.outByCategory = {};
       state.lowStockByCategory = {};
-      state.lowStockNumbered = {};
-      state.lowStockBase = {};
       state.lowStockCount = 0;
       state.sideMenuOpen = false;
       state.categorySearch = '';
