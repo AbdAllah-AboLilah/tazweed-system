@@ -90,9 +90,22 @@ html, body {
   /* شبكة أمان: أي عنصر أعرض من الشاشة يتقص بدل ما يزحلق الصفحة كلها
      ويخلي النص يخرج بره حدود الموبايل. */
   max-width: 100%;
+
+  /* ⚠️ لازم clip مش hidden.
+     السبب: overflow: hidden بيعمل "حاوية تمرير" جديدة، وده بيكسر
+     position: sticky لأي عنصر جواها — فالشريط العلوي الثابت كان بيمشي
+     مع الصفحة وهو نازل بدل ما يفضل فوق (قِسناها: بعد نزول 3000 بكسل
+     كان بيبقى في -3000).
+     overflow: clip بيقص الزيادة بنفس الشكل **من غير** ما يعمل حاوية
+     تمرير، فالتثبيت بيشتغل. وسطر hidden فوقه احتياطي للمتصفحات القديمة
+     اللي مش بتعرف clip. */
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
+/* الشريط العلوي ثابت: بيفضل قدام عينك وانت نازل في 165 درجة، فاسم
+   المستخدم وحالة الاتصال وزرار التراجع في متناول إيدك في أي وقت.
+   z-index أقل من الشاشات المنبثقة (2000) وأعلى من المحتوى العادي. */
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -101,8 +114,16 @@ html, body {
   padding: 0.75rem 1rem;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 950;
   flex-wrap: wrap;
+}
+
+.undo-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .topbar-meta {
@@ -456,7 +477,10 @@ th {
   gap: 10px;
   max-height: calc(100vh - 120px);
   position: sticky;
-  top: 0;
+  /* الشريط العلوي بقى ثابت كمان، فالقايمة لازم تلزق **تحته** مش وراه.
+     الارتفاع بيتقاس بعد الرسم في syncStickyOffsets() لأنه بيتغيّر حسب
+     عرض الشاشة (بيلف على سطرين على الشاشات الضيّقة). */
+  top: var(--topbar-h, 64px);
 }
 
 .side-head {

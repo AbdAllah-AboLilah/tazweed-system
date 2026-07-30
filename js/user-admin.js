@@ -59,6 +59,7 @@ function renderUsersList() {
             return `<tr>
               <td style="padding:6px; border-top:1px solid var(--border);">
                 ${escapeHTML(u.name || '—')}${isMe ? ' <span style="color:var(--text-muted);">(انت)</span>' : ''}
+                ${u.loginName ? `<div style="font-size:10px; color:var(--text-muted);">${escapeHTML(u.loginName)}</div>` : ''}
               </td>
               <td style="padding:6px; border-top:1px solid var(--border);">
                 ${escapeHTML(ROLE_LABELS_AR[u.role] || u.role || '—')}${escapeHTML(access)}
@@ -126,8 +127,12 @@ function openUserAdmin() {
             <input class="input" id="nu-name" required />
           </div>
           <div class="field">
-            <label>الإيميل</label>
-            <input class="input" type="email" id="nu-email" required autocomplete="off" />
+            <label>اسم الدخول</label>
+            <input class="input" id="nu-username" required autocomplete="off" placeholder="مثال: Test-Print" />
+            <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;" id="nu-username-hint">
+              اكتب أي اسم عادي — النظام بيكمّل الباقي لوحده. لو عايز تستخدم
+              إيميل حقيقي، اكتبه كامل وهو هيتقبل زي ما هو.
+            </div>
           </div>
           <div class="field">
             <label>الباسورد (٦ حروف على الأقل)</label>
@@ -174,11 +179,18 @@ function openUserAdmin() {
     const statusEl = document.getElementById('nu-status');
     const submitBtn = document.getElementById('nu-submit');
     const name = document.getElementById('nu-name').value.trim();
-    const email = document.getElementById('nu-email').value.trim();
+    const username = document.getElementById('nu-username').value.trim();
+    const email = usernameToEmail(username);
     const password = document.getElementById('nu-password').value;
     const role = document.getElementById('nu-role').value;
     const warehouseAccess = role === ROLES.WAREHOUSE_KEEPER ? document.getElementById('nu-access').value : null;
     const canSendRemotePrint = document.getElementById('nu-remote-print').checked;
+
+    if (!email) {
+      statusEl.style.color = 'var(--danger-text)';
+      statusEl.textContent = 'اسم الدخول لازم يكون فيه حروف أو أرقام.';
+      return;
+    }
 
     submitBtn.disabled = true;
     statusEl.style.color = 'var(--text-secondary)';
@@ -196,20 +208,22 @@ function openUserAdmin() {
         role,
         warehouseAccess,
         canSendRemotePrint,
+        // اسم الدخول بيتحفظ عشان المدير يفتكره ويقدر يديه للموظف تاني
+        loginName: emailToUsername(email),
       });
 
       await secondaryAuth.signOut();
       await logActivity({ action: 'add_user', categoryName: name, newValue: role });
 
       statusEl.style.color = '#2e7d32';
-      statusEl.textContent = `✅ اتعمل حساب "${name}". اداله الإيميل والباسورد.`;
+      statusEl.textContent = `✅ اتعمل حساب "${name}". اسم الدخول: ${emailToUsername(email)} — والباسورد اللي كتبته.`;
       document.getElementById('add-user-form').reset();
       wireRoleVisibility('nu-role', 'nu-access-wrap');
     } catch (err) {
       console.error(err);
       const messages = {
-        'auth/email-already-in-use': 'الإيميل ده متسجّل بحساب قبل كده.',
-        'auth/invalid-email': 'الإيميل مكتوب غلط.',
+        'auth/email-already-in-use': 'اسم الدخول ده مستخدم في حساب تاني — اختار اسم غيره.',
+        'auth/invalid-email': 'اسم الدخول فيه حروف مش مقبولة. استخدم حروف إنجليزي وأرقام و- و. بس.',
         'auth/weak-password': 'الباسورد ضعيف — لازم ٦ حروف على الأقل.',
       };
       statusEl.style.color = 'var(--danger-text)';
