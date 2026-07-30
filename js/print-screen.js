@@ -101,6 +101,19 @@ function addProductToPrintCart(product, qty) {
   }
   // السلة بتتحفظ على الجهاز — لو التطبيق قفل، بترجع زي ما هي.
   saveWorkState();
+  return key;
+}
+
+// بتوقّف المؤشر في خانة عدد الصنف ده وتحدّد الرقم اللي فيها، فأول رقم
+// تكتبه بيستبدله على طول (مش بيتزنق جنبه).
+function focusCartQty(key) {
+  const idx = (state.printCart || []).findIndex((it) => it.key === key);
+  if (idx < 0) return;
+  const el = document.querySelector(`[data-cart-qty="${idx}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'nearest' });
+  el.focus();
+  el.select();
 }
 
 function attachPrintScreenEvents() {
@@ -160,13 +173,13 @@ function attachPrintScreenEvents() {
       const found = searchProducts(state.printSearch, '', 40);
       const p = found[Number(btn.getAttribute('data-add-product'))];
       if (!p) return;
-      addProductToPrintCart(p);
-      // خانة البحث بتتفضّى بعد الإضافة عشان تكتب اسم الصنف اللي بعده على
-      // طول — من غير ما تمسح اللي مكتوب بإيدك في كل مرة.
+      const key = addProductToPrintCart(p);
+      // خانة البحث بتتفضّى، والمؤشر بيروح **لخانة العدد** بتاعة الصنف ده
+      // على طول — عشان ترتيب الشغل الطبيعي هو: دوّر، ضيف، اكتب العدد.
+      // (كان بيرجع لخانة البحث، فكنت لازم تنزل بإيدك للسلة كل مرة.)
       state.printSearch = '';
       render();
-      const searchAgain = document.getElementById('print-search');
-      if (searchAgain) searchAgain.focus();
+      focusCartQty(key);
     });
   });
 

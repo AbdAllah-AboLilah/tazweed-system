@@ -3271,8 +3271,20 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const copyCount = Math.max(1, Math.min(200, parseInt(copies, 10) || 1));
 
   const name = String(cat.itemName || cat.name || '');
+
+  // ------------------------------------------------------------
+  // السعر: السعر المشطوب بيظهر **بس لو فيه خصم فعلي**
+  // ------------------------------------------------------------
+  // كان بيتكتب "85 L.E مشطوب  85 L.E" على أصناف مالهاش خصم أصلًا — رقم
+  // مكرر مشطوب جنب نفسه، بياخد نص عرض اللاصقة ومالوش أي معنى، وبيصغّر
+  // السعر الحقيقي عشان يفضلّه مكان.
+  const sellNum = Number(cat.sellingPrice) || 0;
+  const origNum = Number(cat.originalPrice) || 0;
+  const hasDiscount = origNum > 0 && origNum !== sellNum;
   const priceHTML = cat.sellingPrice
-    ? `<div class="price"><s>${escapeHTML(cat.originalPrice || 0)} L.E</s><b>${escapeHTML(cat.sellingPrice)} L.E</b></div>`
+    ? `<div class="price">${
+        hasDiscount ? `<s>${escapeHTML(cat.originalPrice)} L.E</s>` : ''
+      }<b>${escapeHTML(cat.sellingPrice)} L.E</b></div>`
     : '';
 
   // هامش أمان رأسي: الطابعة الحرارية بتاكل جزء بسيط من أعلى وأسفل اللاصقة،
@@ -3324,7 +3336,12 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
 
   const nameSize = Math.min(byHeight, 2.7, nameLines === 1 ? oneLineFit : oneLineFit * 1.85);
   const codeSize = Math.min(byHeight, nameSize * 0.9);
-  const priceSize = Math.min(byHeight, nameSize * 0.95);
+
+  // سعر البيع هو أهم رقم على اللاصقة للزبون، فبياخد أكبر خط متاح في سطره.
+  // byHeight هو نصيب السطر الواحد من الارتفاع، فمينفعش نعدّيه وإلا السعر
+  // بيتقطع من تحت. والسعر المشطوب بياخد حجم أصغر عشان الفرق يبان.
+  const priceSize = Math.min(byHeight, nameSize * 1.15);
+  const oldPriceSize = priceSize * 0.8;
 
   const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '<div class="qr"></div>';
 
@@ -3375,9 +3392,9 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
         /* الرقم bold: على الطابعة الحرارية الخط الرفيع بيطلع باهت ومتقطّع،
            والرقم ده هو خطة الطوارئ لو الباركود مارضيش يتقرا — فلازم يبان. */
         .code { font-size: ${codeSize.toFixed(2)}mm; letter-spacing: 0.15mm; font-weight: bold; }
-        .price { font-size: ${priceSize.toFixed(2)}mm; display: flex; justify-content: center; gap: ${pad * 2}mm; white-space: nowrap; }
-        .price s { font-weight: normal; }
-        .price b { font-weight: bold; }
+        .price { display: flex; justify-content: center; align-items: baseline; gap: ${pad * 2}mm; white-space: nowrap; }
+        .price s { font-weight: normal; font-size: ${oldPriceSize.toFixed(2)}mm; }
+        .price b { font-weight: bold; font-size: ${priceSize.toFixed(2)}mm; }
       </style>
     </head>
     <body>${`<div class="label">${halfHTML.repeat(halves || 1)}</div>`.repeat(copyCount)}</body>
