@@ -523,6 +523,28 @@ function totalPendingNow() {
   return state.categories.reduce((sum, c) => sum + categoryNeedsFlags(c.id).pending, 0);
 }
 
+// ------------------------------------------------------------
+// ⭐ نقطة التزويد الثابتة — بتفضل باينة في كل الشاشات
+// ------------------------------------------------------------
+// المشكلة اللي بتحلها: النقط الملوّنة كانت **جوه القايمة الجانبية بس**،
+// قدام كل فئة. يعني لازم تفتح القايمة عشان تعرف إن فيه طلب تزويد. ولو
+// انت في شاشة تانية خالص، مفيش أي إشارة.
+//
+// دلوقتي نفس النقطة بتظهر في مكانين ثابتين: جنب اسمك فوق، وعلى زرار
+// "الفئات". فطلب التزويد بيفضل قدام عينك مهما كنت فين.
+//
+// ليه الصفرا بس (مش التلاتة)؟ لأن التلاتة في مكان صغير زي ده بتبقى زحمة
+// وبتبطّل تلاحظها. و"خلصت" و"قرّبت تخلص" ليهم مكانهم في لوحة التحكم.
+function pendingDotHTML(clickable) {
+  const n = totalPendingNow();
+  if (!n) return '';
+  const tag = clickable ? 'button' : 'span';
+  const extra = clickable
+    ? ' id="pending-dot-btn" title="اعرض الفئات اللي مطلوب تزويدها" style="cursor:pointer;"'
+    : '';
+  return `<${tag} class="pending-dot"${extra}>${escapeHTML(n)}</${tag}>`;
+}
+
 function categoryDotsHTML(flags) {
   const dot = (color, title, n) =>
     `<span title="${escapeHTML(title)}" class="cat-dot" style="background:${color};">${escapeHTML(n)}</span>`;
@@ -729,7 +751,7 @@ function dashboardHTML() {
 
   const navRowHTML = `
     <div class="tabs">
-      <button class="tab" id="side-open-btn">📂 الفئات</button>
+      <button class="tab" id="side-open-btn">📂 الفئات${pendingDotHTML(false)}</button>
       ${navBtn('home', '🏠 الرئيسية')}
       ${navBtn('sheets', sheetTabLabel)}
       ${canUsePrintScreen(state.profile) ? navBtn('print', '🏷️ طباعة') : ''}
@@ -742,13 +764,17 @@ function dashboardHTML() {
     <div>
       <div class="topbar">
         <div>
-          <div style="font-size:14px; font-weight:500;">${escapeHTML(state.profile?.name)}</div>
+          <div style="font-size:14px; font-weight:500; display:flex; align-items:center; gap:6px;">
+            ${escapeHTML(state.profile?.name)}${pendingDotHTML(true)}
+          </div>
           <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
         </div>
         <div class="topbar-meta">
           ${connectionDotHTML()}
           ${undoButtonHTML()}
-          ${totalPendingNow() > 0 ? `<span class="badge badge-purple">${escapeHTML(totalPendingNow())} طلب معلّق</span>` : ''}
+          ${/* الشارة البنفسجية القديمة اتشالت: كانت بتقول نفس رقم النقطة
+                اللي جنب الاسم بالظبط — إشارتين بنفس المعنى جنب بعض
+                بتضعّف الاتنين. */ ''}
           <span>
             ${escapeHTML(APP_NAME)}
             <span style="color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
@@ -1452,6 +1478,15 @@ function attachDashboardEvents() {
   });
 
   // ---- قايمة الفئات الجانبية ----
+  const pendingDotBtn = document.getElementById('pending-dot-btn');
+  if (pendingDotBtn) {
+    pendingDotBtn.addEventListener('click', () => {
+      state.sideMenuOpen = true;
+      state.categoryFilter = 'pending';
+      render();
+    });
+  }
+
   const sideOpen = document.getElementById('side-open-btn');
   if (sideOpen) {
     sideOpen.addEventListener('click', () => {
@@ -3757,6 +3792,21 @@ function showPrintPreview(html, sizeOptions, copies) {
   });
 }
 
+// ⚠️ لازم تتشال أي سكريبت من المحتوى قبل ما يتعرض في المعاينة.
+//
+// السبب: ورقة التزويد جواها سطر بيشغّل أمر الطباعة تلقائيًا أول ما تتحمّل
+// (window.print) — عشان لما تتفتح في نافذة طباعة المتصفح، الطباعة تبدأ
+// لوحدها من غير ما المستخدم يدوّر على الزرار.
+//
+// لكن المعاينة بتكتب نفس المحتوى جوه إطار في الصفحة، فالسطر ده كان
+// بيشتغل **جوه المعاينة** ويفتح شاشة طباعة المتصفح فوق معاينتنا. يعني
+// كنت تشوف معاينتين ورا بعض — واحدة بتاعتنا وواحدة بتاعة المتصفح.
+//
+// المعاينة عرض بس، فمش محتاجة أي سكريبت أصلًا.
+function stripScripts(html) {
+  return String(html || '').replace(/<script[\s\S]*?<\/script>/gi, '');
+}
+
 // ------------------------------------------------------------
 // معاينة ورقة التزويد (رول بارتفاع مفتوح)
 // ------------------------------------------------------------
@@ -3779,7 +3829,11 @@ function showRollPreview(html, sizeOptions) {
       <div class="card" style="max-width:${Math.round(shownW) + 60}px; width:100%; text-align:center;">
         <div style="font-size:14px; font-weight:500; margin-bottom:4px;">معاينة ورقة التزويد</div>
         <div style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
-          عرض الورقة ${escapeHTML(widthMm)} ملم — الطول على حسب عدد الدرجات
+          ${
+            sizeOptions.papers > 1
+              ? `هيتطبع <strong>${escapeHTML(sizeOptions.papers)}</strong> ورق — كل مجموعة لوحدها`
+              : `عرض الورقة ${escapeHTML(widthMm)} ملم — الطول على حسب عدد الدرجات`
+          }
         </div>
         <!-- نفس درس معاينة الملصق: الصفحة RTL، فالحاوية لازم تبقى LTR
              والإطار في الركن الشمال بالظبط، وإلا التكبير بيطلّع المحتوى بره. -->
@@ -3802,7 +3856,7 @@ function showRollPreview(html, sizeOptions) {
     const frame = overlay.querySelector('#roll-frame');
     const doc = frame.contentWindow.document;
     doc.open();
-    doc.write(html);
+    doc.write(stripScripts(html));
     doc.close();
 
     // القياس بعد ما المتصفح يرسم المحتوى فعلًا.
@@ -3944,6 +3998,67 @@ function buildRestockHTML(cat, grades, groupName) {
 
 // بيسأل تطبع أنهي مجموعة قبل الطباعة (بس لو الفئة مقسّمة فعلًا).
 // بيرجّع '' للورقة كلها، اسم المجموعة لواحدة بعينها، أو null لو ألغى.
+// قيمة خاصة معناها "اطبع كل مجموعة في ورقة لوحدها" — مش اسم مجموعة.
+// اخترنا شكل مستحيل يتلخبط مع اسم حقيقي.
+const RESTOCK_EACH_GROUP = '\u0000each';
+
+// المجموعات اللي فيها درجات مرقّمة فعلًا، بترتيبها المحفوظ،
+// و"باقي الدرجات" في الآخر لو فيه درجات من غير مجموعة.
+function restockGroupNames(cat, grades) {
+  const groups = categoryGroups(cat);
+  const numbered = grades.filter((g) => !g.isBase);
+  const countOf = (name) => numbered.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
+  const names = groups.filter((n) => countOf(n) > 0);
+  if (countOf(UNGROUPED_LABEL) > 0) names.push(UNGROUPED_LABEL);
+  return names;
+}
+
+// ------------------------------------------------------------
+// حزمة ورق: كل مجموعة ورقة مستقلة
+// ------------------------------------------------------------
+// بترجّع:
+//   jobs        → ورقة لكل مجموعة (لـQZ: كل واحدة صفحة لوحدها فتتقطع)
+//   browserHTML → مستند واحد بفواصل صفحات (نافذة طباعة المتصفح بتتعامل
+//                 مع مستند واحد بس)
+//   previewHTML → نفس الورق ورا بعض بخط فاصل بدل فاصل الصفحة، عشان
+//                 تشوفهم كلهم في معاينة واحدة قبل ما تأكّد
+function buildRestockBundle(cat, grades, names) {
+  const papers = names.map((name) => buildRestockHTML(cat, grades, name));
+
+  const bodyOf = (html) => {
+    const m = html.match(/<body>([\s\S]*?)<\/body>/i);
+    return m ? m[1] : html;
+  };
+  // بناخد الهيكل والتنسيقات من أول ورقة ونحط جواها كل الأجسام.
+  const shell = papers[0];
+  const wrap = (inner) => shell.replace(/<body>[\s\S]*<\/body>/i, `<body>${inner}</body>`);
+
+  const printBodies = papers
+    .map((html, i) => {
+      const brk = i < papers.length - 1 ? ' style="page-break-after: always; break-after: page;"' : '';
+      return `<div${brk}>${stripScripts(bodyOf(html))}</div>`;
+    })
+    .join('');
+
+  const previewBodies = papers
+    .map((html, i) => {
+      const sep =
+        i > 0
+          ? '<div style="border-top:2px dashed #999; margin:6mm 0 4mm; padding-top:2mm; font-size:2.6mm; color:#666; text-align:center;">— ورقة جديدة —</div>'
+          : '';
+      return sep + stripScripts(bodyOf(html));
+    })
+    .join('');
+
+  return {
+    // الأمر التلقائي بيتشال من الأجسام وبيتحط مرة واحدة على المستند كله
+    browserHTML: wrap(printBodies + '<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script>'),
+    previewHTML: wrap(previewBodies),
+    jobs: papers.map((html) => ({ html, copies: 1 })),
+    count: papers.length,
+  };
+}
+
 function chooseRestockGroup(cat, grades) {
   return new Promise((resolve) => {
     const groups = categoryGroups(cat);
@@ -3975,6 +4090,10 @@ function chooseRestockGroup(cat, grades) {
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
           <button class="btn btn-primary" data-rg="">📄 الورقة كلها (${escapeHTML(numbered.length)} درجة)</button>
+          <button class="btn btn-primary" data-rg="${escapeHTML(RESTOCK_EACH_GROUP)}">
+            🗂️ كل مجموعة في ورقة لوحدها (${escapeHTML(options.length)} ورق)
+          </button>
+          <div style="border-top:1px solid var(--border); margin:2px 0;"></div>
           ${options
             .map(
               (name) =>
@@ -4000,6 +4119,26 @@ function chooseRestockGroup(cat, grades) {
 async function printRestockPaper(cat, grades) {
   const groupName = await chooseRestockGroup(cat, grades);
   if (groupName === null) return;
+
+  // ⭐ كل مجموعة في ورقة لوحدها — بضغطة واحدة
+  if (groupName === RESTOCK_EACH_GROUP) {
+    const names = restockGroupNames(cat, grades);
+    if (!names.length) return;
+    const bundle = buildRestockBundle(cat, grades, names);
+
+    // معاينة واحدة مجمّعة: كل الورق ورا بعض بخط فاصل بينهم.
+    const okAll = await showPrintPreview(bundle.previewHTML, {
+      pageWidthMm: 80,
+      autoHeight: true,
+      papers: bundle.count,
+    });
+    if (!okAll) return;
+
+    // أمر طباعة واحد فيه كل الورق (كل ورقة صفحة لوحدها). كده بيسألك عن
+    // الجهاز مرة واحدة بس، والطابعة بتشتغل متواصلة.
+    await deliverPrint('restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML);
+    return;
+  }
 
   const html = buildRestockHTML(cat, grades, groupName);
 

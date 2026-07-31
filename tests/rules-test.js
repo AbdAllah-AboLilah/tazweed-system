@@ -28,8 +28,10 @@ const PROFILES = {
     // بنحط معرّف حقيقي مكان المكان الفاضي عشان نتأكد إن آلية الحماية
     // نفسها شغالة — مش بس إنها "مش بتفشل".
     firestore: {
+      // بنستبدل المعرّف الحقيقي بحساب الاختبار — بالتعبير النمطي مش بنص
+      // ثابت، عشان الاختبار مايتكسرش لو المعرّف اتغيّر يوم ما.
       rules: fs.readFileSync('/home/user/tazweed-system/firestore.rules', 'utf8')
-        .replace('REPLACE_WITH_OWNER_UID', 'owner'),
+        .replace(/(function ownerUid\(\)\s*\{\s*return\s*')[^']*(')/, '$1owner$2'),
       host: '127.0.0.1', port: 8080,
     },
   });

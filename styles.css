@@ -601,6 +601,42 @@ th {
   padding: 0 4px;
 }
 
+/* ⭐ نقطة التزويد الثابتة — جنب اسم المستخدم وعلى زرار الفئات.
+   نفس شكل نقطة الفئة بالظبط عشان المستخدم يربطهم ببعض من أول نظرة:
+   نفس اللون الأصفر ونفس الشكل الدايري بالعدد جواه. */
+.pending-dot {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #e6a817;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 0;
+  flex: 0 0 auto;
+  margin-inline-start: 2px;
+  font-family: inherit;
+}
+
+/* نبضة خفيفة جدًا مرة كل ثانيتين — بتلفت النظر من غير ما تزنّ.
+   بتتوقف تمامًا لو الجهاز متظبّط على "تقليل الحركة". */
+@keyframes pending-pulse {
+  0%, 88%, 100% { transform: scale(1); }
+  94% { transform: scale(1.18); }
+}
+
+.pending-dot {
+  animation: pending-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending-dot { animation: none; }
+}
+
 .side-backdrop {
   display: none;
 }
