@@ -5414,6 +5414,68 @@ async function printTSPLFontSample(printerName, widthMm, heightMm, sampleText, s
   return true;
 }
 
+// ============================================================
+// 🔥 جودة الطباعة — السرعة والحرارة
+// ============================================================
+// ⚠️ دول أهم حاجتين في حدة الطباعة الحرارية، ومالمسناهمش خالص طول الوقت
+// اللي فات وإحنا بنلف حوالين شكل الخط.
+//
+// **إزاي الطابعة الحرارية بتشتغل؟** فيها صف من نقط بتسخن، والورق بيتفاعل
+// مع الحرارة فيسوَدّ. يعني اللي بيحدّد شكل الحرف هو **قد إيه النقطة سخنت
+// وقد إيه الورق قعد قدامها**.
+//
+//   السرعة (SPEED): الورق ماشي بسرعة قد إيه.
+//     • سريع  → النقطة مابتاخدش وقتها، الحرف بيطلع باهت ومتقطّع
+//     • بطيء  → الحرارة توصل كاملة، الحرف بيطلع كامل وحاد
+//     ⭐ تقليل السرعة أشهر طريقة لتحسين حدة الطباعة الحرارية.
+//
+//   الحرارة (DENSITY): النقطة بتسخن قد إيه.
+//     • واطية  → باهت
+//     • عالية  → الحرارة بتتفرد على الورق حوالين النقطة، والحروف
+//                **بتلتحم في بعض** — وده بالظبط اللي المستخدم بيسمّيه
+//                "الكتابة منغمشة"
+//
+// يعني "المنغمشة" ممكن تكون **الحرارة عالية** مش الخط غلط. وإحنا كنا
+// بنلعب في الخط طول الوقت.
+//
+// ⚠️ الأوامر دي بتروح **للطابعة نفسها** وبتتخزّن في ذاكرتها — زي المعايرة
+// بالظبط. مش إعداد ويندوز ولا حاجة في النظام.
+const PRINT_SPEED_DEFAULT = 3;    // بوصة/ثانية
+const PRINT_DENSITY_DEFAULT = 8;  // من 0 لـ15
+
+function getPrintQuality() {
+  const shared = getSharedPrintSettings();
+  const q = (shared && shared.quality) || {};
+  const speed = Number(q.speed);
+  const density = Number(q.density);
+  return {
+    speed: isFinite(speed) && speed > 0 ? Math.min(8, Math.max(1, speed)) : PRINT_SPEED_DEFAULT,
+    density: isFinite(density) ? Math.min(15, Math.max(0, Math.round(density))) : PRINT_DENSITY_DEFAULT,
+    set: !!(q && (q.speed || q.density === 0 || q.density)),
+  };
+}
+
+// بتبعت السرعة والحرارة للطابعة وبتحفظهم في الإعدادات المشتركة كمان،
+// عشان لو ركّبت الطابعة على كمبيوتر تاني تعرف تبعتلها نفس القيم.
+async function applyPrintQuality(printerName, speed, density) {
+  if (!printerName) return false;
+  if (!(await ensureQZConnected())) return false;
+
+  const sp = Math.min(8, Math.max(1, Number(speed) || PRINT_SPEED_DEFAULT));
+  const dn = Math.min(15, Math.max(0, Math.round(Number(density))));
+  const cmds = [`SPEED ${sp}`, `DENSITY ${dn}`, ''].join('\r\n');
+
+  const config = qz.configs.create(printerName);
+  await qz.print(config, [{ type: 'raw', format: 'command', flavor: 'plain', data: cmds }]);
+
+  try {
+    fireWrite(saveSharedPrintSettings({ quality: { speed: sp, density: dn } }), 'جودة الطباعة');
+  } catch (err) {
+    console.warn('تعذّر حفظ جودة الطباعة:', err);
+  }
+  return true;
+}
+
 function getSavedPrinter(type) {
   const key = type === 'label' ? QZ_LABEL_PRINTER_KEY : QZ_RESTOCK_PRINTER_KEY;
   try {
@@ -5687,6 +5749,33 @@ async function openPrinterSettings() {
           </div>
           <div id="cal-status" style="font-size:12px; min-height:16px;"></div>
 
+          <!-- ---------- جودة الطباعة ---------- -->
+          <div style="border-top:1px dashed var(--border); margin-top:12px; padding-top:10px;">
+            <div style="font-size:12px; font-weight:500; margin-bottom:4px;">🔥 وضوح الطباعة (السرعة والحرارة)</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:8px;">
+              دول أهم حاجتين في حدة الطباعة الحرارية:
+              <br>• <strong>السرعة أبطأ</strong> ← الحرارة توصل كاملة، الحرف بيطلع أوضح
+              <br>• <strong>الحرارة أعلى</strong> ← أغمق، بس لو زيادة <strong>الحروف بتلتحم</strong> (النغمشة)
+              <br>الأوامر بتتخزّن <strong>جوه الطابعة نفسها</strong> زي المعايرة.
+            </div>
+            <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; margin-bottom:8px;">
+              <div class="field" style="width:110px; margin-bottom:0;">
+                <label style="font-size:11px;">السرعة (1 = أبطأ)</label>
+                <input class="input" type="number" id="pq-speed" min="1" max="8" step="1" style="padding:6px;" />
+              </div>
+              <div class="field" style="width:110px; margin-bottom:0;">
+                <label style="font-size:11px;">الحرارة (0–15)</label>
+                <input class="input" type="number" id="pq-density" min="0" max="15" step="1" style="padding:6px;" />
+              </div>
+              <button class="btn" id="pq-apply">🔥 ابعتها للطابعة</button>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); line-height:1.7; margin-bottom:6px;">
+              جرّب كده لو الكلام <strong>منغمش</strong>: السرعة <strong>2</strong> والحرارة <strong>6</strong>.
+              ولو <strong>باهت</strong>: السرعة <strong>2</strong> والحرارة <strong>10</strong>.
+            </div>
+            <div id="pq-status" style="font-size:12px; min-height:16px;"></div>
+          </div>
+
           <div style="border-top:1px dashed var(--border); margin-top:12px; padding-top:10px;">
             <div style="font-size:12px; font-weight:500; margin-bottom:4px;">🧪 عيّنة خطوط الطابعة</div>
             <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:8px;">
@@ -5878,6 +5967,36 @@ async function openPrinterSettings() {
         detailsBox.textContent = 'تعذّرت القراءة: ' + (err && err.message ? err.message : err);
       }
     }, 'قراءة بيانات الطابعات')
+  );
+
+  // ---- جودة الطباعة ----
+  const pqSpeed = overlay.querySelector('#pq-speed');
+  const pqDensity = overlay.querySelector('#pq-density');
+  const pqStatus = overlay.querySelector('#pq-status');
+  const q0 = getPrintQuality();
+  pqSpeed.value = q0.speed;
+  pqDensity.value = q0.density;
+  overlay.querySelector('#pq-apply').addEventListener('click', () =>
+    safeAsync(async () => {
+      const printerName = labelSelect.value;
+      if (!printerName) {
+        pqStatus.style.color = 'var(--danger-text)';
+        pqStatus.textContent = 'اختار طابعة الملصق الأول.';
+        return;
+      }
+      saveSelectedPrinter('label', printerName);
+      pqStatus.style.color = 'var(--text-secondary)';
+      pqStatus.textContent = 'جارٍ الإرسال...';
+      try {
+        await applyPrintQuality(printerName, pqSpeed.value, pqDensity.value);
+        pqStatus.style.color = '#2e7d32';
+        pqStatus.textContent = '✅ اتخزّنت جوه الطابعة. اطبع ملصق وشوف الفرق.';
+      } catch (err) {
+        console.error(err);
+        pqStatus.style.color = 'var(--danger-text)';
+        pqStatus.textContent = '⚠️ ' + (err && err.message ? err.message : 'تعذّر الإرسال');
+      }
+    }, 'جودة الطباعة')
   );
 
   // ---- عيّنة خطوط الطابعة ----
