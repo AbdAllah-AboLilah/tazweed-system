@@ -41,7 +41,7 @@ service cloud.firestore {
     // قوالب الرتب — لازم تفضل مطابقة لـ ROLE_PRESETS في permissions.js
     function presetHas(key) {
       return (role() in ['owner', 'admin'])
-        || (role() == 'branch_manager' && key != 'manageUsers')
+        || (role() == 'branch_manager' && !(key in ['manageUsers', 'printerSetup']))
         || (role() == 'supervisor' && key in ['manageCategories', 'addGrades', 'printLabel', 'printRestock', 'printScreen', 'remotePrint', 'viewProducts', 'excelTools', 'viewActivity'])
         || (role() == 'warehouse_keeper' && key in ['editBranchQty', 'editMainQty', 'addGrades', 'printLabel', 'printRestock', 'printScreen', 'viewProducts', 'viewActivity'])
         || (role() == 'print_operator' && key in ['printLabel', 'printScreen', 'remotePrint'])

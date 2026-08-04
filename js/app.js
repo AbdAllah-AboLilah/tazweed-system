@@ -866,7 +866,7 @@ function categoryInfoBarHTML() {
       ${canManageCatalog ? `<button class="btn" id="edit-category-info-btn" style="padding:3px 10px; font-size:12px;">تعديل</button>` : ''}
       ${can(state.profile, 'printLabel') ? `<button class="btn" id="print-label-btn" style="padding:3px 10px; font-size:12px;">🏷️ طباعة ملصق</button>` : ''}
       ${can(state.profile, 'printRestock') ? `<button class="btn" id="print-restock-btn" style="padding:3px 10px; font-size:12px;">🖨️ طباعة ورقة تزويد</button>` : ''}
-      <button class="btn" id="printer-settings-btn" style="padding:3px 10px; font-size:12px;" title="إعدادات طابعات هذا الجهاز">⚙️ إعدادات الطابعة</button>
+      ${can(state.profile, 'printerSetup') ? `<button class="btn" id="printer-settings-btn" style="padding:3px 10px; font-size:12px;" title="إعدادات طابعات هذا الجهاز">⚙️ إعدادات الطابعة</button>` : ''}
     </div>`;
 }
 
@@ -3422,6 +3422,7 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
         .label {
           width: ${pageWidthMm}mm; height: ${pageHeightMm}mm;
           overflow: hidden;
+          ${printAlignCSS()}
         }
         .label + .label { page-break-before: always; break-before: page; }
         .half {
@@ -3540,7 +3541,7 @@ function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
         @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: Tahoma, Arial, sans-serif; width: ${pageWidthMm}mm; color: #000; }
-        .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; }
+        .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; ${printAlignCSS()} }
         .label + .label { page-break-before: always; break-before: page; }
         .half {
           height: ${halfHeight}mm; width: 100%;
@@ -4231,6 +4232,259 @@ async function getAvailableQZPrinters() {
   }
 }
 
+// ============================================================
+// ⚙️ إعدادات الطباعة المتقدمة — لكل جهاز على حدة
+// ============================================================
+// ليه لكل جهاز مش لكل مستخدم؟ لأن الطابعة متوصلة **بكمبيوتر**، مش بشخص.
+// لو خزّناها على الحساب، نفس الشخص لما يفتح من كمبيوتر تاني هيلاقي إعدادات
+// طابعة مش موجودة عنده. (نفس سبب تخزين اختيار الطابعة نفسه محليًا.)
+//
+// ⚠️ كلهم **مقفولين افتراضيًا**، يعني السلوك زي ما هو بالظبط. ده مقصود:
+// اتلسعنا مرتين لما غيّرنا في الطباعة بناءً على حساب نظري والنتيجة على
+// الورق طلعت أسوأ. المفاتيح دي طريقة نجرّب بيها **واحد واحد على طابعة
+// حقيقية** ونعرف أنهي واحد ظبّط — بدل ما نغيّر كله ونخمّن.
+const PRINT_TWEAKS = [
+  {
+    key: 'noScale',
+    label: 'ماتكبّرش المحتوى ليملا الصفحة',
+    hint: 'QZ بيكبّر المحتوى افتراضيًا. لو مقاس الورق في التعريف غلط، ده بيزحلق الملصق',
+    apply: (cfg) => (cfg.scaleContent = false),
+  },
+  {
+    key: 'blackwhite',
+    label: 'أبيض وأسود صريح',
+    hint: 'الطابعة الحرارية أبيض/أسود بس — التدرّج الرمادي بيطلع باهت ومنقّط',
+    apply: (cfg) => (cfg.colorType = 'blackwhite'),
+  },
+  {
+    key: 'sharp',
+    label: 'حواف حادة للباركود',
+    hint: 'بيمنع تنعيم الحواف وقت تغيير الحجم — الباركود بيفضل مربعاته حادة',
+    apply: (cfg) => (cfg.interpolation = 'nearest-neighbor'),
+  },
+  {
+    key: 'rasterize',
+    label: 'حوّل لصورة قبل الإرسال',
+    hint: 'بيرسم الملصق كصورة جاهزة بدل ما التعريف يتصرّف فيه',
+    apply: (cfg) => (cfg.rasterize = true),
+  },
+];
+
+const PRINT_TWEAK_PREFIX = 'tazweed_qz_tweak_';
+
+function getPrintTweak(key) {
+  try {
+    return localStorage.getItem(PRINT_TWEAK_PREFIX + key) === '1';
+  } catch (err) {
+    return false;
+  }
+}
+
+function setPrintTweak(key, on) {
+  try {
+    if (on) localStorage.setItem(PRINT_TWEAK_PREFIX + key, '1');
+    else localStorage.removeItem(PRINT_TWEAK_PREFIX + key);
+  } catch (err) {
+    console.warn('تعذّر حفظ إعداد الطباعة:', err);
+  }
+}
+
+// بتضيف على إعداد QZ المفاتيح المفتوحة على الجهاز ده بس.
+function applyPrintTweaks(config) {
+  PRINT_TWEAKS.forEach((t) => {
+    if (getPrintTweak(t.key)) t.apply(config);
+  });
+  return config;
+}
+
+// ============================================================
+// 📐 ضبط مكان الطباعة — الإطار
+// ============================================================
+// المشكلة اللي بيحلها ده: الطابعة الحرارية مابتبدأش الطباعة من حرف الملصق
+// بالظبط. فيه فرق بسيط بين **أول نقطة الطابعة بتطبعها** و**أول نقطة في
+// الملصق الحقيقي**، والفرق ده بيختلف من طابعة لطابعة ومن رول لرول (حسب
+// شد الورق وحسّاس الفراغ). النتيجة: الملصق مزحلق شوية يمين أو تحت، وحتة
+// منه بتتقص.
+//
+// مفيش طريقة نحسب بيها الفرق ده — لازم **نشوفه**. فبنطبع إطار مقاسه مقاس
+// الملصق بالظبط، وبنبص: الإطار طالع جوه حدود الملصق ولا بره؟ من أنهي ناحية؟
+// وبعدين نزحلق بالمقدار ده بالعكس.
+//
+// ⚠️ افتراضيًا كله أصفار → **مفيش أي CSS بيتضاف خالص**، فالطباعة بتطلع
+// نفس البايتات اللي كانت بتطلع قبل الميزة دي. ده مقصود: أي حاجة بنضيفها
+// على الطباعة لازم يكون ليها وضع "مطفي تمامًا".
+const PRINT_ALIGN_KEY = 'tazweed_print_align';
+const PRINT_ALIGN_LIMIT_MM = 6; // أكتر من كده يبقى مقاس الملصق نفسه غلط، مش زحلقة
+const PRINT_SHRINK_LIMIT = 20; // %
+
+function getPrintAlign() {
+  const empty = { x: 0, y: 0, shrink: 0 };
+  try {
+    const raw = localStorage.getItem(PRINT_ALIGN_KEY);
+    if (!raw) return empty;
+    const v = JSON.parse(raw);
+    return {
+      x: clampNum(v.x, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
+      y: clampNum(v.y, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
+      shrink: clampNum(v.shrink, 0, PRINT_SHRINK_LIMIT),
+    };
+  } catch (err) {
+    return empty;
+  }
+}
+
+function savePrintAlign(align) {
+  try {
+    const clean = {
+      x: clampNum(align.x, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
+      y: clampNum(align.y, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
+      shrink: clampNum(align.shrink, 0, PRINT_SHRINK_LIMIT),
+    };
+    if (!clean.x && !clean.y && !clean.shrink) localStorage.removeItem(PRINT_ALIGN_KEY);
+    else localStorage.setItem(PRINT_ALIGN_KEY, JSON.stringify(clean));
+  } catch (err) {
+    console.warn('تعذّر حفظ ضبط مكان الطباعة:', err);
+  }
+}
+
+function clampNum(v, min, max) {
+  const n = Number(v);
+  if (!isFinite(n)) return 0;
+  return Math.min(max, Math.max(min, Math.round(n * 10) / 10));
+}
+
+// بترجّع سطر CSS يتحطّ جوه قاعدة .label — أو **نص فاضي** لو مفيش ضبط.
+// النص الفاضي هو الحالة الافتراضية، وبيضمن إن الملف المطبوع مايتغيّرش.
+//
+// ليه transform مش margin؟ لأن الـmargin بيزق المحتوى وبيصغّر المساحة
+// المتاحة، فالخطوط والباركود بيتحسبوا من أول وجديد. الـtransform بيحرّك
+// الصورة النهائية زي ما هي — نفس المقاسات بالظبط، مكان مختلف بس.
+function printAlignCSS() {
+  const a = getPrintAlign();
+  if (!a.x && !a.y && !a.shrink) return '';
+  const parts = [];
+  if (a.x || a.y) parts.push(`translate(${a.x}mm, ${a.y}mm)`);
+  if (a.shrink) parts.push(`scale(${((100 - a.shrink) / 100).toFixed(3)})`);
+  return `transform: ${parts.join(' ')}; transform-origin: center center;`;
+}
+
+// ------------------------------------------------------------
+// إطار التجربة
+// ------------------------------------------------------------
+// ملصق فيه إطار بمقاس الملصق بالظبط + علامات في الأركان + صليب في النص
+// + الأرقام الحالية مكتوبة. الهدف إنك تمسك الملصق المطبوع في إيدك وتقارن.
+function buildFrameHTML(pageWidthMm, pageHeightMm) {
+  const a = getPrintAlign();
+  const align = printAlignCSS();
+  const tick = Math.min(4, pageWidthMm / 6); // طول علامة الركن
+  return `
+    <!doctype html>
+    <html dir="ltr" lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>إطار تجربة</title>
+      <style>
+        @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, Helvetica, sans-serif; width: ${pageWidthMm}mm; color: #000; }
+        .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; ${align} }
+        .frame {
+          position: relative;
+          width: ${pageWidthMm}mm; height: ${pageHeightMm}mm;
+          border: 0.3mm solid #000;
+        }
+        /* علامات الأركان: أسمك من الإطار عشان تبان حتى لو الحرف اتقص */
+        .c { position: absolute; background: #000; }
+        .ch { width: ${tick}mm; height: 0.7mm; }
+        .cv { width: 0.7mm; height: ${tick}mm; }
+        /* صليب صغير في المركز — ذراعه قصيرة عشان مايتلخبطش مع الكلام */
+        .mh { position: absolute; top: 50%; left: 50%; width: 6mm; margin-left: -3mm; height: 0.25mm; background: #000; }
+        .mv { position: absolute; left: 50%; top: 50%; height: 6mm; margin-top: -3mm; width: 0.25mm; background: #000; }
+        /* الكلام فوق الصليب وتحته، مش عليه */
+        .sz, .txt {
+          position: absolute; left: 0; right: 0; text-align: center;
+          font-size: 2.4mm; font-weight: bold; white-space: nowrap;
+        }
+        .sz { top: 2.2mm; }
+        .txt { bottom: 2.2mm; }
+      </style>
+    </head>
+    <body>
+      <div class="label"><div class="frame">
+        <div class="c ch" style="top:0; left:0;"></div>
+        <div class="c cv" style="top:0; left:0;"></div>
+        <div class="c ch" style="top:0; right:0;"></div>
+        <div class="c cv" style="top:0; right:0;"></div>
+        <div class="c ch" style="bottom:0; left:0;"></div>
+        <div class="c cv" style="bottom:0; left:0;"></div>
+        <div class="c ch" style="bottom:0; right:0;"></div>
+        <div class="c cv" style="bottom:0; right:0;"></div>
+        <div class="mh"></div>
+        <div class="mv"></div>
+        <div class="sz">${pageWidthMm} x ${pageHeightMm} mm</div>
+        <div class="txt">X ${a.x} / Y ${a.y} / -${a.shrink}%</div>
+      </div></div>
+    </body>
+    </html>
+  `;
+}
+
+// بتطبع إطار التجربة على طابعة الملصق — من غير معاينة، لأن المعاينة على
+// الشاشة مالهاش أي قيمة هنا: الحاجة الوحيدة اللي تفرق هي الورق نفسه.
+async function printTestFrame(pageWidthMm, pageHeightMm) {
+  const html = buildFrameHTML(pageWidthMm, pageHeightMm);
+  const sizeOptions = { pageWidthMm, pageHeightMm, halves: 1 };
+  const viaQZ = await tryPrintViaQZ('label', [{ html, copies: 1 }], sizeOptions);
+  if (viaQZ) return true;
+
+  // مفيش QZ → نافذة المتصفح. مش مثالي (الويندوز بيتصرّف في المقاس)، بس
+  // الإطار لسه بيوري الاتجاه: طالع يمين ولا شمال، فوق ولا تحت.
+  const win = window.open('', '_blank', 'width=420,height=320');
+  if (!win) {
+    alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
+    return false;
+  }
+  win.document.write(html);
+  win.document.close();
+  return false;
+}
+
+// ============================================================
+// 🎯 معايرة الطابعة — أوامر خام مباشرة للطابعة
+// ============================================================
+// دي **مش** بتغيّر أي حاجة في الويندوز. بتتكلم مع الطابعة نفسها بلغتها
+// (TSPL — اللي طابعات Xprinter وTSC بتفهمها) وبتقولها:
+//
+//   SIZE / GAP  → مقاس الملصق والمسافة بينه وبين اللي بعده
+//   GAPDETECT   → قيس الفراغ بنفسك واحفظه
+//
+// GAPDETECT هي بالظبط اللي بتحصل لما تقفل الطابعة وتضغط FEED وتشغّلها —
+// بس من غير ما تلمس الجهاز. والنتيجة **بتتخزّن في ذاكرة الطابعة**، فبتفضل
+// حتى لو فصلت الكهربا. يعني مرة واحدة لكل طابعة.
+//
+// ⚠️ حاجتين لازم يبقوا واضحين للمستخدم قبل ما يضغط:
+//   • بتستهلك 2-3 ملصقات وهي بتقيس
+//   • لو الطابعة مش من النوع ده، ممكن تطلع ورقة فيها كلام — مش مشكلة،
+//     بس المعايرة مش هتشتغل
+async function calibratePrinter(printerName, widthMm, heightMm, gapMm) {
+  if (!printerName) return false;
+  if (!(await ensureQZConnected())) return false;
+
+  const cmds = [
+    `SIZE ${widthMm} mm,${heightMm} mm`,
+    `GAP ${gapMm} mm,0 mm`,
+    'DIRECTION 1',
+    'REFERENCE 0,0',
+    'CLS',
+    'GAPDETECT',
+    '',
+  ].join('\r\n');
+
+  const config = qz.configs.create(printerName);
+  await qz.print(config, [{ type: 'raw', format: 'command', flavor: 'plain', data: cmds }]);
+  return true;
+}
+
 function getSavedPrinter(type) {
   const key = type === 'label' ? QZ_LABEL_PRINTER_KEY : QZ_RESTOCK_PRINTER_KEY;
   try {
@@ -4300,7 +4554,9 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     // نفس شكل الإعداد اللي كان شغال 100% في v0.17 — من غير أي خيارات
     // إضافية. العدد بنعمله بتكرار الطلب نفسه، مش بخيار في الإعداد، عشان
     // ما نعتمدش على سلوك مش متأكدين منه في نسخة QZ اللي على الجهاز.
-    const config = qz.configs.create(printerName, size ? { size, units: 'mm' } : {});
+    // الإعدادات الأساسية زي ما هي بالظبط، وفوقها المفاتيح المفتوحة على
+    // الجهاز ده (كلهم مقفولين افتراضيًا فالسلوك مايتغيّرش).
+    const config = qz.configs.create(printerName, applyPrintTweaks(size ? { size, units: 'mm' } : {}));
 
     // ------------------------------------------------------------
     // ⭐ كل اللاصقات في **أمر طباعة واحد** مش أمر لكل لاصقة
@@ -4355,7 +4611,7 @@ async function openPrinterSettings() {
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
   overlay.innerHTML = `
-    <div class="card" style="max-width:340px; width:100%;">
+    <div class="card" style="max-width:380px; width:100%; max-height:90vh; overflow:auto;">
       <div style="font-size:14px; font-weight:500; margin-bottom:4px;">إعدادات طابعات هذا الجهاز</div>
       <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px;" id="qz-status-line">جارٍ البحث عن QZ Tray...</div>
       <div id="qz-printer-fields" style="display:none;">
@@ -4374,8 +4630,122 @@ async function openPrinterSettings() {
           <label>طابعة ورقة التزويد</label>
           <select class="input" id="qz-restock-printer-select"></select>
         </div>
+
+        <!-- ---------- معايرة الطابعة ---------- -->
+        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
+          <div style="font-size:13px; font-weight:500; margin-bottom:4px;">🎯 معايرة طابعة الملصق</div>
+          <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
+            بتقول للطابعة مقاس الملصق وتخليها تقيس الفراغ بين الملصقات بنفسها.
+            بتحل مشكلة <strong>الملصق المنحرف</strong> و<strong>الورقة الفاضية</strong>.
+            <br>• بتتعمل <strong>مرة واحدة لكل طابعة</strong> — بتتخزّن جوه الطابعة نفسها
+            <br>• بتستهلك 2-3 ملصقات وهي بتقيس
+            <br>• <strong>مابتلمسش إعدادات الويندوز خالص</strong>
+          </div>
+          <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; margin-bottom:8px;">
+            <div class="field" style="width:78px; margin-bottom:0;">
+              <label style="font-size:11px;">العرض (مم)</label>
+              <input class="input" type="number" id="cal-w" value="38" step="0.5" style="padding:6px;" />
+            </div>
+            <div class="field" style="width:78px; margin-bottom:0;">
+              <label style="font-size:11px;">الطول (مم)</label>
+              <input class="input" type="number" id="cal-h" value="25" step="0.5" style="padding:6px;" />
+            </div>
+            <div class="field" style="width:78px; margin-bottom:0;">
+              <label style="font-size:11px;">الفراغ (مم)</label>
+              <input class="input" type="number" id="cal-gap" value="2" step="0.5" style="padding:6px;" />
+            </div>
+            <button class="btn" id="cal-run">🎯 عايِر</button>
+          </div>
+          <div id="cal-status" style="font-size:12px; min-height:16px;"></div>
+        </div>
+
+        <!-- ---------- الإطار وضبط مكان الطباعة ---------- -->
+        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+          <div style="font-size:13px; font-weight:500; margin-bottom:4px;">📐 ضبط مكان الطباعة</div>
+          <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
+            اطبع <strong>إطار تجربة</strong> بمقاس الملصق، وبُص هو طالع فين
+            على الورق. لو مزحلق، حرّكه بالعكس بالأزرار وجرّب تاني.
+            <br>• الأرقام محفوظة <strong>على الجهاز ده</strong> وبتتطبّق على كل ملصق
+            <br>• الأصفار = الطباعة زي ما هي بالظبط
+          </div>
+
+          <!-- ⚠️ direction:ltr مقصودة: دي لوحة اتجاهات، والسهم لازم يبقى في
+               نفس مكان الاتجاه اللي بيحرّك ناحيته. لو سابناها RTL، الشبكة
+               بتتقلب والسهم اللي على الشمال بيحرّك يمين. -->
+          <div id="align-pad" style="display:grid; grid-template-columns:repeat(3, 40px); gap:6px;
+               justify-content:center; margin-bottom:10px; direction:ltr;">
+            <span></span>
+            <button class="btn" data-nudge="up" style="padding:6px;">▲</button>
+            <span></span>
+            <button class="btn" data-nudge="left" style="padding:6px;">◀</button>
+            <button class="btn" data-nudge="zero" style="padding:6px; font-size:11px;">صفّر</button>
+            <button class="btn" data-nudge="right" style="padding:6px;">▶</button>
+            <span></span>
+            <button class="btn" data-nudge="down" style="padding:6px;">▼</button>
+            <span></span>
+          </div>
+
+          <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap; margin-bottom:8px;">
+            <div class="field" style="width:78px; margin-bottom:0;">
+              <label style="font-size:11px;">يمين/شمال</label>
+              <input class="input" type="number" id="align-x" step="0.2"
+                     min="-${PRINT_ALIGN_LIMIT_MM}" max="${PRINT_ALIGN_LIMIT_MM}" style="padding:6px;" />
+            </div>
+            <div class="field" style="width:78px; margin-bottom:0;">
+              <label style="font-size:11px;">فوق/تحت</label>
+              <input class="input" type="number" id="align-y" step="0.2"
+                     min="-${PRINT_ALIGN_LIMIT_MM}" max="${PRINT_ALIGN_LIMIT_MM}" style="padding:6px;" />
+            </div>
+            <div class="field" style="width:78px; margin-bottom:0;">
+              <label style="font-size:11px;">تصغير %</label>
+              <input class="input" type="number" id="align-shrink" step="1"
+                     min="0" max="${PRINT_SHRINK_LIMIT}" style="padding:6px;" />
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <button class="btn" id="align-frame">🖨️ اطبع الإطار</button>
+            <button class="btn btn-primary" id="align-save" style="padding:6px 14px;">احفظ الضبط</button>
+          </div>
+          <div id="align-status" style="font-size:12px; min-height:16px; margin-top:6px;"></div>
+        </div>
+
+        <!-- ---------- إعدادات متقدمة ---------- -->
+        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+          <div style="font-size:13px; font-weight:500; margin-bottom:4px;">🧪 إعدادات متقدمة — للتجربة</div>
+          <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
+            كلهم مقفولين، والطباعة شغّالة زي ما هي بالظبط. لو الملصق بيطلع
+            غلط على الجهاز ده، افتح <strong>واحد بس</strong> وجرّب — لحد ما
+            تلاقي اللي بيظبّط. الاختيارات دي محفوظة <strong>على الجهاز ده
+            وحده</strong>.
+          </div>
+          ${PRINT_TWEAKS.map(
+            (t) => `
+            <label style="display:flex; gap:8px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer;">
+              <input type="checkbox" data-tweak="${escapeHTML(t.key)}" ${getPrintTweak(t.key) ? 'checked' : ''}
+                     style="margin-top:2px; flex:0 0 auto;" />
+              <span>
+                <span style="display:block;">${escapeHTML(t.label)}</span>
+                <span style="display:block; font-size:10px; color:var(--text-muted); line-height:1.6;">${escapeHTML(t.hint)}</span>
+              </span>
+            </label>`
+          ).join('')}
+        </div>
+
+        <!-- ---------- بيانات الطابعات ---------- -->
+        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <span style="font-size:13px; font-weight:500;">🖨️ بيانات الطابعات</span>
+            <button class="btn" id="qz-details-btn" style="padding:3px 10px; font-size:12px;">اعرض</button>
+          </div>
+          <div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">
+            بتفيد لما نقارن كمبيوتر شغّال بكمبيوتر مش شغّال
+          </div>
+          <pre id="qz-details" style="display:none; font-size:10px; direction:ltr; text-align:start;
+               background:var(--surface-muted); padding:8px; border-radius:8px; margin-top:8px;
+               max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere;"></pre>
+        </div>
       </div>
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
         <button class="btn" id="qz-settings-close">إغلاق</button>
         <button class="btn btn-primary" id="qz-settings-save" style="display:none;">حفظ</button>
       </div>
@@ -4425,6 +4795,138 @@ async function openPrinterSettings() {
   labelSelect.value = getSavedPrinter('label');
   restockSelect.value = getSavedPrinter('restock');
   deviceNameInput.value = getDeviceName();
+
+  // ---- المفاتيح المتقدمة: بتتحفظ فورًا على الجهاز ----
+  overlay.querySelectorAll('[data-tweak]').forEach((box) => {
+    box.addEventListener('change', () => setPrintTweak(box.getAttribute('data-tweak'), box.checked));
+  });
+
+  // ---- بيانات الطابعات ----
+  const detailsBtn = overlay.querySelector('#qz-details-btn');
+  const detailsBox = overlay.querySelector('#qz-details');
+  detailsBtn.addEventListener('click', () =>
+    safeAsync(async () => {
+      detailsBox.style.display = 'block';
+      detailsBox.textContent = 'جارٍ القراءة...';
+      try {
+        const info = await qz.printers.details();
+        detailsBox.textContent = JSON.stringify(info, null, 1);
+      } catch (err) {
+        detailsBox.textContent = 'تعذّرت القراءة: ' + (err && err.message ? err.message : err);
+      }
+    }, 'قراءة بيانات الطابعات')
+  );
+
+  // ---- ضبط مكان الطباعة ----
+  const alignX = overlay.querySelector('#align-x');
+  const alignY = overlay.querySelector('#align-y');
+  const alignShrink = overlay.querySelector('#align-shrink');
+  const alignStatus = overlay.querySelector('#align-status');
+
+  const fillAlign = () => {
+    const a = getPrintAlign();
+    alignX.value = a.x;
+    alignY.value = a.y;
+    alignShrink.value = a.shrink;
+  };
+  const readAlign = () => ({
+    x: Number(alignX.value) || 0,
+    y: Number(alignY.value) || 0,
+    shrink: Number(alignShrink.value) || 0,
+  });
+  // بنحفظ الأول وبعدين نقرا تاني — عشان الخانات تبان بالقيمة **بعد** الحد
+  // الأقصى والتقريب، فاللي شايفه هو اللي هيتطبع فعلًا.
+  const commitAlign = () => {
+    savePrintAlign(readAlign());
+    fillAlign();
+  };
+  fillAlign();
+
+  const STEP = 0.2;
+  overlay.querySelectorAll('#align-pad [data-nudge]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const dir = btn.getAttribute('data-nudge');
+      const a = readAlign();
+      if (dir === 'zero') savePrintAlign({ x: 0, y: 0, shrink: 0 });
+      else {
+        if (dir === 'left') a.x -= STEP;
+        if (dir === 'right') a.x += STEP;
+        if (dir === 'up') a.y -= STEP;
+        if (dir === 'down') a.y += STEP;
+        savePrintAlign(a);
+      }
+      fillAlign();
+      alignStatus.style.color = 'var(--text-secondary)';
+      alignStatus.textContent = 'اتحفظ. اطبع الإطار تاني وشوف.';
+    });
+  });
+
+  overlay.querySelector('#align-save').addEventListener('click', () => {
+    commitAlign();
+    alignStatus.style.color = '#2e7d32';
+    alignStatus.textContent = '✅ اتحفظ على الجهاز ده.';
+  });
+
+  overlay.querySelector('#align-frame').addEventListener('click', () =>
+    safeAsync(async () => {
+      // بنحفظ قبل الطباعة عشان الإطار يطلع بالأرقام اللي مكتوبة قدامه
+      // دلوقتي، مش بأرقام قديمة — ده أكتر مصدر لبس متوقّع هنا.
+      commitAlign();
+      if (!labelSelect.value) {
+        alignStatus.style.color = 'var(--danger-text)';
+        alignStatus.textContent = 'اختار طابعة الملصق الأول.';
+        return;
+      }
+      // الطباعة بتقرا الطابعة المحفوظة، مش اللي مختارة في القايمة. لو
+      // المستخدم غيّر الاختيار وما ضغطش حفظ، الإطار كان هيروح للطابعة
+      // القديمة — فبنحفظ الاختيار هنا قبل ما نبعت.
+      saveSelectedPrinter('label', labelSelect.value);
+      alignStatus.style.color = 'var(--text-secondary)';
+      alignStatus.textContent = 'جارٍ إرسال الإطار...';
+      const viaQZ = await printTestFrame(38, 25);
+      alignStatus.style.color = viaQZ ? '#2e7d32' : 'var(--text-secondary)';
+      alignStatus.textContent = viaQZ
+        ? '✅ اتبعت. قارن الإطار بحدود الملصق نفسه.'
+        : 'اتفتحت نافذة طباعة المتصفح (QZ مش شغّال).';
+    }, 'طباعة إطار التجربة')
+  );
+
+  // ---- المعايرة ----
+  const calStatus = overlay.querySelector('#cal-status');
+  overlay.querySelector('#cal-run').addEventListener('click', () =>
+    safeAsync(async () => {
+      const printerName = labelSelect.value;
+      if (!printerName) {
+        calStatus.style.color = 'var(--danger-text)';
+        calStatus.textContent = 'اختار طابعة الملصق الأول.';
+        return;
+      }
+      const w = Number(overlay.querySelector('#cal-w').value) || 38;
+      const h = Number(overlay.querySelector('#cal-h').value) || 25;
+      const gap = Number(overlay.querySelector('#cal-gap').value) || 2;
+
+      // تأكيد فيه اسم الطابعة بالظبط — دي العملية الوحيدة اللي بتغيّر حاجة
+      // في العتاد، فمينفعش تحصل بضغطة غلط.
+      const ok = confirm(
+        `هتتم معايرة الطابعة:\n${printerName}\n\n` +
+          `مقاس الملصق: ${w} × ${h} مم، الفراغ ${gap} مم\n\n` +
+          `الطابعة هتطلّع 2-3 ملصقات وهي بتقيس.\nتكمّل؟`
+      );
+      if (!ok) return;
+
+      calStatus.style.color = 'var(--text-secondary)';
+      calStatus.textContent = 'جارٍ المعايرة...';
+      try {
+        await calibratePrinter(printerName, w, h, gap);
+        calStatus.style.color = '#2e7d32';
+        calStatus.textContent = '✅ اتبعتت. شوف الطابعة — المفروض طلّعت ملصقين تلاتة. جرّب تطبع دلوقتي.';
+      } catch (err) {
+        console.error(err);
+        calStatus.style.color = 'var(--danger-text)';
+        calStatus.textContent = '⚠️ ' + (err && err.message ? err.message : 'تعذّرت المعايرة');
+      }
+    }, 'معايرة الطابعة')
+  );
 
   saveBtn.addEventListener('click', () => {
     saveSelectedPrinter('label', labelSelect.value);

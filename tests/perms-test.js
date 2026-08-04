@@ -50,6 +50,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
         rowDelete: !!document.querySelector('[data-delete-grade-id]'),
         qtyInputs: document.querySelectorAll('.qty-input').length,
         usersTab: !!document.querySelector('[data-screen="users"]'),
+        printerSetup: has('printer-settings-btn'),
         printTab: !!document.querySelector('[data-screen="print"]'),
         productsTab: !!document.querySelector('[data-screen="products"]'),
         excel: has('import-btn') || has('export-btn'),
@@ -58,7 +59,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     }, profile);
 
   const owner = await ui({ name: 'أنا', role: 'owner' });
-  check('منشئ النظام: كل حاجة مفتوحة', owner.addGrade && owner.selectDelete && owner.deleteCat && owner.usersTab && owner.excel && owner.printLabel && owner.printRestock, owner);
+  check('منشئ النظام: كل حاجة مفتوحة', owner.addGrade && owner.selectDelete && owner.deleteCat && owner.usersTab && owner.excel && owner.printLabel && owner.printRestock && owner.printerSetup, owner);
 
   const sup = await ui({ name: 'مشرف', role: 'supervisor' });
   check('مشرف: مايعدّلش الكميات', sup.qtyInputs === 0 && !sup.bulkQty, sup);
@@ -66,6 +67,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('مشرف: بينظّم الفئات ويضيف درجات', sup.editCat && sup.colorGroups && sup.addGrade, sup);
   check('مشرف: بيطبع', sup.printLabel && sup.printRestock, sup);
   check('مشرف: مايشوفش تاب الحسابات', !sup.usersTab, sup);
+  check('مشرف: مايشوفش إعدادات الطابعة', !sup.printerSetup, sup);
 
   const bk = await ui({ name: 'أمين فرع', role: 'warehouse_keeper', warehouseAccess: 'branch' });
   check('أمين الفرع: بيعدّل كميات', bk.qtyInputs > 0 && bk.bulkQty, bk);
@@ -108,7 +110,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   });
   check('شاشة الحسابات بترسم الحسابات', users.rows === 3, users);
   check('معرّف الحساب ظاهر للنسخ', users.uid === 'me', users);
-  check('جدول المفاتيح كامل (15 مفتاح)', users.perms === 15, users);
+  check('جدول المفاتيح كامل (16 مفتاح)', users.perms === 16, users);
   check('الاستثناء المحفوظ ظاهر في مكانه', users.val === 'false', users);
   check('رتبة حساب عادي بتتغيّر', users.roleLocked === false, users);
   check('⭐ رتبة منشئ النظام مقفولة', users.meLocked === true, users);
