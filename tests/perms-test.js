@@ -8,7 +8,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   const p = await b.newPage({ viewport: { width: 1366, height: 900 } });
   const errors = [];
   p.on('pageerror', (e) => errors.push(String(e)));
-  await p.goto('http://localhost:8898/harness23.html');
+  await p.goto('http://localhost:8899/tests/harness.html');
   await p.waitForFunction(() => typeof can === 'function');
 
   await p.evaluate(() => {

@@ -15,7 +15,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       const t = m.text();
       if (m.type() === 'error' && !/favicon|Failed to load resource/.test(t)) errors.push(`${label}/console: ${t}`);
     });
-    await p.goto('http://localhost:8898/harness23.html');
+    await p.goto('http://localhost:8899/tests/harness.html');
     await p.waitForFunction(() => typeof render === 'function');
 
     await p.evaluate(() => {

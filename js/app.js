@@ -2832,6 +2832,16 @@ async function registerPrintStation() {
         // نسخة النظام الشغّالة على الجهاز ده — بتظهر للي هيبعتله طباعة،
         // عشان لو الجهاز لسه على نسخة قديمة ياخد باله ويحدّثها.
         appVersion: typeof APP_VERSION === 'string' ? APP_VERSION : '',
+        // ضبط الطباعة بيتنشر مع النبضة عشان جهاز جديد يقدر ينسخه بدل ما
+        // يعيد المعايرة من الأول.
+        //
+        // ⚠️ اللي **مش** موجود هنا مقصود: اسم الجهاز ومعرّفه. دول لازم
+        // يفضلوا فريدين لكل جهاز، وإلا الجهازين هيتلخبطوا في قايمة الطباعة
+        // عن بُعد ويبقى فيه جهازين بنفس الاسم مش عارف تبعت لمين.
+        printSetup: {
+          align: getPrintAlign(),
+          tweaks: getPrintTweaksMap(),
+        },
         lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
         updatedByUid: state.user.uid,
         updatedByName: state.profile.name || '',
@@ -4289,6 +4299,21 @@ function setPrintTweak(key, on) {
   }
 }
 
+// كل المفاتيح كقايمة { المفتاح: مفتوح؟ } — بتستخدم في النسخ بين الأجهزة.
+function getPrintTweaksMap() {
+  const map = {};
+  PRINT_TWEAKS.forEach((t) => (map[t.key] = getPrintTweak(t.key)));
+  return map;
+}
+
+// ⚠️ بتكتب **كل** المفاتيح، مش المفتوحة بس. لو كتبنا المفتوحة بس، الجهاز
+// اللي عليه مفتاح مفتوح غلط هيفضل مفتوح بعد النسخ — والمفروض النسخ يخلّي
+// الجهازين متطابقين، مش يزوّد على القديم.
+function setPrintTweaksMap(map) {
+  if (!map || typeof map !== 'object') return;
+  PRINT_TWEAKS.forEach((t) => setPrintTweak(t.key, map[t.key] === true));
+}
+
 // بتضيف على إعداد QZ المفاتيح المفتوحة على الجهاز ده بس.
 function applyPrintTweaks(config) {
   PRINT_TWEAKS.forEach((t) => {
@@ -4659,6 +4684,26 @@ async function openPrinterSettings() {
           <div id="cal-status" style="font-size:12px; min-height:16px;"></div>
         </div>
 
+        <!-- ---------- النسخ من جهاز تاني ---------- -->
+        <div id="copy-box" style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px; display:none;">
+          <div style="font-size:13px; font-weight:500; margin-bottom:4px;">📥 انسخ الإعدادات من جهاز تاني</div>
+          <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
+            بدل ما تعيد الضبط والمعايرة على كل كمبيوتر من الأول، انسخهم من
+            جهاز مظبوط خلاص.
+            <br>• بينسخ: <strong>ضبط مكان الطباعة</strong> و<strong>الإعدادات المتقدمة</strong>
+            <br>• واختيار الطابعة كمان — <strong>لو</strong> نفس اسم الطابعة موجود على الجهاز ده
+            <br>• <strong>مابينسخش اسم الجهاز</strong> — كل جهاز لازم يفضل باسمه
+          </div>
+          <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap;">
+            <div class="field" style="flex:1; min-width:150px; margin-bottom:0;">
+              <label style="font-size:11px;">انسخ من</label>
+              <select class="input" id="copy-from" style="padding:6px;"></select>
+            </div>
+            <button class="btn" id="copy-run">📥 انسخ</button>
+          </div>
+          <div id="copy-status" style="font-size:12px; min-height:16px; margin-top:6px; line-height:1.7;"></div>
+        </div>
+
         <!-- ---------- الإطار وضبط مكان الطباعة ---------- -->
         <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">📐 ضبط مكان الطباعة</div>
@@ -4890,6 +4935,70 @@ async function openPrinterSettings() {
         : 'اتفتحت نافذة طباعة المتصفح (QZ مش شغّال).';
     }, 'طباعة إطار التجربة')
   );
+
+  // ---- النسخ من جهاز تاني ----
+  // بنعرضه بس لو فيه فعلًا جهاز تاني عنده ضبط محفوظ — قسم فاضي بيخوّف
+  // ومابيفيدش.
+  const copyBox = overlay.querySelector('#copy-box');
+  const copyFrom = overlay.querySelector('#copy-from');
+  const copyStatus = overlay.querySelector('#copy-status');
+  const myDeviceId = getDeviceId();
+  const sources = (state.printStations || []).filter(
+    (s) => s.id !== myDeviceId && s.printSetup && typeof s.printSetup === 'object'
+  );
+
+  if (sources.length) {
+    copyBox.style.display = 'block';
+    copyFrom.innerHTML = sources
+      .map((s) => `<option value="${escapeHTML(s.id)}">${escapeHTML(s.deviceName || 'جهاز بدون اسم')}</option>`)
+      .join('');
+
+    overlay.querySelector('#copy-run').addEventListener('click', () => {
+      const src = sources.find((s) => s.id === copyFrom.value);
+      if (!src) return;
+
+      const done = [];
+      const setup = src.printSetup || {};
+
+      if (setup.align) {
+        savePrintAlign(setup.align);
+        fillAlign();
+        const a = getPrintAlign();
+        done.push(`ضبط مكان الطباعة (X ${a.x} / Y ${a.y} / -${a.shrink}%)`);
+      }
+      if (setup.tweaks) {
+        setPrintTweaksMap(setup.tweaks);
+        overlay.querySelectorAll('[data-tweak]').forEach((box) => {
+          box.checked = getPrintTweak(box.getAttribute('data-tweak'));
+        });
+        const on = PRINT_TWEAKS.filter((t) => getPrintTweak(t.key)).length;
+        done.push(on ? `الإعدادات المتقدمة (${on} مفتوح)` : 'الإعدادات المتقدمة (كلهم مقفولين)');
+      }
+
+      // الطابعة بتتنسخ **بالاسم**، وبس لو الاسم ده موجود فعلًا على الجهاز
+      // ده. من غير الشرط ده كنا هنحفظ اسم طابعة مش موجودة، والطباعة تفضل
+      // تفشل من غير سبب واضح.
+      const missing = [];
+      [
+        ['label', src.labelPrinter, labelSelect, 'طابعة الملصق'],
+        ['restock', src.restockPrinter, restockSelect, 'طابعة ورقة التزويد'],
+      ].forEach(([, name, select, label]) => {
+        if (!name) return;
+        if (printers.indexOf(name) !== -1) {
+          select.value = name;
+          done.push(`${label}: ${name}`);
+        } else {
+          missing.push(`${label} "${name}" مش موجودة على الجهاز ده — اختارها بنفسك`);
+        }
+      });
+
+      copyStatus.style.color = '#2e7d32';
+      copyStatus.innerHTML =
+        `✅ اتنسخ: ${escapeHTML(done.join('، '))}` +
+        (missing.length ? `<br><span style="color:var(--danger-text);">⚠️ ${escapeHTML(missing.join(' — '))}</span>` : '') +
+        `<br><span style="color:var(--text-secondary);">اضغط <strong>حفظ</strong> تحت، وبعدين اطبع الإطار وتأكد — الزحلقة بتفرق شوية من طابعة لطابعة.</span>`;
+    });
+  }
 
   // ---- المعايرة ----
   const calStatus = overlay.querySelector('#cal-status');

@@ -51,7 +51,13 @@ npx firebase emulators:exec --only firestore --project tazweed-test "node tests/
 node tests/perms-test.js
 node tests/dots-test.js
 node tests/printer-test.js
+node tests/device-settings-test.js
 ```
+
+`device-settings-test.js` بيجاوب على سؤال متكرر: **هل إعدادات الطباعة
+بتضيع لما نغيّر الحساب على نفس الجهاز؟** بيظبّط كل حاجة بحساب، يعمل خروج
+ودخول بحساب تاني في **نفس سياق المتصفح**، ويتأكد إن كله فاضل مكانه. وبيتأكد
+كمان إن **جهاز تاني فعلًا** (سياق تخزين مختلف) بيبدأ فاضي — وده الصح.
 
 `printer-test.js` بيغطّي إعدادات الطابعة كلها: مين يشوفها، المفاتيح
 المتقدمة، أوامر المعايرة الخام، وضبط مكان الطباعة.
