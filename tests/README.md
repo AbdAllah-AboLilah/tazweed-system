@@ -55,7 +55,13 @@ node tests/device-settings-test.js
 node tests/batch1-test.js
 node tests/label-names-test.js
 node tests/topbar-typing-test.js
+node tests/restock-print-test.js
 ```
+
+`restock-print-test.js` بيغطّي تلات حاجات مع بعض: ورق المجموعات (وبيتأكد إن
+**مفيش محرف مكسور** في القيمة ولا في المعاينة)، وحجم رسالة الطباعة (بيقيس
+البايتات الحقيقية ويتأكد إن **مفيش رسالة عدّت الحد**)، والكيبورد من **كل**
+مصادر التبليغ الجاية من السحابة مش من واحد بس.
 
 `topbar-typing-test.js` بيقيس **صفوف الشريط العلوي** بطريقة مش بديهية:
 مقارنة الـ`top` بتاع العناصر مابتنفعش لأنها مركّزة رأسيًا وارتفاعاتها

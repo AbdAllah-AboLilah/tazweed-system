@@ -1116,7 +1116,7 @@ function gradeCardsHTML(canEditBranch, canEditMain, canDeleteGrades) {
                 <input type="checkbox" class="grade-label-check" data-grade-label-id="${escapeHTML(g.id)}"
                        ${(state.gradeLabelQty || {})[g.id] > 0 ? 'checked' : ''} />
                 <input type="number" class="input grade-label-qty" data-grade-qty-id="${escapeHTML(g.id)}"
-                       value="${(state.gradeLabelQty || {})[g.id] || ''}" min="0" max="200" placeholder="عدد"
+                       value="${(state.gradeLabelQty || {})[g.id] || ''}" min="0" max="1000" placeholder="عدد"
                        inputmode="numeric" style="width:72px; padding:6px;" />
               </span>
             </div>`
@@ -1325,7 +1325,7 @@ function gradeTableHTML() {
           <input type="checkbox" class="grade-label-check" data-grade-label-id="${escapeHTML(g.id)}"
                  ${qty > 0 ? 'checked' : ''} style="width:18px; height:18px; vertical-align:middle;" />
           <input type="number" class="input grade-label-qty" data-grade-qty-id="${escapeHTML(g.id)}"
-                 value="${qty || ''}" min="0" max="200" placeholder="عدد" inputmode="numeric"
+                 value="${qty || ''}" min="0" max="1000" placeholder="عدد" inputmode="numeric"
                  style="width:62px; display:inline-block; margin-inline-start:6px; padding:3px 6px; font-size:12px;" />
         </td>`;
     }
@@ -1773,7 +1773,7 @@ function attachDashboardEvents() {
     // ويضيع تركيز الخانة من تحت إيده.
     const commit = () => {
       const id = input.dataset.gradeQtyId;
-      const n = Math.max(0, Math.min(200, parseInt(input.value, 10) || 0));
+      const n = Math.max(0, Math.min(MAX_LABEL_COPIES, parseInt(input.value, 10) || 0));
       state.gradeLabelQty = state.gradeLabelQty || {};
       if (n > 0) state.gradeLabelQty[id] = n;
       else delete state.gradeLabelQty[id];
@@ -3197,7 +3197,7 @@ function promptLabelSize(callback, hideCopies) {
       <div style="margin-bottom:12px; font-size:14px; font-weight:500;">طباعة ملصق</div>
       <div class="field" style="text-align:start; ${hideCopies ? 'display:none;' : ''}">
         <label>عدد اللاصقات</label>
-        <input class="input" type="number" id="label-copies" value="1" min="1" max="200" inputmode="numeric" />
+        <input class="input" type="number" id="label-copies" value="1" min="1" max="1000" inputmode="numeric" />
       </div>
       <div style="margin-bottom:12px; font-size:11px; color:var(--text-secondary); line-height:1.7;">
         المقاس: <strong>38×25 ملم مقسومة نصين</strong> — ده مقاس اللفة اللي عندنا،
@@ -3212,7 +3212,7 @@ function promptLabelSize(callback, hideCopies) {
   const pick = (id, opts) =>
     document.getElementById(id).addEventListener('click', () => {
       const raw = parseInt(document.getElementById('label-copies').value, 10);
-      const copies = Math.max(1, Math.min(200, Number.isNaN(raw) ? 1 : raw));
+      const copies = Math.max(1, Math.min(MAX_LABEL_COPIES, Number.isNaN(raw) ? 1 : raw));
       document.body.removeChild(overlay);
       callback({ ...opts, copies });
     });
@@ -3412,7 +3412,7 @@ function legacyQRDataURL(text, sizePx) {
 function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const { pageWidthMm, pageHeightMm, halves } = sizeOptions;
   const halfHeight = pageHeightMm / (halves || 1);
-  const copyCount = Math.max(1, Math.min(200, parseInt(copies, 10) || 1));
+  const copyCount = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(copies, 10) || 1));
 
   const name = String(cat.itemName || cat.name || '');
 
@@ -3708,7 +3708,7 @@ function pickNameLayout(name, widthMm, contentH, lineHeight, otherLines, capMm) 
 function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
   const { pageWidthMm, pageHeightMm, halves } = sizeOptions;
   const halfHeight = pageHeightMm / (halves || 1);
-  const copyCount = Math.max(1, Math.min(200, parseInt(copies, 10) || 1));
+  const copyCount = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(copies, 10) || 1));
 
   // هامش أمان رأسي زي ملصق الصنف — الطابعة بتاكل جزء بسيط من الحواف.
   const SAFETY_MM = 0.6;
@@ -4202,8 +4202,20 @@ function buildRestockHTML(cat, grades, groupName) {
 
 // بيسأل تطبع أنهي مجموعة قبل الطباعة (بس لو الفئة مقسّمة فعلًا).
 // بيرجّع '' للورقة كلها، اسم المجموعة لواحدة بعينها، أو null لو ألغى.
-// قيمة خاصة معناها "اطبع كل مجموعة في ورقة لوحدها" — مش اسم مجموعة.
-// اخترنا شكل مستحيل يتلخبط مع اسم حقيقي.
+//
+// ⚠️⚠️ قيمة خاصة معناها "اطبع كل مجموعة في ورقة لوحدها" — مش اسم مجموعة.
+//
+// **ممنوع منعًا باتًا تتحط في خاصية HTML.** الإصدار الأول كان بيحطها في
+// data-rg، والقيمة كانت '\u0000each'. ومحرك HTML **بيستبدل المحرف
+// \u0000 بـ\uFFFD إجباريًا** (ده في المواصفة نفسها) — فاللي بيرجع من
+// getAttribute كان '\uFFFDeach' مش '\u0000each'.
+//
+// النتيجة إن المقارنة كانت بتفشل، والنظام كان بيفتكرها **اسم مجموعة
+// حقيقي**: يدوّر على درجات مجموعتها اسمها '\uFFFDeach'، مايلاقيش ولا
+// درجة، ويطبع **ورقة فاضية** عنوانها "كريب سادة — �each".
+//
+// عشان كده الاختيار دلوقتي بيتنقل في data-rg-mode (نص عادي: all/each/one)
+// والاسم في خاصية منفصلة. والثابت ده بقى **جوه الجافاسكريبت بس**.
 const RESTOCK_EACH_GROUP = '\u0000each';
 
 // المجموعات اللي فيها درجات مرقّمة فعلًا، بترتيبها المحفوظ،
@@ -4293,15 +4305,15 @@ function chooseRestockGroup(cat, grades) {
           (مثال: ${escapeHTML(cat.name)} — ${escapeHTML(options[0])})
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
-          <button class="btn btn-primary" data-rg="">📄 الورقة كلها (${escapeHTML(numbered.length)} درجة)</button>
-          <button class="btn btn-primary" data-rg="${escapeHTML(RESTOCK_EACH_GROUP)}">
+          <button class="btn btn-primary" data-rg-mode="all">📄 الورقة كلها (${escapeHTML(numbered.length)} درجة)</button>
+          <button class="btn btn-primary" data-rg-mode="each">
             🗂️ كل مجموعة في ورقة لوحدها (${escapeHTML(options.length)} ورق)
           </button>
           <div style="border-top:1px solid var(--border); margin:2px 0;"></div>
           ${options
             .map(
               (name) =>
-                `<button class="btn" data-rg="${escapeHTML(name)}">${escapeHTML(name)} (${escapeHTML(countOf(name))} درجة)</button>`
+                `<button class="btn" data-rg-mode="one" data-rg-name="${escapeHTML(name)}">${escapeHTML(name)} (${escapeHTML(countOf(name))} درجة)</button>`
             )
             .join('')}
         </div>
@@ -4313,8 +4325,13 @@ function chooseRestockGroup(cat, grades) {
       if (overlay.parentNode) document.body.removeChild(overlay);
       resolve(value);
     };
-    overlay.querySelectorAll('[data-rg]').forEach((btn) => {
-      btn.addEventListener('click', () => close(btn.getAttribute('data-rg')));
+    overlay.querySelectorAll('[data-rg-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-rg-mode');
+        if (mode === 'all') return close('');
+        if (mode === 'each') return close(RESTOCK_EACH_GROUP);
+        return close(btn.getAttribute('data-rg-name') || '');
+      });
     });
     overlay.querySelector('[data-rg-cancel]').addEventListener('click', () => close(null));
   });
@@ -4382,6 +4399,50 @@ function printHTMLSilently(htmlContent) {
 // (localStorage)، مش في حساب المستخدم على السحابة — لأن الطابعة فعليًا
 // موصولة بجهاز معيّن، مش بشخص معيّن. لو نفس الحساب اتفتح من جهاز تاني،
 // هيحتاج يختار طابعاته هو تاني.
+// أقصى حجم لرسالة واحدة رايحة لـQZ. الشرح الكامل عند مكان الاستخدام في
+// tryPrintViaQZ — باختصار: الرسالة الأكبر من كده بتتضاع في صمت والطابعة
+// "بتاخد الأمر ومفيش حاجة بتتطبع".
+const QZ_MAX_MESSAGE_BYTES = 48 * 1024;
+
+// شريط تقدّم بسيط للطبعات الكبيرة.
+function showPrintProgress(total) {
+  const box = document.createElement('div');
+  box.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;' +
+    'justify-content:center;z-index:3000;padding:12px;';
+  box.innerHTML = `
+    <div class="card" style="max-width:300px; width:100%; text-align:center;">
+      <div style="font-size:14px; font-weight:500; margin-bottom:10px;">🖨️ جارٍ الطباعة</div>
+      <div style="font-size:26px; font-weight:600; margin-bottom:6px;" id="pp-num">0 / ${escapeHTML(total)}</div>
+      <div style="height:8px; background:var(--surface-muted); border-radius:99px; overflow:hidden;">
+        <div id="pp-bar" style="height:100%; width:0%; background:var(--primary, #1565c0); transition:width .2s;"></div>
+      </div>
+      <div style="font-size:11px; color:var(--text-secondary); margin-top:10px; line-height:1.7;">
+        متقفلش الصفحة لحد ما تخلص
+      </div>
+    </div>`;
+  document.body.appendChild(box);
+  const num = box.querySelector('#pp-num');
+  const bar = box.querySelector('#pp-bar');
+  return {
+    update(n) {
+      num.textContent = `${n} / ${total}`;
+      bar.style.width = Math.round((n / total) * 100) + '%';
+    },
+    close() {
+      if (box.parentNode) document.body.removeChild(box);
+    },
+  };
+}
+
+// أقصى عدد ملصقات في أمر واحد.
+//
+// كان 200، واتّرفع لـ1000 بعد ما اتصلح سبب "الطابعة بتاخد الأمر ومفيش حاجة
+// بتتطبع": المشكلة مكانتش في العدد، كانت في **حجم الرسالة** الواحدة الرايحة
+// لـQZ (شوف QZ_MAX_MESSAGE_BYTES). دلوقتي الرسايل مقسّمة بالحجم، فالعدد
+// مابقاش عامل مقيّد.
+const MAX_LABEL_COPIES = 1000;
+
 const QZ_LABEL_PRINTER_KEY = 'tazweed_qz_label_printer';
 const QZ_RESTOCK_PRINTER_KEY = 'tazweed_qz_restock_printer';
 
@@ -4733,7 +4794,7 @@ function normalizePrintJobs(input) {
       return;
     }
     if (item && typeof item.html === 'string') {
-      const copies = Math.max(1, Math.min(200, parseInt(item.copies, 10) || 1));
+      const copies = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(item.copies, 10) || 1));
       out.push({ html: item.html, copies });
     }
   });
@@ -4798,22 +4859,69 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
       }
     }
 
-    // بنقسّم على دفعات عشان ما نبعتش رسالة ضخمة للطابعة مرة واحدة
-    // (كل لاصقة فيها صورة QR بالـbase64، فـ200 لاصقة = ميجات).
-    const BATCH = 40;
+    // ------------------------------------------------------------
+    // ⚠️⚠️ الدفعة بتتحسب بالحجم، مش بعدد الملصقات
+    // ------------------------------------------------------------
+    // المشكلة اللي بيحلها ده (اتبلّغت من الاستخدام الحقيقي):
+    //
+    //   "لو كتبت 100 ملصق، الطابعة بتاخد الأمر بس **مفيش حاجة بتتطبع**."
+    //
+    // الكود كان بيبعت 40 ملصق في رسالة واحدة. وقِسنا الرسالة دي فعليًا:
+    //
+    //   ملصق واحد        ≈  9 كيلو   (منهم 3 كيلو صورة الـQR بالـbase64)
+    //   رسالة 40 ملصق    ≈ 364 كيلو
+    //   رسالة 100 ملصق   ≈ 909 كيلو
+    //
+    // وQZ Tray بيستقبل على WebSocket، وللسوكيت **حد أقصى لحجم الرسالة**.
+    // الرسالة اللي بتعدّي الحد مابترجّعش خطأ واضح — بتتضاع بهدوء. وده
+    // بالظبط "بياخد الأمر ومفيش حاجة بتتطبع".
+    //
+    // فبقينا نقيس الحجم الحقيقي ونقسّم عليه. والحد اللي اخترناه (48 كيلو)
+    // أقل بكتير من أي حد معروف، فالرسالة بتعدّي مهما كانت نسخة QZ.
+    const perMessage = [];
+    let bucket = [];
+    let bucketBytes = 0;
+    for (const page of pages) {
+      const bytes = page.data.length;
+      if (bucket.length && bucketBytes + bytes > QZ_MAX_MESSAGE_BYTES) {
+        perMessage.push(bucket);
+        bucket = [];
+        bucketBytes = 0;
+      }
+      bucket.push(page);
+      bucketBytes += bytes;
+    }
+    if (bucket.length) perMessage.push(bucket);
+
+    // شريط تقدّم للطبعات الكبيرة: من غيره المستخدم بيفتكر إن مفيش حاجة
+    // بتحصل ويضغط تاني، فيطلع الضعف.
+    const progress = pages.length > 20 ? showPrintProgress(pages.length) : null;
+    let done = 0;
     try {
-      for (let i = 0; i < pages.length; i += BATCH) {
-        await qz.print(config, pages.slice(i, i + BATCH));
+      for (const chunk of perMessage) {
+        await qz.print(config, chunk);
+        done += chunk.length;
+        if (progress) progress.update(done);
       }
     } catch (errBatch) {
       // لو نسخة QZ أو الطابعة مابتقبلش أكتر من صفحة في الأمر الواحد،
       // بنرجع للطريقة القديمة (واحدة واحدة) — بطيئة بس مضمونة، وأهم حاجة
       // إن المستخدم ما يخرجش من غير ملصقات خالص.
       console.warn('الطباعة المجمّعة مانفعتش — بنرجع لواحدة واحدة:', errBatch);
-      for (const page of pages) {
-        await qz.print(config, [page]);
+      try {
+        for (let i = done; i < pages.length; i++) {
+          await qz.print(config, [pages[i]]);
+          if (progress) progress.update(i + 1);
+        }
+      } catch (errOne) {
+        if (progress) progress.close();
+        console.error('فشلت الطباعة حتى واحدة واحدة:', errOne);
+        alert('الطباعة وقفت في النص.\nاتطبع ' + done + ' من ' + pages.length + '.\n\n' +
+              (errOne && errOne.message ? errOne.message : ''));
+        return true;
       }
     }
+    if (progress) progress.close();
     return true;
   } catch (err) {
     console.error('فشلت الطباعة عبر QZ Tray:', err);
@@ -5568,7 +5676,7 @@ function subscribeActivityLog() {
     .onSnapshot(
       (snap) => {
         state.activityLog = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        render();
+        renderFromData();
       },
       (err) => console.warn('تعذّر قراءة سجل العمليات:', err)
     );
