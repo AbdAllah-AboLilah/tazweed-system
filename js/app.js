@@ -3609,6 +3609,11 @@ function renderLabelPNG(cat, sizeOptions) {
   const gapX = mmToDots(0.8);
   const SAFETY = mmToDots(0.6);
   const contentH = halfH - pad * 2 - SAFETY;
+  // ⭐ هامش الأمان بيتوزّع **نص فوق ونص تحت** بدل ما يبقى كله تحت.
+  // قبل كده المحتوى كان بيقع أعلى من نص اللاصقة بحوالي 0.3 مم، وده كان
+  // باين في النصف السفلي بالذات (الباركود التحتاني مركزه أعلى من مركز
+  // اللاصقة). التوزيع المتساوي بينزّله لمكانه الصح.
+  const topOffset = pad + SAFETY / 2;
 
   // ⭐ الـQR بمربعات من عدد صحيح من النقط — ده اللي بيخلّيه يتقرا بسرعة.
   const best = buildBestQR(code || name);
@@ -3632,7 +3637,7 @@ function renderLabelPNG(cat, sizeOptions) {
 
     // --- الـQR ---
     if (best && qrSize > 0) {
-      const qrY = top + pad + (contentH - qrSize) / 2;
+      const qrY = top + topOffset + (contentH - qrSize) / 2;
       const qrX = padX;
       for (let row = 0; row < best.count; row++) {
         for (let col = 0; col < best.count; col++) {
@@ -3653,18 +3658,30 @@ function renderLabelPNG(cat, sizeOptions) {
 
     const nameLines = chosen.lines.length;
     const byHeight = contentH / ((nameLines + otherLines) * LINE);
-    const nameSize = Math.min(chosen.size, byHeight, capPx);
-    const codeSize = Math.min(byHeight, nameSize * 0.9);
-    const priceSize = Math.min(byHeight, nameSize * 1.15);
-    const oldPriceSize = priceSize * 0.8;
+    // ⭐ المقاسات بأعداد صحيحة من نقط الطابعة.
+    // السبب: المقاس الكسري بيخلّي عمود الحرف يقع بين نقطتين، فمرة بيطلع
+    // نقطة ومرة نقطتين — وده اللي بيدّي إحساس إن الخط "مش مظبوط".
+    const nameSize = Math.max(6, Math.round(Math.min(chosen.size, byHeight, capPx)));
+    const codeSize = Math.max(6, Math.round(Math.min(byHeight, nameSize * 0.9)));
+    const priceSize = Math.max(6, Math.round(Math.min(byHeight, nameSize * 1.15)));
+    const oldPriceSize = Math.max(5, Math.round(priceSize * 0.8));
 
     const lineH = contentH / (nameLines + otherLines);
-    let y = top + pad;
+    let y = top + topOffset;
 
     ctx.fillStyle = '#000000';
-    y += drawLines(ctx, chosen.lines, nameSize, 'bold', FAMILY, textCx, y, lineH);
+    // ⚠️ اسم الصنف **مش bold** — وده مقصود.
+    //
+    // قِسنا الفرق: الـbold بياخد **حبر أكتر بـ40%** (9.4% مقابل 6.6% من
+    // مساحة النص). والطابعة الحرارية بتفرد الحبر على النقط المجاورة، فالزيادة
+    // دي بتخلّي أعمدة الحروف تلتحم على الورق — والنتيجة اللي المستخدم وصفها
+    // بـ"الكتابة منغمشة".
+    //
+    // الاسم هو أطول سطر وأكتر واحد حروفه متزنوقة، فهو أول اللي بيتأثر.
+    // السعر بيفضل bold لأنه أكبر خط وأهم رقم للزبون، والباركود بيفضل bold
+    // (اتطلب صراحة) لأنه أرقام متباعدة مش بتلتحم.
+    y += drawLines(ctx, chosen.lines, nameSize, 'normal', FAMILY, textCx, y, lineH);
 
-    // رقم الباركود — bold عشان يبان على الطابعة الحرارية
     drawLines(ctx, [code], codeSize, 'bold', FAMILY, textCx, y, lineH);
     y += lineH;
 
@@ -3720,6 +3737,7 @@ function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
   const SAFETY = mmToDots(0.6);
   const availW = W - pad * 2;
   const availH = halfH - pad * 2 - SAFETY;
+  const topOffset = pad + SAFETY / 2; // هامش الأمان نص فوق ونص تحت
   const LINE = 1.2;
 
   for (let h = 0; h < halves; h++) {
@@ -3733,14 +3751,15 @@ function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
     }
     const n1 = chosen.lines.length;
     const byHeight = availH / ((n1 + 1) * LINE);
-    const size1 = Math.min(chosen.size, byHeight);
+    // مقاسات بأعداد صحيحة من نقط الطابعة — الشرح في renderLabelPNG
+    const size1 = Math.max(6, Math.round(Math.min(chosen.size, byHeight)));
     const fit2 = fitCanvasFont(ctx, line2, availW, 1, 'bold', FAMILY, byHeight);
-    const size2 = Math.min(fit2.size, byHeight);
+    const size2 = Math.max(6, Math.round(Math.min(fit2.size, byHeight)));
 
     const lineH = availH / (n1 + 1);
     // المحتوى في نص النصف رأسيًا
     const blockH = lineH * (n1 + 1);
-    let y = top + pad + (availH - blockH) / 2;
+    let y = top + topOffset + (availH - blockH) / 2;
     y += drawLines(ctx, chosen.lines, size1, 'bold', FAMILY, W / 2, y, lineH);
     drawLines(ctx, fit2.lines.length ? fit2.lines : [line2], size2, 'bold', FAMILY, W / 2, y, lineH);
   }

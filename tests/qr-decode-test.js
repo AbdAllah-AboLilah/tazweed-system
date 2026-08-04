@@ -31,6 +31,33 @@ function inkSpread(data, W, H) {
   }
 }
 
+
+// ⚠️ بندوّر على مكان الـQR في الصورة بدل ما نحسبه.
+//
+// أول نسختين من الفحص ده كانوا بيحسبوا المكان بمعادلة موازية لمعادلة
+// النظام — وأول ما النظام حرّك المحتوى 2.4 نقطة، القص بقى بياكل حتة من
+// الكود والفحص قال "القراءة فشلت 0/8" وإحنا فاكرين إن الملصق بايظ.
+//
+// الفحص اللي بيحسب المكان بنفسه بيكذب عليك أول ما التصميم يتغيّر.
+// الفحص اللي **بيدوّر** بيفضل صادق.
+function findQR(img, halfH) {
+  // الـQR في الثلث الشمال من النصف العلوي، وهو أكبر كتلة سودا هناك
+  let minX = 1e9, maxX = -1, minY = 1e9, maxY = -1;
+  const limitX = Math.floor(img.width * 0.35);
+  for (let y = 0; y < halfH; y++) {
+    for (let x = 0; x < limitX; x++) {
+      if (img.data[(y * img.width + x) * 4] < 128) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
 function decodeCrop(img, box, spread) {
   const W = box.w + QUIET*2, H = box.h + QUIET*2;
   const out = new PNG({ width: W, height: H });
@@ -65,15 +92,21 @@ function decodeCrop(img, box, spread) {
       const halfH = Math.round(mm(25)/2);
       const contentH = halfH - mm(0.4)*2 - mm(0.6);
       const avail = Math.min(contentH - mm(0.4), mm(11));
+      // ⚠️ المكان لازم يتحسب بنفس معادلة النظام بالظبط. أول مرة كنا
+      // بنحسبه من pad وحده، والنظام بقى بيستخدم topOffset (هامش الأمان
+      // نص فوق ونص تحت) — فالقص كان بيقطع حتة من الكود والقراءة بتفشل
+      // 0/8 وإحنا فاكرين إن الملصق بايظ.
+      const topOffset = mm(0.4) + mm(0.6) / 2;
       return { png: renderLabelPNG(cat, opts), html: buildLabelHTML(cat, opts, qr, 1),
                count: best.count, modulePx: Math.max(1, Math.floor(avail/best.count)),
-               availDots: +avail.toFixed(2), pad: mm(0.4), padX: mm(1.2), contentH };
+               availDots: +avail.toFixed(2), pad: topOffset, padX: mm(1.6), contentH };
     }, code);
 
     // ---- الجديد: الصورة الأصلية بنقط الطابعة ----
     const nImg = PNG.sync.read(Buffer.from(d.png.split(',')[1], 'base64'));
     const qs = d.modulePx * d.count;
-    const nBox = { x: Math.round(d.padX), y: Math.round(d.pad + (d.contentH-qs)/2), w: qs, h: qs };
+    const nBox = findQR(nImg, Math.round(nImg.height / 2));
+    if (!nBox) throw new Error('مالقيناش الباركود في الصورة الجديدة');
     const newVal = decodeCrop(nImg, nBox, false);
     const newSpread = decodeCrop(nImg, nBox, true);
 
@@ -85,11 +118,12 @@ function decodeCrop(img, box, spread) {
     const buf = await pg.screenshot();
     await pg.close();
     const oImg = PNG.sync.read(buf);
-    const oldVal = decodeCrop(oImg, box, false);
-    const oldSpread = decodeCrop(oImg, box, true);
+    const oBox = findQR(oImg, Math.round(oImg.height / 2)) || box;
+    const oldVal = decodeCrop(oImg, oBox, false);
+    const oldSpread = decodeCrop(oImg, oBox, true);
 
-    rows.push({ code, count: d.count, oldPx: box.w, newPx: qs,
-      oldDots: +(box.w/d.count).toFixed(2), newDots: d.modulePx,
+    rows.push({ code, count: d.count, oldPx: oBox.w, newPx: nBox.w,
+      oldDots: +(oBox.w/d.count).toFixed(2), newDots: +(nBox.w/d.count).toFixed(2),
       oldOK: oldVal === code, newOK: newVal === code,
       oldSp: oldSpread === code, newSp: newSpread === code });
   }
