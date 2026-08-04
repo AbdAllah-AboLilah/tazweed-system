@@ -3409,6 +3409,353 @@ function legacyQRDataURL(text, sizePx) {
 //
 // نقطة تانية: اللاصقة مقسومة نصين والماكينة بتحسبهم لاصقة واحدة، فبنطبع
 // **نفس المحتوى مرتين، مرة في كل نص** — بالظبط زي لفة الملصقات الأصلية.
+// ============================================================
+// 🖼️ رسم الملصق كصورة — بنقط الطابعة بالظبط
+// ============================================================
+// ⚠️ ليه اتعمل ده، بالتفصيل، عشان محدش يرجّعه بالغلط:
+//
+// الطريقة القديمة كانت بتبعت **HTML** للطابعة، واللي بيرسمه هو محرك تاني
+// خالص (جافا جوه QZ على كمبيوتر الكاشير). المحرك ده:
+//   • عنده خطوط مختلفة عن المتصفح اللي عندك
+//   • بيقسّم السطور بمقاسات مختلفة
+//   • فبيطلع شكل **مختلف عن المعاينة اللي شوفتها**
+//
+// والنتيجة الحقيقية اللي حصلت: المعاينة على التليفون بتقول
+// "Chanvie Leen 58047" كامل، والمطبوع بيقول "Chanvie Leen" بس — الجزء
+// اللي مادخلش بيتقص في صمت. جرّبنا نصلّحها بالقياس وبهامش أمان، وفضلت.
+//
+// السبب إن المشكلة **مش في الحساب** — المشكلة إن اللي بيرسم مش إحنا.
+//
+// فبقينا **نرسم الملصق بنفسنا** على canvas بمقاس نقط الطابعة بالظبط،
+// ونبعت صورة جاهزة. المحرك التاني مابقاش ليه أي دور: بياخد صورة ويحطها
+// على الورق زي ما هي.
+//
+//   38 مم × 203 نقطة/بوصة ÷ 25.4  =  304 نقطة
+//   25 مم × 203 ÷ 25.4             =  200 نقطة
+//
+// ومكسب تاني مهم: مربعات الـQR بقت **عدد صحيح من النقط** (4 نقط للمربع)
+// بدل ما المحرك يصغّرها بكسر ويضيّع حروفها.
+//
+// ومكسب تالت: الصورة أخف بكتير من HTML فيه صورة base64 جوّه — فالطبعات
+// الكبيرة (100 ملصق) بقت تعدّي، وقبل كده كانت بتقف.
+const PRINTER_DPI = 203; // Xprinter XP-233B وأغلب الطابعات الحرارية
+const mmToDots = (mm) => (mm * PRINTER_DPI) / 25.4;
+
+// بتدوّر على أكبر حجم خط بيخلّي النص يدخل في عدد السطور المسموح —
+// **بنفس الـcontext اللي هيرسم**، فالقياس مطابق للرسم 100%.
+function fitCanvasFont(ctx, text, maxW, maxLines, weight, family, capPx) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return { size: capPx || 10, lines: [] };
+
+  const layout = (size) => {
+    ctx.font = `${weight} ${size}px ${family}`;
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(next).width <= maxW || !cur) {
+        // كلمة واحدة أطول من السطر كله → بتتكسر بالحروف
+        if (!cur && ctx.measureText(w).width > maxW) {
+          let piece = '';
+          for (const ch of w) {
+            if (ctx.measureText(piece + ch).width > maxW && piece) {
+              lines.push(piece);
+              piece = ch;
+            } else piece += ch;
+          }
+          cur = piece;
+          continue;
+        }
+        cur = next;
+      } else {
+        lines.push(cur);
+        cur = w;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  };
+
+  let lo = 3;
+  let hi = capPx || 60;
+  let best = layout(lo);
+  let bestSize = lo;
+  for (let i = 0; i < 22; i++) {
+    const mid = (lo + hi) / 2;
+    const lines = layout(mid);
+    if (lines.length <= maxLines) {
+      lo = mid;
+      best = lines;
+      bestSize = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  return { size: bestSize, lines: best };
+}
+
+// بترسم نص متعدد السطور في النص أفقيًا، وبترجّع الارتفاع اللي أخده.
+function drawLines(ctx, lines, size, weight, family, centerX, topY, lineH) {
+  ctx.font = `${weight} ${size}px ${family}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  lines.forEach((line, i) => ctx.fillText(line, centerX, topY + lineH * (i + 0.5)));
+  return lineH * lines.length;
+}
+
+// بترسم الملصق كله وبترجّع data URL لصورة PNG.
+function renderLabelPNG(cat, sizeOptions) {
+  const { pageWidthMm, pageHeightMm } = sizeOptions;
+  const halves = sizeOptions.halves || 1;
+  const W = Math.round(mmToDots(pageWidthMm));
+  const H = Math.round(mmToDots(pageHeightMm));
+  const halfH = Math.round(H / halves);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#000000';
+
+  const FAMILY = 'Arial, Helvetica, Tahoma, sans-serif';
+  const name = String(cat.itemName || cat.name || '');
+  const code = String(cat.barcodeNumber || '');
+  const sellNum = Number(cat.sellingPrice) || 0;
+  const origNum = Number(cat.originalPrice) || 0;
+  const hasDiscount = origNum > 0 && origNum !== sellNum;
+  const showPrice = !!cat.sellingPrice;
+
+  // نفس هندسة الملصق القديم بالظبط، بس بالنقط بدل الملليمترات
+  const pad = mmToDots(0.4);
+  const padX = mmToDots(1.2);
+  const gapX = mmToDots(0.8);
+  const SAFETY = mmToDots(0.6);
+  const contentH = halfH - pad * 2 - SAFETY;
+
+  // ⭐ الـQR بمربعات من عدد صحيح من النقط — ده اللي بيخلّيه يتقرا بسرعة.
+  const best = buildBestQR(code || name);
+  const qrAvail = Math.min(contentH - mmToDots(0.4), mmToDots(11));
+  let qrSize = Math.floor(qrAvail);
+  let modulePx = 0;
+  if (best) {
+    modulePx = Math.max(1, Math.floor(qrAvail / best.count));
+    qrSize = modulePx * best.count;
+  }
+
+  const textW = W - qrSize - padX * 2 - gapX;
+  const textCx = padX + qrSize + gapX + textW / 2;
+
+  const LINE = 1.2;
+  const otherLines = 1 + (showPrice ? 1 : 0);
+  const capPx = mmToDots(2.7);
+
+  for (let h = 0; h < halves; h++) {
+    const top = h * halfH;
+
+    // --- الـQR ---
+    if (best && qrSize > 0) {
+      const qrY = top + pad + (contentH - qrSize) / 2;
+      const qrX = padX;
+      for (let row = 0; row < best.count; row++) {
+        for (let col = 0; col < best.count; col++) {
+          if (best.qr.isDark(row, col)) {
+            ctx.fillRect(qrX + col * modulePx, qrY + row * modulePx, modulePx, modulePx);
+          }
+        }
+      }
+    }
+
+    // --- النص: بنختار سطر ولا سطرين للاسم زي ما في الشاشة ---
+    let chosen = null;
+    for (let maxLines = 1; maxLines <= 2; maxLines++) {
+      const byHeight = contentH / ((maxLines + otherLines) * LINE);
+      const fit = fitCanvasFont(ctx, name, textW, maxLines, 'bold', FAMILY, Math.min(byHeight, capPx));
+      if (!chosen || fit.size > chosen.size) chosen = { ...fit, maxLines, byHeight };
+    }
+
+    const nameLines = chosen.lines.length;
+    const byHeight = contentH / ((nameLines + otherLines) * LINE);
+    const nameSize = Math.min(chosen.size, byHeight, capPx);
+    const codeSize = Math.min(byHeight, nameSize * 0.9);
+    const priceSize = Math.min(byHeight, nameSize * 1.15);
+    const oldPriceSize = priceSize * 0.8;
+
+    const lineH = contentH / (nameLines + otherLines);
+    let y = top + pad;
+
+    ctx.fillStyle = '#000000';
+    y += drawLines(ctx, chosen.lines, nameSize, 'bold', FAMILY, textCx, y, lineH);
+
+    // رقم الباركود — bold عشان يبان على الطابعة الحرارية
+    drawLines(ctx, [code], codeSize, 'bold', FAMILY, textCx, y, lineH);
+    y += lineH;
+
+    if (showPrice) {
+      const sell = `${cat.sellingPrice} L.E`;
+      const orig = hasDiscount ? `${cat.originalPrice} L.E` : '';
+      const gap = mmToDots(0.8);
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+
+      ctx.font = `normal ${oldPriceSize}px ${FAMILY}`;
+      const origW = orig ? ctx.measureText(orig).width : 0;
+      ctx.font = `bold ${priceSize}px ${FAMILY}`;
+      const sellW = ctx.measureText(sell).width;
+      const totalW = origW + (orig ? gap : 0) + sellW;
+      let x = textCx - totalW / 2;
+      const cy = y + lineH / 2;
+
+      if (orig) {
+        ctx.font = `normal ${oldPriceSize}px ${FAMILY}`;
+        ctx.fillText(orig, x, cy);
+        // الشطبة
+        const lineY = cy;
+        ctx.fillRect(x, lineY - Math.max(1, oldPriceSize * 0.04), origW, Math.max(1, oldPriceSize * 0.08));
+        x += origW + gap;
+      }
+      ctx.font = `bold ${priceSize}px ${FAMILY}`;
+      ctx.fillText(sell, x, cy);
+      ctx.textAlign = 'center';
+    }
+  }
+
+  // ------------------------------------------------------------
+  // ⭐ تحويل لأبيض وأسود صريح قبل التصدير
+  // ------------------------------------------------------------
+  // الطابعة الحرارية **أبيض وأسود بس** — مفيش عندها رمادي أصلًا، فهي
+  // بتحوّل أي رمادي لواحد منهم بمعيارها هي. فالأحسن نعمل التحويل بنفسنا
+  // ونتحكم في النتيجة بدل ما نسيبها لتعريف الطابعة.
+  //
+  // ومكسب تاني مهم: الرمادي اللي بيطلع من تنعيم حروف الخط بيخلّي الصورة
+  // **تقل ضغط** — قِسنا 27 كيلو للصورة الواحدة. بعد التحويل بتنزل لجزء
+  // بسيط من كده، وده اللي بيخلّي 100 ملصق تعدّي من غير ما تتخنق.
+  try {
+    const img = ctx.getImageData(0, 0, W, H);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      // العتبة 170 مش 128: حروف الخط الرفيعة بيطلع نصها رمادي فاتح من
+      // التنعيم، والعتبة الواطية كانت بتاكلها وتخلّي الاسم باهت.
+      const v = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) < 170 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch (err) {
+    console.warn('تعذّر تحويل الملصق لأبيض وأسود:', err);
+  }
+
+  try {
+    return canvas.toDataURL('image/png');
+  } catch (err) {
+    console.warn('تعذّر رسم الملصق كصورة:', err);
+    return '';
+  }
+}
+
+// ملصق الدرجة كصورة كمان — نفس السبب بالظبط: نص بس، بس المحرك التاني
+// بيقسّمه بمقاسات مختلفة فبيتقص.
+function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
+  const { pageWidthMm, pageHeightMm } = sizeOptions;
+  const halves = sizeOptions.halves || 1;
+  const W = Math.round(mmToDots(pageWidthMm));
+  const H = Math.round(mmToDots(pageHeightMm));
+  const halfH = Math.round(H / halves);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#000000';
+
+  const FAMILY = 'Tahoma, Arial, sans-serif';
+  const line1 = String(categoryName || '');
+  const line2 = String(gradeLabel || '');
+  const pad = mmToDots(0.8);
+  const SAFETY = mmToDots(0.6);
+  const availW = W - pad * 2;
+  const availH = halfH - pad * 2 - SAFETY;
+  const LINE = 1.2;
+
+  for (let h = 0; h < halves; h++) {
+    const top = h * halfH;
+
+    let chosen = null;
+    for (let maxLines = 1; maxLines <= 2; maxLines++) {
+      const byHeight = availH / ((maxLines + 1) * LINE);
+      const fit = fitCanvasFont(ctx, line1, availW, maxLines, 'bold', FAMILY, byHeight);
+      if (!chosen || fit.size > chosen.size) chosen = fit;
+    }
+    const n1 = chosen.lines.length;
+    const byHeight = availH / ((n1 + 1) * LINE);
+    const size1 = Math.min(chosen.size, byHeight);
+    const fit2 = fitCanvasFont(ctx, line2, availW, 1, 'bold', FAMILY, byHeight);
+    const size2 = Math.min(fit2.size, byHeight);
+
+    const lineH = availH / (n1 + 1);
+    // المحتوى في نص النصف رأسيًا
+    const blockH = lineH * (n1 + 1);
+    let y = top + pad + (availH - blockH) / 2;
+    y += drawLines(ctx, chosen.lines, size1, 'bold', FAMILY, W / 2, y, lineH);
+    drawLines(ctx, fit2.lines.length ? fit2.lines : [line2], size2, 'bold', FAMILY, W / 2, y, lineH);
+  }
+
+  try {
+    const img = ctx.getImageData(0, 0, W, H);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) < 170 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch (err) {
+    console.warn('تعذّر تحويل ملصق الدرجة لأبيض وأسود:', err);
+  }
+
+  try {
+    return canvas.toDataURL('image/png');
+  } catch (err) {
+    console.warn('تعذّر رسم ملصق الدرجة كصورة:', err);
+    return '';
+  }
+}
+
+// بتلفّ الصورة في صفحة HTML بمقاس الملصق — للمعاينة ولنافذة طباعة
+// المتصفح (لما QZ مش موجود). الصورة هي هي في الحالتين.
+function wrapImageLabelHTML(dataUrl, sizeOptions, copies) {
+  const { pageWidthMm, pageHeightMm } = sizeOptions;
+  const copyCount = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(copies, 10) || 1));
+  const one = `<div class="label"><img src="${dataUrl}" alt=""></div>`;
+  return `
+    <!doctype html>
+    <html dir="ltr" lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>ملصق</title>
+      <style>
+        @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
+        body { width: ${pageWidthMm}mm; }
+        .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; ${printAlignCSS()} }
+        .label + .label { page-break-before: always; break-before: page; }
+        /* image-rendering: pixelated مهمة: من غيرها المتصفح بينعّم حروف
+           مربعات الـQR وقت التكبير، والقارئ بيتوه. */
+        .label img { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; display: block; image-rendering: pixelated; }
+      </style>
+    </head>
+    <body>${one.repeat(copyCount)}</body>
+    </html>
+  `;
+}
+
 function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const { pageWidthMm, pageHeightMm, halves } = sizeOptions;
   const halfHeight = pageHeightMm / (halves || 1);
@@ -3549,22 +3896,46 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   `;
 }
 
-async function printLabel(cat, sizeOptions) {
-  const copies = sizeOptions.copies || 1;
+// بتبني ملصق الصنف بالطريقة المعتمدة (صورة)، أو بالطريقة القديمة (HTML)
+// لو المستخدم فتح مفتاح الرجوع لها.
+//
+// بترجّع { previewHTML, jobHTML, image } — والـimage بتتبعت لـQZ مباشرة
+// لما تكون موجودة.
+async function buildItemLabel(cat, sizeOptions, copies) {
+  if (!getPrintTweak('htmlLabels')) {
+    const png = renderLabelPNG(cat, sizeOptions);
+    if (png) {
+      return {
+        previewHTML: wrapImageLabelHTML(png, sizeOptions, 1),
+        jobHTML: wrapImageLabelHTML(png, sizeOptions, 1),
+        fallbackHTML: wrapImageLabelHTML(png, sizeOptions, copies),
+        image: png,
+      };
+    }
+  }
   const qrPx = Math.round((sizeOptions.pageHeightMm / (sizeOptions.halves || 1)) * 16);
   const qrDataUrl = await generateQRDataURL(cat.barcodeNumber || cat.name, qrPx);
+  return {
+    previewHTML: buildLabelHTML(cat, sizeOptions, qrDataUrl, 1),
+    jobHTML: buildLabelHTML(cat, sizeOptions, qrDataUrl, 1),
+    fallbackHTML: buildLabelHTML(cat, sizeOptions, qrDataUrl, copies),
+    image: null,
+  };
+}
+
+async function printLabel(cat, sizeOptions) {
+  const copies = sizeOptions.copies || 1;
+  const built = await buildItemLabel(cat, sizeOptions, copies);
 
   // المعاينة بتوري لاصقة واحدة بس (مفيش فايدة من عرض 20 نسخة متطابقة)،
   // واللي بيتطبع فعلًا هو العدد اللي طلبته.
-  const previewHTML = buildLabelHTML(cat, sizeOptions, qrDataUrl, 1);
-  const approved = await showPrintPreview(previewHTML, sizeOptions, copies);
+  const approved = await showPrintPreview(built.previewHTML, sizeOptions, copies);
   if (!approved) return;
 
   // لكل نسخة صفحة مستقلة (مصفوفة) عشان QZ ما يحشرهمش في لاصقة واحدة،
   // ومستند واحد بفواصل صفحات للطريقة العادية (نافذة المتصفح).
-  const jobs = [{ html: buildLabelHTML(cat, sizeOptions, qrDataUrl, 1), copies }];
-  const fallbackHTML = buildLabelHTML(cat, sizeOptions, qrDataUrl, copies);
-  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', fallbackHTML);
+  const jobs = [{ html: built.jobHTML, image: built.image, copies }];
+  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', built.fallbackHTML);
 }
 
 // ------------------------------------------------------------
@@ -3776,25 +4147,35 @@ async function printGradeLabels(cat, sizeOptions) {
 
   if (!picks.length) return;
 
+  // ملصق الدرجة بيترسم كصورة زي ملصق الصنف — نفس السبب: المحرك التاني
+  // بيقسّم النص بمقاسات مختلفة فبيتقص.
+  const useImage = !getPrintTweak('htmlLabels');
+  const buildOne = (label, copies) => {
+    if (useImage) {
+      const png = renderGradeLabelPNG(cat.name, label, sizeOptions);
+      if (png) return { html: wrapImageLabelHTML(png, sizeOptions, copies), image: png };
+    }
+    return { html: buildGradeLabelHTML(cat.name, label, sizeOptions, copies), image: null };
+  };
+
   // المعاينة بتوري أول درجة محدّدة كنموذج
-  const previewHTML = buildGradeLabelHTML(cat.name, gradeDisplayName(picks[0].grade), sizeOptions, 1);
+  const first = buildOne(gradeDisplayName(picks[0].grade), 1);
   const total = picks.reduce((s, p) => s + p.qty, 0);
-  const approved = await showPrintPreview(previewHTML, sizeOptions, total);
+  const approved = await showPrintPreview(first.html, sizeOptions, total);
   if (!approved) return;
 
   // كل لاصقة صفحة مستقلة عند QZ (مصفوفة)، عشان ما يحشرش أكتر من واحدة
   // في نفس اللاصقة.
-  const jobs = picks.map((p) => ({
-    html: buildGradeLabelHTML(cat.name, gradeDisplayName(p.grade), sizeOptions, 1),
-    copies: p.qty,
-  }));
+  const built = picks.map((p) => ({ ...buildOne(gradeDisplayName(p.grade), 1), copies: p.qty }));
+  const jobs = built.map((x) => ({ html: x.html, image: x.image, copies: x.copies }));
 
   // نسخة واحدة بفواصل صفحات لنافذة طباعة المتصفح (بتتعامل مع مستند واحد).
-  const bodies = picks.map((p) =>
-    extractLabelBody(buildGradeLabelHTML(cat.name, gradeDisplayName(p.grade), sizeOptions, p.qty))
-  );
-  const shell = buildGradeLabelHTML(cat.name, gradeDisplayName(picks[0].grade), sizeOptions, 1);
-  const browserHTML = shell.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
+  const bodies = [];
+  built.forEach((x) => {
+    const body = extractLabelBody(x.html);
+    for (let i = 0; i < x.copies; i++) bodies.push(body);
+  });
+  const browserHTML = built[0].html.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
   await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML);
 }
@@ -4532,6 +4913,12 @@ const PRINT_TWEAKS = [
     hint: 'بيرسم الملصق كصورة جاهزة بدل ما التعريف يتصرّف فيه',
     apply: (cfg) => (cfg.rasterize = true),
   },
+  {
+    key: 'htmlLabels',
+    label: '↩️ ارجع لملصق HTML القديم',
+    hint: 'الملصق دلوقتي بيتبعت كصورة مرسومة عندنا. افتح ده بس لو حصلت مشكلة',
+    apply: () => {},
+  },
 ];
 
 const PRINT_TWEAK_PREFIX = 'tazweed_qz_tweak_';
@@ -4795,7 +5182,11 @@ function normalizePrintJobs(input) {
     }
     if (item && typeof item.html === 'string') {
       const copies = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(item.copies, 10) || 1));
-      out.push({ html: item.html, copies });
+      // image = ملصق مرسوم عندنا كصورة جاهزة. بيتبعت لـQZ زي ما هو،
+      // فالمحرك التاني مابقاش ليه أي دور في شكل الملصق.
+      const entry = { html: item.html, copies };
+      if (typeof item.image === 'string' && item.image) entry.image = item.image;
+      out.push(entry);
     }
   });
   return out;
@@ -4854,9 +5245,12 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     // ولا كائن — ده اللي طبع نص خام على اللاصقة قبل كده.
     const pages = [];
     for (const job of list) {
-      for (let i = 0; i < job.copies; i++) {
-        pages.push({ type: 'pixel', format: 'html', flavor: 'plain', data: job.html });
-      }
+      // الصورة أولًا: أخف بكتير من HTML، والأهم إن شكلها **مضمون** —
+      // مفيش محرك تاني بيعيد رسمها.
+      const page = job.image
+        ? { type: 'pixel', format: 'image', flavor: 'base64', data: job.image.replace(/^data:image\/\w+;base64,/, '') }
+        : { type: 'pixel', format: 'html', flavor: 'plain', data: job.html };
+      for (let i = 0; i < job.copies; i++) pages.push(page);
     }
 
     // ------------------------------------------------------------
