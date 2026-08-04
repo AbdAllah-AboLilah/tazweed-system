@@ -54,7 +54,14 @@ node tests/printer-test.js
 node tests/device-settings-test.js
 node tests/batch1-test.js
 node tests/label-names-test.js
+node tests/topbar-typing-test.js
 ```
+
+`topbar-typing-test.js` بيقيس **صفوف الشريط العلوي** بطريقة مش بديهية:
+مقارنة الـ`top` بتاع العناصر مابتنفعش لأنها مركّزة رأسيًا وارتفاعاتها
+مختلفة، فالـ`top` بيختلف وهما في نفس الصف. الفحص بيجمّع العناصر في "شرايط"
+حسب **التقاطع الرأسي** بدل كده. وبيتأكد كمان إن خانة الكتابة مابتتهدّش لما
+يجي تبليغ من السحابة — ده اللي كان بيقفل الكيبورد.
 
 `label-names-test.js` بيرسم كل اسم في متصفح حقيقي و**يقيس الرسم الفعلي**
 (`scrollHeight` ضد `clientHeight`) بدل ما يصدّق الحساب — لأن مشكلة الـ`…`

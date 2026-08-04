@@ -106,6 +106,16 @@ html, body {
 /* الشريط العلوي ثابت: بيفضل قدام عينك وانت نازل في 165 درجة، فاسم
    المستخدم وحالة الاتصال وزرار التراجع في متناول إيدك في أي وقت.
    z-index أقل من الشاشات المنبثقة (2000) وأعلى من المحتوى العادي. */
+/* ============================================================
+   الشريط العلوي — صف واحد دايمًا
+   ============================================================
+   قبل كده كان flex-wrap: wrap، فعلى الموبايل الاسم بياخد سطر لوحده وباقي
+   البيانات بتنزل السطر اللي تحته. النتيجة شريط بارتفاع الضعف بيبلع مساحة
+   من شاشة صغيرة أصلًا.
+
+   دلوقتي كله في صف واحد: الاسم والرتبة جنب بعض، والاسم بيتقص بنقطة لو طويل
+   بدل ما يزق الباقي لسطر تاني. واسم النظام بيختفي على الشاشات الضيقة
+   ويفضل رقم النسخة بس. */
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -117,7 +127,45 @@ html, body {
   position: sticky;
   top: 0;
   z-index: 950;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.topbar-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;          /* من غيرها الاسم الطويل بيرفض يتقص */
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.topbar-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.topbar-role {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.topbar-app {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 620px) {
+  /* اسم النظام معروف — رقم النسخة هو اللي بيفرق وقت الإبلاغ عن مشكلة */
+  .topbar-app .app-name { display: none; }
+}
+
+@media (max-width: 420px) {
+  .topbar-role { display: none; }
 }
 
 .undo-btn {
@@ -174,7 +222,8 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex: 0 0 auto;
   font-size: 12px;
 }
 
