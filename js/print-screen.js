@@ -268,18 +268,14 @@ async function printCartLabels(sizeOptions) {
   const cart = (state.printCart || []).filter((it) => it.qty > 0);
   if (!cart.length) return;
 
-  const qrPx = Math.round((sizeOptions.pageHeightMm / (sizeOptions.halves || 1)) * 16);
-
-  // كل صنف بيتحوّل لوظيفة طباعة مستقلة بعدد نسخه. الـQR بيتولّد هنا
-  // كصورة جاهزة قبل ما نبعت لأي طابعة — نفس سبب ملصق الصنف العادي.
+  // كل صنف بيتحوّل لوظيفة طباعة مستقلة بعدد نسخه. الملصق بيترسم عندنا
+  // كصورة جاهزة (buildItemLabel) قبل ما يتبعت لأي طابعة — فشكله مضمون
+  // مايتغيّرش على أي جهاز.
   const jobs = [];
   for (const item of cart) {
     const source = productAsLabelSource(item.product);
-    const qr = await generateQRDataURL(source.barcodeNumber || source.name, qrPx);
-    jobs.push({
-      html: buildLabelHTML(source, sizeOptions, qr, 1),
-      copies: item.qty,
-    });
+    const built = await buildItemLabel(source, sizeOptions, item.qty);
+    jobs.push({ html: built.jobHTML, image: built.image, copies: item.qty });
   }
 
   const total = cart.reduce((s, it) => s + it.qty, 0);

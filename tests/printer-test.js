@@ -61,7 +61,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   });
   check('كله مقفول = الإعداد زي ما هو بالظبط',
     JSON.stringify(tweaks.off) === JSON.stringify({ size: { width: 38, height: 25 }, units: 'mm' }), tweaks.off);
-  check('4 مفاتيح', tweaks.count === 4, tweaks.keys);
+  check('5 مفاتيح', tweaks.count === 5, tweaks.keys);
   check('كله مفتوح = الأربعة اتطبقوا',
     tweaks.allOn.scaleContent === false && tweaks.allOn.colorType === 'blackwhite'
     && tweaks.allOn.interpolation === 'nearest-neighbor' && tweaks.allOn.rasterize === true, tweaks.allOn);
@@ -120,7 +120,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     document.getElementById('qz-settings-close').click();
     return out;
   });
-  check('الأربع مفاتيح ظاهرين في الشاشة', ui.tweakBoxes.length === 4, ui);
+  check('الخمس مفاتيح ظاهرين في الشاشة', ui.tweakBoxes.length === 5, ui);
   check('كلهم مقفولين افتراضيًا', ui.allUnchecked, ui);
   check('زرار المعايرة وبيانات الطابعات موجودين', ui.hasCalBtn && ui.hasDetails, ui);
   check('المقاسات الافتراضية 38×25 وفراغ 2', ui.defaults.w === '38' && ui.defaults.h === '25' && ui.defaults.gap === '2', ui.defaults);
