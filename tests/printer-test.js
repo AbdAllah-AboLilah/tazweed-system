@@ -7,7 +7,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   const p = await b.newPage({ viewport: { width: 1366, height: 900 } });
   const errors = [];
   p.on('pageerror', (e) => errors.push(String(e)));
-  await p.goto('http://localhost:8898/harness23.html');
+  await p.goto('http://localhost:8899/tests/harness.html');
   await p.waitForFunction(() => typeof applyPrintTweaks === 'function');
 
   await p.evaluate(() => {
@@ -251,6 +251,123 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('الكتابة اليدوية بتتقيّد بـ6 مم', pad.clampedUI.x === 6, pad.clampedUI);
   check('لوحة الاتجاهات LTR (السهم في مكانه الصح)', pad.ltr === 'ltr', pad.ltr);
   check('زرار طباعة الإطار موجود', pad.hasFrameBtn, pad);
+
+  // ---------- النسخ من جهاز تاني ----------
+  const copy = await p.evaluate(async () => {
+    localStorage.clear();
+    state.profile = { name: 'x', role: 'owner' };
+    state.user = { uid: 'me' };
+    window.isQZAvailable = () => true;
+    window.getAvailableQZPrinters = () => Promise.resolve(['Xprinter XP-233B', 'HP LaserJet']);
+
+    const myId = getDeviceId();
+    state.printStations = [
+      { id: myId, deviceName: 'أنا' },
+      {
+        id: 'pc-cashier', deviceName: 'كمبيوتر الكاشير',
+        labelPrinter: 'Xprinter XP-233B', restockPrinter: 'HP LaserJet',
+        printSetup: { align: { x: 0.8, y: -0.6, shrink: 4 }, tweaks: { blackwhite: true, sharp: true, noScale: false, rasterize: false } },
+      },
+      { id: 'pc-old', deviceName: 'جهاز قديم' },  // من غير printSetup
+      {
+        id: 'pc-other', deviceName: 'مخزن رئيسي',
+        labelPrinter: 'Zebra ZD220',   // مش موجودة على الجهاز ده
+        printSetup: { align: { x: 0, y: 0, shrink: 0 }, tweaks: {} },
+      },
+    ];
+
+    // على الجهاز ده مفتاح مفتوح غلط — النسخ لازم يقفله
+    setPrintTweak('rasterize', true);
+
+    openPrinterSettings();
+    await new Promise((r) => setTimeout(r, 300));
+    const $ = (s) => document.querySelector(s);
+
+    const opts = [...$('#copy-from').options].map((o) => ({ v: o.value, t: o.textContent }));
+    const visible = $('#copy-box').style.display;
+
+    $('#copy-from').value = 'pc-cashier';
+    $('#copy-run').click();
+    const afterGood = {
+      align: getPrintAlign(),
+      tweaks: getPrintTweaksMap(),
+      labelSel: $('#qz-label-printer-select').value,
+      restockSel: $('#qz-restock-printer-select').value,
+      xBox: $('#align-x').value,
+      shrinkBox: $('#align-shrink').value,
+      boxesChecked: [...document.querySelectorAll('[data-tweak]')].filter((e) => e.checked).map((e) => e.getAttribute('data-tweak')).sort(),
+      status: $('#copy-status').textContent,
+      deviceName: getDeviceName(),
+      deviceId: getDeviceId(),
+    };
+
+    // طابعة مش موجودة على الجهاز ده
+    $('#copy-from').value = 'pc-other';
+    $('#copy-run').click();
+    const afterMissing = { status: $('#copy-status').textContent, labelSel: $('#qz-label-printer-select').value };
+
+    $('#qz-settings-close').click();
+
+    // مفيش أجهزة تانية عندها ضبط → القسم مايظهرش
+    state.printStations = [{ id: myId, deviceName: 'أنا' }, { id: 'pc-old', deviceName: 'قديم' }];
+    openPrinterSettings();
+    await new Promise((r) => setTimeout(r, 300));
+    const hiddenWhenAlone = document.querySelector('#copy-box').style.display;
+    document.querySelector('#qz-settings-close').click();
+
+    localStorage.clear();
+    state.printStations = [];
+    return { opts, visible, afterGood, afterMissing, hiddenWhenAlone, myId };
+  });
+  check('القسم بيظهر لما فيه جهاز مظبوط', copy.visible === 'block', copy.visible);
+  check('الجهاز بتاعي مش في القايمة', !copy.opts.some((o) => o.v === copy.myId), copy.opts);
+  check('الجهاز اللي مالوش ضبط مش في القايمة', !copy.opts.some((o) => o.v === 'pc-old'), copy.opts);
+  check('الأجهزة المظبوطة بس هي اللي في القايمة', copy.opts.length === 2, copy.opts);
+  check('القايمة بتوري اسم الجهاز مش معرّفه', copy.opts.some((o) => o.t === 'كمبيوتر الكاشير'), copy.opts);
+  check('الضبط اتنسخ بالأرقام', copy.afterGood.align.x === 0.8 && copy.afterGood.align.y === -0.6
+    && copy.afterGood.align.shrink === 4, copy.afterGood.align);
+  check('الخانات في الشاشة اتحدّثت', copy.afterGood.xBox === '0.8' && copy.afterGood.shrinkBox === '4', copy.afterGood);
+  check('المفاتيح اتنسخت', copy.afterGood.tweaks.blackwhite === true && copy.afterGood.tweaks.sharp === true, copy.afterGood.tweaks);
+  check('⭐ المفتاح المفتوح غلط اتقفل (النسخ = تطابق مش إضافة)',
+    copy.afterGood.tweaks.rasterize === false, copy.afterGood.tweaks);
+  check('مربّعات الشاشة اتحدّثت هي كمان',
+    JSON.stringify(copy.afterGood.boxesChecked) === JSON.stringify(['blackwhite', 'sharp']), copy.afterGood.boxesChecked);
+  check('الطابعة اتنسخت لأن اسمها موجود', copy.afterGood.labelSel === 'Xprinter XP-233B'
+    && copy.afterGood.restockSel === 'HP LaserJet', copy.afterGood);
+  check('⭐ اسم الجهاز مااتنسخش', copy.afterGood.deviceName === '', copy.afterGood.deviceName);
+  check('⭐ معرّف الجهاز مااتغيّرش', copy.afterGood.deviceId === copy.myId, copy.afterGood.deviceId);
+  check('طابعة مش موجودة → تحذير واضح', /Zebra ZD220/.test(copy.afterMissing.status)
+    && /مش موجودة/.test(copy.afterMissing.status), copy.afterMissing.status);
+  check('وماتحفظش طابعة وهمية', copy.afterMissing.labelSel === 'Xprinter XP-233B', copy.afterMissing);
+  check('الرسالة بتقول اضغط حفظ واطبع الإطار', /حفظ/.test(copy.afterGood.status)
+    && /الإطار/.test(copy.afterGood.status), copy.afterGood.status);
+  check('القسم مايظهرش لو مفيش جهاز مظبوط', copy.hiddenWhenAlone === 'none', copy.hiddenWhenAlone);
+
+  // الضبط بيتنشر مع نبضة الجهاز عشان الأجهزة التانية تلاقيه
+  const published = await p.evaluate(async () => {
+    savePrintAlign({ x: 1.2, y: 0, shrink: 2 });
+    setPrintTweak('sharp', true);
+    localStorage.setItem('tazweed_qz_label_printer', 'Xprinter XP-233B');
+    let written = null;
+    window.db = {
+      collection: () => ({ doc: () => ({ set: (d) => { written = d; return Promise.resolve(); } }) }),
+    };
+    window.fireWrite = (pr) => pr;
+    window.ensureQZConnected = () => Promise.resolve(true);
+    window.firebase = { firestore: { FieldValue: { serverTimestamp: () => 'TS' } } };
+    state.user = { uid: 'me' }; state.profile = { name: 'أنا', role: 'owner' };
+    saveDeviceName('كمبيوتر الكاشير');
+    await registerPrintStation();
+    localStorage.clear();
+    return written;
+  });
+  check('الضبط بيتنشر مع نبضة الجهاز', published && published.printSetup
+    && published.printSetup.align.x === 1.2, published && published.printSetup);
+  check('المفاتيح كلها بتتنشر (مش المفتوحة بس)', published && published.printSetup
+    && published.printSetup.tweaks.sharp === true && published.printSetup.tweaks.rasterize === false,
+    published && published.printSetup && published.printSetup.tweaks);
+  check('اسم الجهاز بيتنشر بره الضبط (عشان ميتنسخش)',
+    published && published.deviceName === 'كمبيوتر الكاشير' && !('deviceName' in published.printSetup), published);
 
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
 
