@@ -68,6 +68,56 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('زرار العيّنة موجود في الإعدادات', ui.exists, ui);
   check('بيرفض من غير اختيار طابعة', /اختار طابعة/.test(ui.msg), ui.msg);
 
+  // ---------- السرعة والحرارة ----------
+  const q = await p.evaluate(async () => {
+    const msgs = [];
+    const written = [];
+    window.qz = { configs: { create: (n) => ({ printer: n }) }, print: (c, d) => { msgs.push(d); return Promise.resolve(); },
+      websocket: { connect: () => Promise.resolve() }, security: { setCertificatePromise(){}, setSignatureAlgorithm(){}, setSignaturePromise(){} } };
+    window.isQZAvailable = () => true; window.ensureQZConnected = () => Promise.resolve(true);
+    window.db = { collection: () => ({ doc: () => ({ set: (d) => { written.push(d); return Promise.resolve(); }, onSnapshot: () => () => {} }) }) };
+    window.firebase = { firestore: { FieldValue: { serverTimestamp: () => 'TS' } } };
+    state.user = { uid: 'me' };
+    localStorage.removeItem('tazweed_shared_print');
+
+    const before = getPrintQuality();
+    await applyPrintQuality('Xprinter XP-233B', 2, 6);
+    const cmd = msgs.flat()[0];
+    // الحدود
+    await applyPrintQuality('Xprinter XP-233B', 99, 99);
+    const clamped = msgs.flat()[1].data;
+    localStorage.removeItem('tazweed_shared_print');
+    return { before, cmd, clamped, written, lines: cmd.data.split('\r\n') };
+  });
+  check('⭐ السرعة والحرارة بتتبعت كأمر خام', q.cmd.type === 'raw' && q.cmd.format === 'command', q.cmd);
+  check('⭐ أمر السرعة صح', q.lines.includes('SPEED 2'), q.lines);
+  check('⭐ أمر الحرارة صح', q.lines.includes('DENSITY 6'), q.lines);
+  check('القيم الافتراضية معقولة', q.before.speed === 3 && q.before.density === 8, q.before);
+  check('القيم بتتقيّد بالحدود', /SPEED 8/.test(q.clamped) && /DENSITY 15/.test(q.clamped), q.clamped);
+  check('⭐ بتتحفظ في السحابة عشان كل الأجهزة',
+    q.written.some(w => w.quality && w.quality.speed === 2 && w.quality.density === 6), q.written);
+
+  const qui = await p.evaluate(async () => {
+    // بنرجّع القيم للافتراضي الأول — الفحص اللي فوق ساب 8/15 محفوظين،
+    // والشاشة بتفتح على المحفوظ (وده الصح).
+    await applyPrintQuality('Xprinter XP-233B', 3, 8);
+    state.profile = { name: 'x', role: 'owner' };
+    window.getAvailableQZPrinters = () => Promise.resolve(['Xprinter XP-233B']);
+    openPrinterSettings();
+    await new Promise(r => setTimeout(r, 300));
+    const sp = document.getElementById('pq-speed'), dn = document.getElementById('pq-density');
+    const out = { exists: !!sp && !!dn, speed: sp && sp.value, density: dn && dn.value };
+    document.getElementById('qz-label-printer-select').value = '';
+    document.getElementById('pq-apply').click();
+    await new Promise(r => setTimeout(r, 100));
+    out.msg = document.getElementById('pq-status').textContent;
+    document.getElementById('qz-settings-close').click();
+    return out;
+  });
+  check('خانات السرعة والحرارة في الشاشة', qui.exists, qui);
+  check('بتفتح بالقيم الحالية', qui.speed === '3' && qui.density === '8', qui);
+  check('بترفض من غير اختيار طابعة', /اختار طابعة/.test(qui.msg), qui.msg);
+
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
   console.log('\n✅ نجح (' + pass.length + ')');
   if (fail.length) { console.log('❌ فشل (' + fail.length + '):'); fail.forEach(x => console.log('   ' + x)); }
