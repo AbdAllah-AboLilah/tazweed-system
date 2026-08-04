@@ -291,6 +291,64 @@ function visibleGrades() {
 // ============================================================
 // الرسم الرئيسي: بيقرر يعرض إيه بناءً على state.view
 // ============================================================
+// ============================================================
+// ⌨️ رسم مؤجّل — مانهدّش الشاشة والمستخدم بيكتب
+// ============================================================
+// ⚠️ المشكلة اللي بيحلها ده (اتبلّغت من الاستخدام الحقيقي):
+//
+//   "لو فتحت خانة تعديل الكمية وكتبت رقم، وبعدين رحت لدرجة تانية عشان
+//    أكتب، الكيبورد بيتخفي لحد ما اللي قبله يترفع."
+//
+// السبب: اشتراك الدرجات شغّال بـ includeMetadataChanges، يعني بيبلّغنا
+// **مرتين** لكل كتابة: مرة أول ما تتكتب محليًا، ومرة تانية لما السيرفر
+// يأكّد (بعد ثانية أو اتنين). والتبليغ التاني بيعمل render()، و render()
+// بيعمل root.innerHTML = ... يعني **بيهدّ الشاشة كلها** — بما فيها الخانة
+// اللي صباعك واقف فيها. والمتصفح بيقفل الكيبورد لما الخانة تتشال.
+//
+// الحل: التبليغات الجاية من السحابة **بتتأجّل** طول ما المستخدم كاتب في
+// خانة، وبتتنفّذ أول ما يسيبها. أما الرسم اللي انت طلبته بنفسك (ضغطت
+// زرار) فبيتنفّذ فورًا زي ما هو.
+//
+// ⚠️ الفرق ده مقصود ومهم: البيانات مابتضيعش — بتتحدّث في state على طول،
+// اللي بيتأجّل هو **الرسم** بس.
+let dataRenderPending = false;
+
+function isUserTyping() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return false;
+  // خانات القراءة فقط مش كتابة
+  return !el.disabled && !el.readOnly;
+}
+
+// كل تبليغ جاي من السحابة لازم يعدّي من هنا، مش من render() مباشرة.
+function renderFromData() {
+  if (isUserTyping()) {
+    dataRenderPending = true;
+    return;
+  }
+  dataRenderPending = false;
+  render();
+}
+
+// أول ما يسيب الخانة، بننفّذ اللي اتأجّل.
+document.addEventListener(
+  'focusout',
+  () => {
+    if (!dataRenderPending) return;
+    // تأخير بسيط عشان لو بينط من خانة لخانة (blur ورا focus على طول)
+    // مانرسمش في النص ونقفل الكيبورد بإيدينا.
+    setTimeout(() => {
+      if (dataRenderPending && !isUserTyping()) {
+        dataRenderPending = false;
+        render();
+      }
+    }, 120);
+  },
+  true
+);
+
 function render() {
   const root = document.getElementById('root');
 
@@ -788,11 +846,10 @@ function dashboardHTML() {
   return `
     <div>
       <div class="topbar">
-        <div>
-          <div style="font-size:14px; font-weight:500; display:flex; align-items:center; gap:6px;">
-            ${escapeHTML(state.profile?.name)}${pendingDotHTML(true)}
-          </div>
-          <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
+        <div class="topbar-user">
+          <span class="topbar-name">${escapeHTML(state.profile?.name)}</span>
+          ${pendingDotHTML(true)}
+          <span class="topbar-role">${escapeHTML(roleLabel)}</span>
         </div>
         <div class="topbar-meta">
           ${connectionDotHTML()}
@@ -800,8 +857,8 @@ function dashboardHTML() {
           ${/* الشارة البنفسجية القديمة اتشالت: كانت بتقول نفس رقم النقطة
                 اللي جنب الاسم بالظبط — إشارتين بنفس المعنى جنب بعض
                 بتضعّف الاتنين. */ ''}
-          <span>
-            ${escapeHTML(APP_NAME)}
+          <span class="topbar-app">
+            <span class="app-name">${escapeHTML(APP_NAME)}</span>
             <span style="color:var(--text-muted);">v${escapeHTML(APP_VERSION)}</span>
           </span>
           <button class="btn menu-toggle" id="menu-toggle-btn" title="القائمة" aria-label="القائمة">☰</button>
@@ -5717,7 +5774,7 @@ function subscribeCategories() {
         if (!state.activeCategoryId && state.categories.length) {
           state.activeCategoryId = state.categories[0].id;
         }
-        render();
+        renderFromData();
         // حدود التنبيه محفوظة على الفئات نفسها، فأي تغيير فيها لازم يعيد
         // بناء استعلام "قرّبت تخلص".
         subscribeLowStock();
@@ -5739,7 +5796,7 @@ function subscribeGrades(categoryId) {
       (snap) => {
         state.grades = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         state.hasPendingWrites = snap.metadata.hasPendingWrites;
-        render();
+        renderFromData();
       },
       (err) => console.warn('تعذّر قراءة الدرجات:', err)
     );
