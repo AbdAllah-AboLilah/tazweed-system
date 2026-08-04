@@ -82,7 +82,7 @@ function printScreenHTML() {
         <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
           <button class="btn btn-primary" id="print-cart-btn" ${totalLabels ? '' : 'disabled'}>🖨️ اطبع المحدّد (${totalLabels})</button>
           <button class="btn" id="print-clear-btn" ${cart.length ? '' : 'disabled'}>تفريغ السلة</button>
-          <button class="btn" id="print-settings-btn">⚙️ إعدادات الطابعة</button>
+          ${can(state.profile, 'printerSetup') ? `<button class="btn" id="print-settings-btn">⚙️ إعدادات الطابعة</button>` : ''}
           ${isBarcodeScanSupported() ? `<button class="btn" id="print-camera-btn">🎥 اختيار الكاميرا</button>` : ''}
         </div>
       </div>
