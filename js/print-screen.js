@@ -8,15 +8,22 @@
 // الشاشة دي ليها رتبة خاصة (موظف طباعة) — الحساب ده بيفتح عليها على طول
 // ومايشوفش أي حاجة تانية في النظام.
 
-function printScreenHTML() {
-  const cart = state.printCart || [];
-  const totalLabels = cart.reduce((s, it) => s + (it.qty || 0), 0);
-
-  const results = productsCache
-    ? searchProducts(state.printSearch, '', 40)
-    : [];
-
-  const resultsHTML = !productsCache
+// ============================================================
+// ⚠️ نتايج البحث في دالة لوحدها — والسبب مش تنظيم كود
+// ============================================================
+// المشكلة اللي كانت بتحصل وانت بتكتب على التليفون: بعد كل حرف كنا بننادي
+// render()، و render() بيعمل root.innerHTML = ... يعني **بيهدّ الشاشة كلها
+// ويبنيها من الأول** — بما فيها خانة البحث اللي صباعك واقف فيها.
+//
+// والخانة الجديدة بترسم بالقيمة المتسجّلة في state، فأي حرف كتبته في
+// اللحظة اللي بين الضغطة والرسم **بيتمسح**. وده بالظبط اللي كان بيحصل:
+// "بضغط على الحرف مش بيسمع، بمسح وبضغط تاني".
+//
+// الحل: وانت بتكتب، بنحدّث **قايمة النتايج بس** (updatePrintResults تحت)
+// ومابنلمسش خانة الكتابة خالص.
+function printResultsHTML() {
+  const results = productsCache ? searchProducts(state.printSearch, '', 40) : [];
+  return !productsCache
     ? `<div class="home-empty">جارٍ تحميل الأصناف...</div>`
     : !productsCache.length
       ? `<div class="home-empty">
@@ -39,6 +46,12 @@ function printScreenHTML() {
         </div>`
               )
               .join('');
+}
+
+function printScreenHTML() {
+  const cart = state.printCart || [];
+  const totalLabels = cart.reduce((s, it) => s + (it.qty || 0), 0);
+  const resultsHTML = printResultsHTML();
 
   const cartHTML = !cart.length
     ? `<div class="home-empty">السلة فاضية. ضيف أصناف من فوق.</div>`
@@ -70,7 +83,7 @@ function printScreenHTML() {
                  value="${escapeHTML(state.printSearch || '')}" placeholder="اسم الصنف أو الباركود..." />
           ${isBarcodeScanSupported() ? `<button class="btn btn-primary" id="print-scan-btn">📷 صوّر باركود</button>` : ''}
         </div>
-        <div data-keep-scroll="print-results" style="max-height:34vh; overflow:auto;">${resultsHTML}</div>
+        <div id="print-results" data-keep-scroll="print-results" style="max-height:34vh; overflow:auto;">${resultsHTML}</div>
       </div>
 
       <div class="home-card">
@@ -116,21 +129,45 @@ function focusCartQty(key) {
   el.select();
 }
 
+// أزرار "أضف" جوه قايمة النتايج. اتفصلت لوحدها عشان تتربط من تاني بعد
+// التحديث الموضعي للنتايج — من غير ما نعيد رسم الشاشة كلها.
+function attachPrintResultEvents() {
+  document.querySelectorAll('[data-add-product]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const found = searchProducts(state.printSearch, '', 40);
+      const p = found[Number(btn.getAttribute('data-add-product'))];
+      if (!p) return;
+      const key = addProductToPrintCart(p);
+      // خانة البحث بتتفضّى، والمؤشر بيروح **لخانة العدد** بتاعة الصنف ده
+      // على طول — عشان ترتيب الشغل الطبيعي هو: دوّر، ضيف، اكتب العدد.
+      // (كان بيرجع لخانة البحث، فكنت لازم تنزل بإيدك للسلة كل مرة.)
+      state.printSearch = '';
+      render();
+      focusCartQty(key);
+    });
+  });
+}
+
+// بتحدّث قايمة النتايج **في مكانها** من غير ما تلمس خانة البحث ولا السلة.
+// أي حاجة تانية في الشاشة بتفضل زي ما هي بالظبط — بما فيها مكان صباعك.
+function updatePrintResults() {
+  const box = document.getElementById('print-results');
+  if (!box) return;
+  box.innerHTML = printResultsHTML();
+  box.scrollTop = 0;
+  attachPrintResultEvents();
+}
+
 function attachPrintScreenEvents() {
   const searchEl = document.getElementById('print-search');
   if (searchEl) {
     let timer = null;
     searchEl.addEventListener('input', () => {
+      // القيمة بتتسجّل **فورًا** مع كل حرف — من غير أي انتظار. كده لو حصل
+      // رسم للشاشة لأي سبب تاني، بيلاقي آخر حاجة كتبتها مش قيمة قديمة.
+      state.printSearch = searchEl.value;
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        state.printSearch = searchEl.value;
-        render();
-        const again = document.getElementById('print-search');
-        if (again) {
-          again.focus();
-          again.setSelectionRange(again.value.length, again.value.length);
-        }
-      }, 220);
+      timer = setTimeout(updatePrintResults, 160);
     });
   }
 
@@ -168,20 +205,7 @@ function attachPrintScreenEvents() {
   const cameraBtn = document.getElementById('print-camera-btn');
   if (cameraBtn) cameraBtn.addEventListener('click', () => safeAsync(() => openCameraChooser(), 'اختيار الكاميرا'));
 
-  document.querySelectorAll('[data-add-product]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const found = searchProducts(state.printSearch, '', 40);
-      const p = found[Number(btn.getAttribute('data-add-product'))];
-      if (!p) return;
-      const key = addProductToPrintCart(p);
-      // خانة البحث بتتفضّى، والمؤشر بيروح **لخانة العدد** بتاعة الصنف ده
-      // على طول — عشان ترتيب الشغل الطبيعي هو: دوّر، ضيف، اكتب العدد.
-      // (كان بيرجع لخانة البحث، فكنت لازم تنزل بإيدك للسلة كل مرة.)
-      state.printSearch = '';
-      render();
-      focusCartQty(key);
-    });
-  });
+  attachPrintResultEvents();
 
   const changeQty = (i, next) => {
     const cart = state.printCart || [];
