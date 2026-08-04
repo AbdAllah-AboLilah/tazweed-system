@@ -3503,6 +3503,75 @@ function drawLines(ctx, lines, size, weight, family, centerX, topY, lineH) {
   return lineH * lines.length;
 }
 
+// ============================================================
+// 🔍 الرسم بدقة أعلى وبعدين التصغير
+// ============================================================
+// ⚠️ المشكلة اللي بيحلها ده: الطابعة الحرارية **أبيض وأسود بس**، مفيش
+// عندها رمادي. فلما نرسم خط صغير (21 نقطة ارتفاع) ونحوّله لأبيض/أسود
+// على طول، حروفه بتطلع **مسنّنة ومنغمشة** — كل نقطة يا بيضا يا سودا،
+// ومفيش حاجة في النص تنعّم الحرف.
+//
+// الحل: نرسم على مساحة **3 أضعاف** (912×600 بدل 304×200)، وبعدين نصغّر
+// بحساب **متوسط كل 9 نقط**. كده كل نقطة نهائية بتاخد قرارها من 9 عيّنات
+// مش من واحدة — فحرف الخط بيقع في مكانه الصح وحوافه بتبقى أنضف بكتير.
+//
+// والباركود مابيتأثرش: مربعاته بتترسم بمقاس من مضاعفات 3 بالظبط، فالتصغير
+// بيرجّعها زي ما هي حرف بحرف.
+const RENDER_SCALE = 3;
+
+function makeHiResCanvas(W, H) {
+  const c = document.createElement('canvas');
+  c.width = W * RENDER_SCALE;
+  c.height = H * RENDER_SCALE;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  ctx.scale(RENDER_SCALE, RENDER_SCALE);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#000000';
+  return { canvas: c, ctx };
+}
+
+// بتصغّر بالمتوسط وبتحوّل لأبيض/أسود، وبترجّع data URL.
+function shrinkToPrinterDots(bigCanvas, W, H) {
+  const out = document.createElement('canvas');
+  out.width = W;
+  out.height = H;
+  const octx = out.getContext('2d');
+  if (!octx) return '';
+
+  try {
+    const big = bigCanvas.getContext('2d').getImageData(0, 0, W * RENDER_SCALE, H * RENDER_SCALE).data;
+    const img = octx.createImageData(W, H);
+    const d = img.data;
+    const S = RENDER_SCALE;
+    const area = S * S;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let sum = 0;
+        for (let sy = 0; sy < S; sy++) {
+          const row = (y * S + sy) * W * S;
+          for (let sx = 0; sx < S; sx++) {
+            const i = (row + x * S + sx) * 4;
+            sum += big[i] * 0.299 + big[i + 1] * 0.587 + big[i + 2] * 0.114;
+          }
+        }
+        // العتبة 50%: النقطة بتبقى سودا لو أغلب الـ9 عيّنات سودا. ده
+        // بيحافظ على سُمك الحرف الحقيقي — العتبة العالية كانت بتتخّنه.
+        const v = sum / area < 128 ? 0 : 255;
+        const di = (y * W + x) * 4;
+        d[di] = d[di + 1] = d[di + 2] = v;
+        d[di + 3] = 255;
+      }
+    }
+    octx.putImageData(img, 0, 0);
+    return out.toDataURL('image/png');
+  } catch (err) {
+    console.warn('تعذّر تصغير الملصق:', err);
+    return '';
+  }
+}
+
 // بترسم الملصق كله وبترجّع data URL لصورة PNG.
 function renderLabelPNG(cat, sizeOptions) {
   const { pageWidthMm, pageHeightMm } = sizeOptions;
@@ -3511,15 +3580,9 @@ function renderLabelPNG(cat, sizeOptions) {
   const H = Math.round(mmToDots(pageHeightMm));
   const halfH = Math.round(H / halves);
 
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#000000';
+  const hi = makeHiResCanvas(W, H);
+  if (!hi) return '';
+  const ctx = hi.ctx;
 
   const FAMILY = 'Arial, Helvetica, Tahoma, sans-serif';
   const name = String(cat.itemName || cat.name || '');
@@ -3531,7 +3594,10 @@ function renderLabelPNG(cat, sizeOptions) {
 
   // نفس هندسة الملصق القديم بالظبط، بس بالنقط بدل الملليمترات
   const pad = mmToDots(0.4);
-  const padX = mmToDots(1.2);
+  // 1.6 مم مش 1.2: الطابعة بتزحلق شوية، والحرف الأخير كان بيتاكل من
+  // الحرف. الـ0.4 مم الزيادة على كل جنب بتاكل شوية من عرض النص بس بتشيل
+  // احتمال ضياع حرف. (وللزحلقة الكبيرة فيه أداة الإطار في الإعدادات.)
+  const padX = mmToDots(1.6);
   const gapX = mmToDots(0.8);
   const SAFETY = mmToDots(0.6);
   const contentH = halfH - pad * 2 - SAFETY;
@@ -3623,37 +3689,7 @@ function renderLabelPNG(cat, sizeOptions) {
     }
   }
 
-  // ------------------------------------------------------------
-  // ⭐ تحويل لأبيض وأسود صريح قبل التصدير
-  // ------------------------------------------------------------
-  // الطابعة الحرارية **أبيض وأسود بس** — مفيش عندها رمادي أصلًا، فهي
-  // بتحوّل أي رمادي لواحد منهم بمعيارها هي. فالأحسن نعمل التحويل بنفسنا
-  // ونتحكم في النتيجة بدل ما نسيبها لتعريف الطابعة.
-  //
-  // ومكسب تاني مهم: الرمادي اللي بيطلع من تنعيم حروف الخط بيخلّي الصورة
-  // **تقل ضغط** — قِسنا 27 كيلو للصورة الواحدة. بعد التحويل بتنزل لجزء
-  // بسيط من كده، وده اللي بيخلّي 100 ملصق تعدّي من غير ما تتخنق.
-  try {
-    const img = ctx.getImageData(0, 0, W, H);
-    const d = img.data;
-    for (let i = 0; i < d.length; i += 4) {
-      // العتبة 170 مش 128: حروف الخط الرفيعة بيطلع نصها رمادي فاتح من
-      // التنعيم، والعتبة الواطية كانت بتاكلها وتخلّي الاسم باهت.
-      const v = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) < 170 ? 0 : 255;
-      d[i] = d[i + 1] = d[i + 2] = v;
-      d[i + 3] = 255;
-    }
-    ctx.putImageData(img, 0, 0);
-  } catch (err) {
-    console.warn('تعذّر تحويل الملصق لأبيض وأسود:', err);
-  }
-
-  try {
-    return canvas.toDataURL('image/png');
-  } catch (err) {
-    console.warn('تعذّر رسم الملصق كصورة:', err);
-    return '';
-  }
+  return shrinkToPrinterDots(hi.canvas, W, H);
 }
 
 // ملصق الدرجة كصورة كمان — نفس السبب بالظبط: نص بس، بس المحرك التاني
@@ -3665,15 +3701,9 @@ function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
   const H = Math.round(mmToDots(pageHeightMm));
   const halfH = Math.round(H / halves);
 
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#000000';
+  const hi = makeHiResCanvas(W, H);
+  if (!hi) return '';
+  const ctx = hi.ctx;
 
   const FAMILY = 'Tahoma, Arial, sans-serif';
   const line1 = String(categoryName || '');
@@ -3707,25 +3737,7 @@ function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
     drawLines(ctx, fit2.lines.length ? fit2.lines : [line2], size2, 'bold', FAMILY, W / 2, y, lineH);
   }
 
-  try {
-    const img = ctx.getImageData(0, 0, W, H);
-    const d = img.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const v = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) < 170 ? 0 : 255;
-      d[i] = d[i + 1] = d[i + 2] = v;
-      d[i + 3] = 255;
-    }
-    ctx.putImageData(img, 0, 0);
-  } catch (err) {
-    console.warn('تعذّر تحويل ملصق الدرجة لأبيض وأسود:', err);
-  }
-
-  try {
-    return canvas.toDataURL('image/png');
-  } catch (err) {
-    console.warn('تعذّر رسم ملصق الدرجة كصورة:', err);
-    return '';
-  }
+  return shrinkToPrinterDots(hi.canvas, W, H);
 }
 
 // بتلفّ الصورة في صفحة HTML بمقاس الملصق — للمعاينة ولنافذة طباعة
@@ -4919,6 +4931,12 @@ const PRINT_TWEAKS = [
     hint: 'الملصق دلوقتي بيتبعت كصورة مرسومة عندنا. افتح ده بس لو حصلت مشكلة',
     apply: () => {},
   },
+  {
+    key: 'noCopies',
+    label: '↩️ ابعت صفحة لكل ملصق',
+    hint: 'العدد دلوقتي بيتبعت للطابعة كـ"عدد نسخ". افتح ده لو الطابعة طبعت ملصق واحد بس',
+    apply: () => {},
+  },
 ];
 
 const PRINT_TWEAK_PREFIX = 'tazweed_qz_tweak_';
@@ -5243,13 +5261,60 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     //
     // ⚠️ شرط لازم يفضل محفوظ: data في كل عنصر **نص HTML وبس**، مش مصفوفة
     // ولا كائن — ده اللي طبع نص خام على اللاصقة قبل كده.
-    const pages = [];
-    for (const job of list) {
+    const pageOf = (job) =>
       // الصورة أولًا: أخف بكتير من HTML، والأهم إن شكلها **مضمون** —
       // مفيش محرك تاني بيعيد رسمها.
-      const page = job.image
+      job.image
         ? { type: 'pixel', format: 'image', flavor: 'base64', data: job.image.replace(/^data:image\/\w+;base64,/, '') }
         : { type: 'pixel', format: 'html', flavor: 'plain', data: job.html };
+
+    const totalLabels = list.reduce((n, j) => n + j.copies, 0);
+
+    // ============================================================
+    // ⭐⭐ العدد بيتبعت للطابعة كـ"عدد نسخ" مش كصفحات مكرّرة
+    // ============================================================
+    // ⚠️ ده أهم سطر في الطباعة. الشرح:
+    //
+    // المشكلة اللي كانت بتحصل: "لو طلبت 100 ملصق، الأمر مايوصلش للطابعة
+    // أصلًا." الكود كان بيبني **100 صفحة منفصلة** ويبعتهم في وظيفة واحدة.
+    // يعني QZ بيرسم 100 صورة، ويبني ملف طباعة فيه 100 صفحة، ويسلّمه
+    // للويندوز. الملف ده بيكبر لدرجة إن الوظيفة بتقف من غير أي رسالة خطأ.
+    //
+    // والحاجة الغريبة إن الـ100 ملصق **متطابقين حرف بحرف**. فبدل ما نبعت
+    // نفس الصورة 100 مرة، بنبعتها **مرة واحدة** ونقول للطابعة "اطبعها 100
+    // مرة" (خيار copies). ده اللي كل برامج الملصقات بتعمله:
+    //
+    //   قبل:  100 صورة × 10 كيلو = 1000 كيلو، ووظيفة من 100 صفحة
+    //   بعد:  صورة واحدة 10 كيلو، ووظيفة من صفحة واحدة
+    //
+    // ولو الملصقات مختلفة (سلة فيها أصناف)، كل صنف بياخد وظيفته بعدد نسخه.
+    const useCopies = !getPrintTweak('noCopies');
+    const progress = totalLabels > 20 ? showPrintProgress(totalLabels) : null;
+
+    if (useCopies) {
+      let done = 0;
+      try {
+        for (const job of list) {
+          const cfg = qz.configs.create(
+            printerName,
+            applyPrintTweaks(Object.assign(size ? { size, units: 'mm' } : {}, { copies: job.copies }))
+          );
+          await qz.print(cfg, [pageOf(job)]);
+          done += job.copies;
+          if (progress) progress.update(done);
+        }
+        if (progress) progress.close();
+        return true;
+      } catch (errCopies) {
+        // لو التعريف مش بيدعم عدد النسخ، بنرجع للطريقة القديمة (صفحة لكل
+        // ملصق) بدل ما المستخدم يخرج من غير ملصقات.
+        console.warn('عدد النسخ مانفعش — بنرجع لصفحة لكل ملصق:', errCopies);
+      }
+    }
+
+    const pages = [];
+    for (const job of list) {
+      const page = pageOf(job);
       for (let i = 0; i < job.copies; i++) pages.push(page);
     }
 
@@ -5287,9 +5352,6 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     }
     if (bucket.length) perMessage.push(bucket);
 
-    // شريط تقدّم للطبعات الكبيرة: من غيره المستخدم بيفتكر إن مفيش حاجة
-    // بتحصل ويضغط تاني، فيطلع الضعف.
-    const progress = pages.length > 20 ? showPrintProgress(pages.length) : null;
     let done = 0;
     try {
       for (const chunk of perMessage) {
