@@ -3441,6 +3441,14 @@ function legacyQRDataURL(text, sizePx) {
 const PRINTER_DPI = 203; // Xprinter XP-233B وأغلب الطابعات الحرارية
 const mmToDots = (mm) => (mm * PRINTER_DPI) / 25.4;
 
+// مقاس الملصق بنقط الطابعة — 38×25 مم = 304×200 نقطة
+function labelDots(sizeOptions) {
+  return {
+    w: Math.round(mmToDots(sizeOptions.pageWidthMm)),
+    h: Math.round(mmToDots(sizeOptions.pageHeightMm)),
+  };
+}
+
 // بتدوّر على أكبر حجم خط بيخلّي النص يدخل في عدد السطور المسموح —
 // **بنفس الـcontext اللي هيرسم**، فالقياس مطابق للرسم 100%.
 function fitCanvasFont(ctx, text, maxW, maxLines, weight, family, capPx) {
@@ -3758,12 +3766,42 @@ function wrapImageLabelHTML(dataUrl, sizeOptions, copies) {
         body { width: ${pageWidthMm}mm; }
         .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; ${printAlignCSS()} }
         .label + .label { page-break-before: always; break-before: page; }
-        /* image-rendering: pixelated مهمة: من غيرها المتصفح بينعّم حروف
-           مربعات الـQR وقت التكبير، والقارئ بيتوه. */
         .label img { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; display: block; image-rendering: pixelated; }
       </style>
     </head>
     <body>${one.repeat(copyCount)}</body>
+    </html>
+  `;
+}
+
+// ============================================================
+// 🔍 نسخة المعاينة — بمقاس بكسلات الصورة الحقيقي
+// ============================================================
+// ⚠️ ليه دي موجودة أصلًا؟
+//
+// المعاينة كانت بتوري الصورة **منغمشة** حتى لما الملصق المطبوع يطلع نضيف.
+// السبب مش في الصورة، السبب في طريقة عرضها:
+//
+//   الصورة الحقيقية    = 304 بكسل عرض
+//   المتصفح بيعرضها بـ 38 مم = 143.6 بكسل   ← بيرمي نص البكسلات!
+//   وبعدين المعاينة بتكبّر اللي فضل 12 ضعف   ← بتكبّر التلف
+//
+// يعني كنا بنضيّع نص الصورة وبعدين نضخّم الباقي. الحل إن المعاينة تعرض
+// الصورة **بمقاسها الحقيقي بالبكسل** وتكبّرها من غير ما ترميها الأول.
+function wrapImageLabelPreviewHTML(dataUrl, widthPx, heightPx) {
+  return `
+    <!doctype html>
+    <html dir="ltr" lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>معاينة</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { width: ${widthPx}px; height: ${heightPx}px; background: #fff; }
+        img { width: ${widthPx}px; height: ${heightPx}px; display: block; image-rendering: pixelated; }
+      </style>
+    </head>
+    <body><img src="${dataUrl}" alt=""></body>
     </html>
   `;
 }
@@ -3918,10 +3956,11 @@ async function buildItemLabel(cat, sizeOptions, copies) {
     const png = renderLabelPNG(cat, sizeOptions);
     if (png) {
       return {
-        previewHTML: wrapImageLabelHTML(png, sizeOptions, 1),
+        previewHTML: wrapImageLabelPreviewHTML(png, labelDots(sizeOptions).w, labelDots(sizeOptions).h),
         jobHTML: wrapImageLabelHTML(png, sizeOptions, 1),
         fallbackHTML: wrapImageLabelHTML(png, sizeOptions, copies),
         image: png,
+        previewPx: labelDots(sizeOptions),
       };
     }
   }
@@ -3941,7 +3980,12 @@ async function printLabel(cat, sizeOptions) {
 
   // المعاينة بتوري لاصقة واحدة بس (مفيش فايدة من عرض 20 نسخة متطابقة)،
   // واللي بيتطبع فعلًا هو العدد اللي طلبته.
-  const approved = await showPrintPreview(built.previewHTML, sizeOptions, copies);
+  // previewPx بتقول للمعاينة تعرض الصورة بمقاسها الحقيقي بالبكسل
+  const approved = await showPrintPreview(
+    built.previewHTML,
+    { ...sizeOptions, previewPx: built.previewPx },
+    copies
+  );
   if (!approved) return;
 
   // لكل نسخة صفحة مستقلة (مصفوفة) عشان QZ ما يحشرهمش في لاصقة واحدة،
@@ -4165,15 +4209,26 @@ async function printGradeLabels(cat, sizeOptions) {
   const buildOne = (label, copies) => {
     if (useImage) {
       const png = renderGradeLabelPNG(cat.name, label, sizeOptions);
-      if (png) return { html: wrapImageLabelHTML(png, sizeOptions, copies), image: png };
+      if (png) {
+        const d = labelDots(sizeOptions);
+        return {
+          html: wrapImageLabelHTML(png, sizeOptions, copies),
+          preview: wrapImageLabelPreviewHTML(png, d.w, d.h),
+          image: png,
+        };
+      }
     }
-    return { html: buildGradeLabelHTML(cat.name, label, sizeOptions, copies), image: null };
+    return { html: buildGradeLabelHTML(cat.name, label, sizeOptions, copies), preview: null, image: null };
   };
 
   // المعاينة بتوري أول درجة محدّدة كنموذج
   const first = buildOne(gradeDisplayName(picks[0].grade), 1);
   const total = picks.reduce((s, p) => s + p.qty, 0);
-  const approved = await showPrintPreview(first.html, sizeOptions, total);
+  const approved = await showPrintPreview(
+    first.preview || first.html,
+    { ...sizeOptions, previewPx: first.image ? labelDots(sizeOptions) : null },
+    total
+  );
   if (!approved) return;
 
   // كل لاصقة صفحة مستقلة عند QZ (مصفوفة)، عشان ما يحشرش أكتر من واحدة
@@ -4336,9 +4391,20 @@ function showPrintPreview(html, sizeOptions, copies) {
     // المساحة المتاحة وسقف التكبير على الشاشات الكبيرة.
     const boxW = Math.min(window.innerWidth - 80, isNarrow ? 320 : 820);
     const PX_PER_MM = 3.7795;
-    const zoom = Math.min(boxW / (sizeOptions.pageWidthMm * PX_PER_MM), isNarrow ? 4 : 12);
-    const shownW = sizeOptions.pageWidthMm * PX_PER_MM * zoom;
-    const shownH = sizeOptions.pageHeightMm * PX_PER_MM * zoom;
+
+    // ⚠️ الملصق المرسوم كصورة بيتعرض **بمقاسه الحقيقي بالبكسل**، مش
+    // بالملليمتر. السبب: 38 مم في المتصفح = 143.6 بكسل، والصورة أصلها 304
+    // بكسل — فالعرض بالملليمتر كان بيرمي نص الصورة وبعدين المعاينة تكبّر
+    // اللي فضل، فالكلام كان بيبان منغمش وهو أصلًا نضيف.
+    const px = sizeOptions.previewPx;
+    const frameW = px ? px.w : sizeOptions.pageWidthMm * PX_PER_MM;
+    const frameH = px ? px.h : sizeOptions.pageHeightMm * PX_PER_MM;
+    const frameCSS = px
+      ? `width:${px.w}px; height:${px.h}px;`
+      : `width:${sizeOptions.pageWidthMm}mm; height:${sizeOptions.pageHeightMm}mm;`;
+    const zoom = Math.min(boxW / frameW, isNarrow ? 4 : 12);
+    const shownW = frameW * zoom;
+    const shownH = frameH * zoom;
     const jobList = normalizePrintJobs(html);
     const pages = jobList.reduce((n, j) => n + j.copies, 0) || 1;
     const previewHTML = jobList.length ? jobList[0].html : '';
@@ -4359,8 +4425,7 @@ function showPrintPreview(html, sizeOptions, copies) {
                     border:1px solid var(--border); background:#fff; overflow:hidden;
                     position:relative; direction:ltr;">
           <iframe id="preview-frame" scrolling="no"
-                  style="position:absolute; top:0; left:0;
-                         width:${sizeOptions.pageWidthMm}mm; height:${sizeOptions.pageHeightMm}mm; border:0;
+                  style="position:absolute; top:0; left:0; ${frameCSS} border:0;
                          transform:scale(${zoom}); transform-origin:top left; display:block;"></iframe>
         </div>
         <div style="font-size:11px; color:var(--text-secondary); margin-bottom:12px;">
@@ -5337,34 +5402,29 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     // ما نعتمدش على سلوك مش متأكدين منه في نسخة QZ اللي على الجهاز.
     // الإعدادات الأساسية زي ما هي بالظبط، وفوقها المفاتيح المفتوحة على
     // الجهاز ده (كلهم مقفولين افتراضيًا فالسلوك مايتغيّرش).
-    // ------------------------------------------------------------
-    // ⭐ إعدادات الطباعة **مثبّتة في النظام** — مش بتتظبط على كل جهاز
-    // ------------------------------------------------------------
-    // إحنا بنرسم الملصق كصورة بمقاس نقط الطابعة بالظبط (304×200 نقطة).
-    // فالمطلوب من QZ حاجة واحدة: **يحطها على الورق زي ما هي من غير ما
-    // يلمسها**. الإعدادات دي هي اللي بتقول له كده:
+    // ============================================================
+    // ⛔⛔ إعداد الطباعة — **متزوّدش عليه حاجة**
+    // ============================================================
+    // الإعداد ده (المقاس والوحدة وبس) هو اللي شغّال ومُجرّب على طابعة
+    // حقيقية في المحل. أي خيار زيادة اتحط هنا من غير تجربة على ورق =
+    // مخاطرة بإن الطباعة تقف تمامًا.
     //
-    //   scaleContent: false    → ماتكبّرش الصورة عشان تملا الصفحة.
-    //                            التكبير بيعيد حساب البكسلات، وده اللي
-    //                            كان بيخلّي الخط **منغمش ومش واضح**.
-    //   density: 203           → ارسم بنفس دقة الطابعة، فكل نقطة في
-    //                            الصورة = نقطة في الطابعة، واحد لواحد.
-    //   interpolation: nearest → لو اضطر يغيّر الحجم، ماينعّمش الحواف.
-    //   colorType: blackwhite  → الحرارية مفيهاش رمادي أصلًا.
+    // 📌 ده حصل فعلًا في v0.28.2 وطلّع **ملصقات فاضية**:
     //
-    // ⚠️ الإعدادات دي بتشتغل **لوحدها على كل جهاز** بمجرد تحديث النظام —
-    // مفيش حاجة تتظبط بالإيد على كل كمبيوتر.
-    const imageJob = list.some((j) => j.image);
-    const baseConfig = size ? { size, units: 'mm' } : {};
-    if (imageJob) {
-      baseConfig.scaleContent = false;
-      baseConfig.density = PRINTER_DPI;
-      baseConfig.interpolation = 'nearest-neighbor';
-      baseConfig.colorType = 'blackwhite';
-      baseConfig.rotation = 0;
-      baseConfig.margins = 0;
-    }
-    const config = qz.configs.create(printerName, applyPrintTweaks(baseConfig));
+    //   ضفنا density: 203 وإحنا فاكرين إنها "203 نقطة في البوصة".
+    //   لكن QZ بيفهم density **بوحدة الإعداد نفسه**، وإحنا حاطين
+    //   units: 'mm' — يعني اللي وصله كان "203 نقطة في **الملليمتر**"
+    //   = 5156 نقطة في البوصة. الطابعة حاولت ترسم صورة مستحيلة
+    //   وطلّعت ورق أبيض.
+    //
+    // القاعدة اللي اتعلمناها بالغالي: **الإعدادات مالهاش لازمة**. إحنا
+    // بنرسم الملصق كصورة جاهزة بمقاس نقط الطابعة بالظبط، فالمطلوب من QZ
+    // إنه يحطها على الورق وبس. أي خيار زيادة بيديله فرصة يتصرّف فيها.
+    //
+    // لو حد حابب يجرّب خيار جديد: المفاتيح المتقدمة في شاشة إعدادات
+    // الطابعة موجودة عشان كده بالظبط — تتفتح واحد واحد **على ورق حقيقي**،
+    // مش تتحط هنا افتراضيًا.
+    const config = qz.configs.create(printerName, applyPrintTweaks(size ? { size, units: 'mm' } : {}));
 
     // ------------------------------------------------------------
     // ⭐ كل اللاصقات في **أمر طباعة واحد** مش أمر لكل لاصقة
