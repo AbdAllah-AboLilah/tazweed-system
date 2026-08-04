@@ -65,7 +65,7 @@ function printScreenHTML() {
         </div>
         <div class="qty-cell">
           <button class="qty-btn" data-cart-dec="${i}">−</button>
-          <input class="qty-input" type="number" min="1" max="200" value="${escapeHTML(it.qty)}"
+          <input class="qty-input" type="number" min="1" max="1000" value="${escapeHTML(it.qty)}"
                  data-cart-qty="${i}" inputmode="numeric" />
           <button class="qty-btn" data-cart-inc="${i}">+</button>
         </div>
@@ -104,11 +104,11 @@ function printScreenHTML() {
 
 function addProductToPrintCart(product, qty) {
   state.printCart = state.printCart || [];
-  const add = Math.max(1, Math.min(200, Number(qty) || 1));
+  const add = Math.max(1, Math.min(MAX_LABEL_COPIES, Number(qty) || 1));
   const key = product.barcode || product.code || product.name;
   const found = state.printCart.find((it) => it.key === key);
   if (found) {
-    found.qty = Math.min(200, (found.qty || 0) + add);
+    found.qty = Math.min(MAX_LABEL_COPIES, (found.qty || 0) + add);
   } else {
     state.printCart.push({ key, product, qty: add });
   }
@@ -210,7 +210,7 @@ function attachPrintScreenEvents() {
   const changeQty = (i, next) => {
     const cart = state.printCart || [];
     if (!cart[i]) return;
-    cart[i].qty = Math.max(1, Math.min(200, next));
+    cart[i].qty = Math.max(1, Math.min(MAX_LABEL_COPIES, next));
     saveWorkState();
     render();
   };

@@ -26,7 +26,7 @@ function subscribeUsers() {
     (snap) => {
       state.users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       // الشاشة بترسم لوحدها من state — نفس منطق باقي الشاشات.
-      if (state.view === 'dashboard' && state.screen === 'users') render();
+      if (state.view === 'dashboard' && state.screen === 'users') renderFromData();
     },
     (err) => console.warn('تعذّر قراءة قائمة المستخدمين:', err)
   );

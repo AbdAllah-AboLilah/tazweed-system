@@ -20,7 +20,10 @@
 //
 // فالرسم بقى مربوط بإن النظام مفتوح، مش بشاشة معيّنة.
 function renderIfOpen() {
-  if (state.view === 'dashboard') render();
+  // ⚠️ renderFromData مش render: التبليغ ده جاي من السحابة، وممكن يوصل
+  // والمستخدم واقف بيكتب في خانة كمية. الرسم بيهدّ الخانة والكيبورد بيتقفل.
+  // (الشرح الكامل عند renderFromData في js/app.js)
+  if (state.view === 'dashboard') renderFromData();
 }
 
 // ------------------------------------------------------------
@@ -118,7 +121,7 @@ function startPresenceHeartbeat() {
       state.presence = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       // الحضور بيظهر في لوحة التحكم بس، وبيتحدّث كل 5 دقايق لكل مستخدم —
       // فمش منطقي يعيد رسم شاشة انت بتكتب فيها.
-      if (state.screen === 'home') render();
+      if (state.screen === 'home') renderFromData();
     },
     (err) => console.warn('تعذّر قراءة حالة المستخدمين:', err)
   );
@@ -301,7 +304,7 @@ async function computeStockTotals() {
     main += Number(g.mainQty) || 0;
   });
   state.stockTotals = { branch, main, grades: snap.size, at: new Date() };
-  render();
+  renderFromData();
 }
 
 
