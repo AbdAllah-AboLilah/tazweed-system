@@ -4797,6 +4797,10 @@ function printHTMLSilently(htmlContent) {
 // "بتاخد الأمر ومفيش حاجة بتتطبع".
 const QZ_MAX_MESSAGE_BYTES = 48 * 1024;
 
+// عدد الصفحات في وظيفة الطباعة الواحدة. الشرح الكامل عند مكان الاستخدام —
+// باختصار: الوظيفة الكبيرة بتقف في صمت، والصغيرة بتعدّي.
+const QZ_PAGES_PER_JOB = 5;
+
 // شريط تقدّم بسيط للطبعات الكبيرة.
 function showPrintProgress(total) {
   const box = document.createElement('div');
@@ -4931,17 +4935,16 @@ const PRINT_TWEAKS = [
     hint: 'الملصق دلوقتي بيتبعت كصورة مرسومة عندنا. افتح ده بس لو حصلت مشكلة',
     apply: () => {},
   },
-  {
-    key: 'noCopies',
-    label: '↩️ ابعت صفحة لكل ملصق',
-    hint: 'العدد دلوقتي بيتبعت للطابعة كـ"عدد نسخ". افتح ده لو الطابعة طبعت ملصق واحد بس',
-    apply: () => {},
-  },
 ];
 
 const PRINT_TWEAK_PREFIX = 'tazweed_qz_tweak_';
 
 function getPrintTweak(key) {
+  // المشترك الأول — نفس سبب الضبط: شكل الملصق واحد للمحل كله.
+  const shared = getSharedPrintSettings();
+  if (shared && shared.tweaks && typeof shared.tweaks === 'object' && typeof shared.tweaks[key] === 'boolean') {
+    return shared.tweaks[key];
+  }
   try {
     return localStorage.getItem(PRINT_TWEAK_PREFIX + key) === '1';
   } catch (err) {
@@ -4955,6 +4958,12 @@ function setPrintTweak(key, on) {
     else localStorage.removeItem(PRINT_TWEAK_PREFIX + key);
   } catch (err) {
     console.warn('تعذّر حفظ إعداد الطباعة:', err);
+  }
+  try {
+    const shared = getSharedPrintSettings() || {};
+    fireWrite(saveSharedPrintSettings({ tweaks: { ...(shared.tweaks || {}), [key]: !!on } }), 'إعدادات الطباعة');
+  } catch (err) {
+    console.warn('تعذّر حفظ الإعداد المشترك:', err);
   }
 }
 
@@ -4997,12 +5006,89 @@ function applyPrintTweaks(config) {
 // ⚠️ افتراضيًا كله أصفار → **مفيش أي CSS بيتضاف خالص**، فالطباعة بتطلع
 // نفس البايتات اللي كانت بتطلع قبل الميزة دي. ده مقصود: أي حاجة بنضيفها
 // على الطباعة لازم يكون ليها وضع "مطفي تمامًا".
+// ============================================================
+// ☁️ إعدادات الطباعة المشتركة — مرة واحدة لكل الأجهزة
+// ============================================================
+// ⚠️ ده تغيير في الفلسفة، اتطلب صراحة:
+//
+//   "مش عاوز اقعد اعدل في اعدادات الطباعة لكل جهاز. لو في اعدادات بخصوص
+//    طباعة الملصق تبقي علي كل الاجهزة مرة واحده بمجرد تحديث النظام."
+//
+// قبل كده ضبط الملصق كان محفوظ **على كل جهاز لوحده**، فكان لازم تظبطه
+// على كل كمبيوتر بإيدك. دلوقتي بيتحفظ في السحابة، وكل جهاز بياخده لوحده
+// أول ما يفتح.
+//
+// **اسم الطابعة بيفضل على الجهاز** — وده الصح: كل كمبيوتر ليه طابعته.
+// اللي بقى مشترك هو **شكل الملصق** بس.
+//
+// ولو النت مقطوع، الجهاز بيشتغل بآخر نسخة محفوظة عنده.
+const SHARED_PRINT_DOC = 'print';
+let sharedPrintSettings = null;
+let unsubPrintSettings = null;
+
+function subscribePrintSettings() {
+  if (unsubPrintSettings) unsubPrintSettings();
+  try {
+    unsubPrintSettings = db
+      .collection('settings')
+      .doc(SHARED_PRINT_DOC)
+      .onSnapshot(
+        (snap) => {
+          sharedPrintSettings = snap.exists ? snap.data() || {} : {};
+          try {
+            localStorage.setItem('tazweed_shared_print', JSON.stringify(sharedPrintSettings));
+          } catch (err) {
+            /* التخزين المحلي ممكن يكون مقفول — مش مشكلة */
+          }
+        },
+        (err) => console.warn('تعذّر قراءة إعدادات الطباعة المشتركة:', err)
+      );
+  } catch (err) {
+    console.warn('تعذّر الاشتراك في إعدادات الطباعة المشتركة:', err);
+  }
+}
+
+function getSharedPrintSettings() {
+  if (sharedPrintSettings) return sharedPrintSettings;
+  try {
+    const raw = localStorage.getItem('tazweed_shared_print');
+    if (raw) return JSON.parse(raw);
+  } catch (err) {
+    /* تجاهل */
+  }
+  return null;
+}
+
+async function saveSharedPrintSettings(patch) {
+  const next = { ...(getSharedPrintSettings() || {}), ...patch };
+  sharedPrintSettings = next;
+  try {
+    localStorage.setItem('tazweed_shared_print', JSON.stringify(next));
+  } catch (err) {
+    /* تجاهل */
+  }
+  return db
+    .collection('settings')
+    .doc(SHARED_PRINT_DOC)
+    .set({ ...next, updatedByUid: state.user ? state.user.uid : '', updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+}
+
 const PRINT_ALIGN_KEY = 'tazweed_print_align';
 const PRINT_ALIGN_LIMIT_MM = 6; // أكتر من كده يبقى مقاس الملصق نفسه غلط، مش زحلقة
 const PRINT_SHRINK_LIMIT = 20; // %
 
 function getPrintAlign() {
   const empty = { x: 0, y: 0, shrink: 0 };
+  // المشترك الأول: الضبط بقى واحد للمحل كله.
+  const shared = getSharedPrintSettings();
+  if (shared && shared.align && typeof shared.align === 'object') {
+    return {
+      x: clampNum(shared.align.x, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
+      y: clampNum(shared.align.y, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
+      shrink: clampNum(shared.align.shrink, 0, PRINT_SHRINK_LIMIT),
+    };
+  }
+  // مفيش مشترك لسه → نستخدم اللي متحفّظ على الجهاز (الحسابات القديمة).
   try {
     const raw = localStorage.getItem(PRINT_ALIGN_KEY);
     if (!raw) return empty;
@@ -5028,6 +5114,13 @@ function savePrintAlign(align) {
     else localStorage.setItem(PRINT_ALIGN_KEY, JSON.stringify(clean));
   } catch (err) {
     console.warn('تعذّر حفظ ضبط مكان الطباعة:', err);
+  }
+
+  // ⭐ والأهم: بيتحفظ في السحابة كمان، فكل الأجهزة بتاخده لوحدها.
+  try {
+    fireWrite(saveSharedPrintSettings({ align: { x: clampNum(align.x, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM), y: clampNum(align.y, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM), shrink: clampNum(align.shrink, 0, PRINT_SHRINK_LIMIT) } }), 'ضبط مكان الطباعة');
+  } catch (err) {
+    console.warn('تعذّر حفظ الضبط المشترك:', err);
   }
 }
 
@@ -5244,7 +5337,34 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     // ما نعتمدش على سلوك مش متأكدين منه في نسخة QZ اللي على الجهاز.
     // الإعدادات الأساسية زي ما هي بالظبط، وفوقها المفاتيح المفتوحة على
     // الجهاز ده (كلهم مقفولين افتراضيًا فالسلوك مايتغيّرش).
-    const config = qz.configs.create(printerName, applyPrintTweaks(size ? { size, units: 'mm' } : {}));
+    // ------------------------------------------------------------
+    // ⭐ إعدادات الطباعة **مثبّتة في النظام** — مش بتتظبط على كل جهاز
+    // ------------------------------------------------------------
+    // إحنا بنرسم الملصق كصورة بمقاس نقط الطابعة بالظبط (304×200 نقطة).
+    // فالمطلوب من QZ حاجة واحدة: **يحطها على الورق زي ما هي من غير ما
+    // يلمسها**. الإعدادات دي هي اللي بتقول له كده:
+    //
+    //   scaleContent: false    → ماتكبّرش الصورة عشان تملا الصفحة.
+    //                            التكبير بيعيد حساب البكسلات، وده اللي
+    //                            كان بيخلّي الخط **منغمش ومش واضح**.
+    //   density: 203           → ارسم بنفس دقة الطابعة، فكل نقطة في
+    //                            الصورة = نقطة في الطابعة، واحد لواحد.
+    //   interpolation: nearest → لو اضطر يغيّر الحجم، ماينعّمش الحواف.
+    //   colorType: blackwhite  → الحرارية مفيهاش رمادي أصلًا.
+    //
+    // ⚠️ الإعدادات دي بتشتغل **لوحدها على كل جهاز** بمجرد تحديث النظام —
+    // مفيش حاجة تتظبط بالإيد على كل كمبيوتر.
+    const imageJob = list.some((j) => j.image);
+    const baseConfig = size ? { size, units: 'mm' } : {};
+    if (imageJob) {
+      baseConfig.scaleContent = false;
+      baseConfig.density = PRINTER_DPI;
+      baseConfig.interpolation = 'nearest-neighbor';
+      baseConfig.colorType = 'blackwhite';
+      baseConfig.rotation = 0;
+      baseConfig.margins = 0;
+    }
+    const config = qz.configs.create(printerName, applyPrintTweaks(baseConfig));
 
     // ------------------------------------------------------------
     // ⭐ كل اللاصقات في **أمر طباعة واحد** مش أمر لكل لاصقة
@@ -5288,29 +5408,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     //   بعد:  صورة واحدة 10 كيلو، ووظيفة من صفحة واحدة
     //
     // ولو الملصقات مختلفة (سلة فيها أصناف)، كل صنف بياخد وظيفته بعدد نسخه.
-    const useCopies = !getPrintTweak('noCopies');
-    const progress = totalLabels > 20 ? showPrintProgress(totalLabels) : null;
-
-    if (useCopies) {
-      let done = 0;
-      try {
-        for (const job of list) {
-          const cfg = qz.configs.create(
-            printerName,
-            applyPrintTweaks(Object.assign(size ? { size, units: 'mm' } : {}, { copies: job.copies }))
-          );
-          await qz.print(cfg, [pageOf(job)]);
-          done += job.copies;
-          if (progress) progress.update(done);
-        }
-        if (progress) progress.close();
-        return true;
-      } catch (errCopies) {
-        // لو التعريف مش بيدعم عدد النسخ، بنرجع للطريقة القديمة (صفحة لكل
-        // ملصق) بدل ما المستخدم يخرج من غير ملصقات.
-        console.warn('عدد النسخ مانفعش — بنرجع لصفحة لكل ملصق:', errCopies);
-      }
-    }
+    const progress = totalLabels > 10 ? showPrintProgress(totalLabels) : null;
 
     const pages = [];
     for (const job of list) {
@@ -5337,20 +5435,22 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     //
     // فبقينا نقيس الحجم الحقيقي ونقسّم عليه. والحد اللي اخترناه (48 كيلو)
     // أقل بكتير من أي حد معروف، فالرسالة بتعدّي مهما كانت نسخة QZ.
+    // ⚠️⚠️ وظايف **صغيرة**، مش وظيفة واحدة كبيرة.
+    //
+    // ده سبب "الأمر مايوصلش للطابعة" لما تطلب 100 ملصق. الوظيفة اللي فيها
+    // 100 صفحة بيتبني منها ملف طباعة ضخم، وبيقف عند الويندوز أو عند
+    // الطابعة **من غير أي رسالة خطأ**.
+    //
+    // جرّبنا نصغّر الرسالة، وجرّبنا نبعت العدد كـ"عدد نسخ" — والاتنين
+    // مانفعوش. فبقينا نبعت **وظايف صغيرة ورا بعض**: كل وظيفة فيها
+    // QZ_PAGES_PER_JOB صفحة بس. الطابعة بتخلّص وظيفة وتاخد اللي بعدها،
+    // وكل واحدة صغيرة لدرجة إنها مستحيل تتخنق.
+    //
+    // أبطأ شوية من وظيفة واحدة — بس بتطبع فعلًا، وده اللي يهم.
     const perMessage = [];
-    let bucket = [];
-    let bucketBytes = 0;
-    for (const page of pages) {
-      const bytes = page.data.length;
-      if (bucket.length && bucketBytes + bytes > QZ_MAX_MESSAGE_BYTES) {
-        perMessage.push(bucket);
-        bucket = [];
-        bucketBytes = 0;
-      }
-      bucket.push(page);
-      bucketBytes += bytes;
+    for (let i = 0; i < pages.length; i += QZ_PAGES_PER_JOB) {
+      perMessage.push(pages.slice(i, i + QZ_PAGES_PER_JOB));
     }
-    if (bucket.length) perMessage.push(bucket);
 
     let done = 0;
     try {
@@ -5445,10 +5545,9 @@ async function openPrinterSettings() {
         <div id="copy-box" style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px; display:none;">
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">📥 انسخ الإعدادات من جهاز تاني</div>
           <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
-            بدل ما تعيد الضبط والمعايرة على كل كمبيوتر من الأول، انسخهم من
-            جهاز مظبوط خلاص.
-            <br>• بينسخ: <strong>ضبط مكان الطباعة</strong> و<strong>الإعدادات المتقدمة</strong>
-            <br>• واختيار الطابعة كمان — <strong>لو</strong> نفس اسم الطابعة موجود على الجهاز ده
+            ☁️ ضبط الملصق بقى <strong>مشترك تلقائيًا</strong> بين كل الأجهزة،
+            فمش محتاج تنسخه. القسم ده باقي لحاجة واحدة بس:
+            <br>• <strong>اختيار الطابعة</strong> — لو نفس اسم الطابعة موجود على الجهاز ده
             <br>• <strong>مابينسخش اسم الجهاز</strong> — كل جهاز لازم يفضل باسمه
           </div>
           <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap;">
@@ -5467,7 +5566,7 @@ async function openPrinterSettings() {
           <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
             اطبع <strong>إطار تجربة</strong> بمقاس الملصق، وبُص هو طالع فين
             على الورق. لو مزحلق، حرّكه بالعكس بالأزرار وجرّب تاني.
-            <br>• الأرقام محفوظة <strong>على الجهاز ده</strong> وبتتطبّق على كل ملصق
+            <br>• ☁️ الأرقام دي بتتحفظ <strong>لكل الأجهزة مرة واحدة</strong> — مش محتاج تظبطها على كل كمبيوتر
             <br>• الأصفار = الطباعة زي ما هي بالظبط
           </div>
 
@@ -5515,10 +5614,11 @@ async function openPrinterSettings() {
         <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">🧪 إعدادات متقدمة — للتجربة</div>
           <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
-            كلهم مقفولين، والطباعة شغّالة زي ما هي بالظبط. لو الملصق بيطلع
-            غلط على الجهاز ده، افتح <strong>واحد بس</strong> وجرّب — لحد ما
-            تلاقي اللي بيظبّط. الاختيارات دي محفوظة <strong>على الجهاز ده
-            وحده</strong>.
+            <strong>مش محتاجها في الوضع العادي.</strong> إعدادات الملصق
+            الصح مظبوطة جوه النظام وبتشتغل لوحدها على كل جهاز.
+            <br>المفاتيح دي للتجربة بس لو حصلت مشكلة — افتح
+            <strong>واحد بس</strong> وجرّب. وهي كمان
+            <strong>☁️ بتتحفظ لكل الأجهزة</strong>.
           </div>
           ${PRINT_TWEAKS.map(
             (t) => `
@@ -6304,6 +6404,7 @@ function init() {
       // موظف الطباعة مايحتاجش اشتراكات المخزن (فئات/نواقص/سجل) — شاشته
       // بتقرا الأصناف بس. لكنه محتاج أجهزة الطباعة عشان يقدر يبعت للكاشير.
       if (isPrintOperator(state.profile)) {
+        subscribePrintSettings();
         subscribePrintStations();
         subscribePrintJobs();
         startStationHeartbeat();
@@ -6320,6 +6421,7 @@ function init() {
 
       // أي جهاز (مش أمين مخزن بس) ممكن يبقى نقطة طباعة، طالما عليه
       // QZ Tray وطابعة محفوظة — لأن الطابعات كلها في مكتب الكاشير.
+      subscribePrintSettings();
       subscribePrintStations();
       subscribePrintJobs();
       startStationHeartbeat();

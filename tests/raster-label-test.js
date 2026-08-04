@@ -81,8 +81,10 @@ const NAMES = ['Chanvie Leen 58047','طباقيه كويتى كباسين','Qian
   check('⭐ بيتبعت كصورة مش HTML', sent.formats.length === 1 && sent.formats[0] === 'image', sent.formats);
   check('الترميز base64', sent.flavors.length === 1 && sent.flavors[0] === 'base64', sent.flavors);
   check('البادئة data: اتشالت (QZ بيرفضها)', !sent.hasPrefix, sent);
-  check('⭐ 100 ملصق = صورة واحدة مش 100 (العدد بيروح كـcopies)', sent.pages === 1, sent);
-  check('⭐ عدد النسخ اتبعت للطابعة', sent.copies === 100, sent);
+  // من v0.28.2: وظايف صغيرة ورا بعض بدل وظيفة واحدة كبيرة — ده اللي
+  // خلّى "الأمر مايوصلش للطابعة" يختفي.
+  check('⭐ 100 ملصق اتبعتوا كلهم', sent.pages === 100, sent);
+  check('⭐ اتقسّموا على وظايف صغيرة (5 صفحات للوظيفة)', sent.messages === 20, sent);
   check('⭐ مفيش رسالة عدّت الحد', sent.maxBytes <= sent.limit, sent);
 
   // ---------- الرجوع لصفحة لكل ملصق ----------

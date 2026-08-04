@@ -61,7 +61,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   });
   check('كله مقفول = الإعداد زي ما هو بالظبط',
     JSON.stringify(tweaks.off) === JSON.stringify({ size: { width: 38, height: 25 }, units: 'mm' }), tweaks.off);
-  check('6 مفاتيح', tweaks.count === 6, tweaks.keys);
+  check('5 مفاتيح', tweaks.count === 5, tweaks.keys);
   check('كله مفتوح = الأربعة اتطبقوا',
     tweaks.allOn.scaleContent === false && tweaks.allOn.colorType === 'blackwhite'
     && tweaks.allOn.interpolation === 'nearest-neighbor' && tweaks.allOn.rasterize === true, tweaks.allOn);
@@ -120,7 +120,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     document.getElementById('qz-settings-close').click();
     return out;
   });
-  check('الست مفاتيح ظاهرين في الشاشة', ui.tweakBoxes.length === 6, ui);
+  check('الخمس مفاتيح ظاهرين في الشاشة', ui.tweakBoxes.length === 5, ui);
   check('كلهم مقفولين افتراضيًا', ui.allUnchecked, ui);
   check('زرار المعايرة وبيانات الطابعات موجودين', ui.hasCalBtn && ui.hasDetails, ui);
   check('المقاسات الافتراضية 38×25 وفراغ 2', ui.defaults.w === '38' && ui.defaults.h === '25' && ui.defaults.gap === '2', ui.defaults);
@@ -128,7 +128,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
   // ---------- ضبط مكان الطباعة (الإطار) ----------
   const align = await p.evaluate(() => {
-    localStorage.removeItem('tazweed_print_align');
+    savePrintAlign({ x: 0, y: 0, shrink: 0 });
     const zero = { css: printAlignCSS(), val: getPrintAlign() };
 
     savePrintAlign({ x: 0.6, y: -0.4, shrink: 5 });
@@ -142,10 +142,10 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     savePrintAlign({ x: 'abc', y: null, shrink: undefined });
     const junk = getPrintAlign();
 
-    localStorage.setItem('tazweed_print_align', '{{{ مش JSON');
+    localStorage.setItem('tazweed_shared_print', '{}'); localStorage.setItem('tazweed_print_align', '{{{ مش JSON');
     const broken = getPrintAlign();
 
-    localStorage.removeItem('tazweed_print_align');
+    savePrintAlign({ x: 0, y: 0, shrink: 0 });
     return { zero, set, clamped, junk, broken };
   });
   check('الأصفار = مفيش أي CSS بيتضاف', align.zero.css === '', align.zero);
@@ -163,7 +163,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const opts = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
     const cat = { itemName: 'كريب', barcodeNumber: '28144', sellingPrice: 85 };
 
-    localStorage.removeItem('tazweed_print_align');
+    savePrintAlign({ x: 0, y: 0, shrink: 0 });
     const before = buildLabelHTML(cat, opts, url, 1);
     const gradeBefore = buildGradeLabelHTML('كريب', 'درجة 1', opts, 1);
 
@@ -172,7 +172,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const gradeAfter = buildGradeLabelHTML('كريب', 'درجة 1', opts, 1);
     const frame = buildFrameHTML(38, 25);
 
-    localStorage.removeItem('tazweed_print_align');
+    savePrintAlign({ x: 0, y: 0, shrink: 0 });
     const back = buildLabelHTML(cat, opts, url, 1);
 
     return {
@@ -211,7 +211,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
   // لوحة الاتجاهات في الشاشة
   const pad = await p.evaluate(async () => {
-    localStorage.removeItem('tazweed_print_align');
+    savePrintAlign({ x: 0, y: 0, shrink: 0 });
     state.profile = { name: 'x', role: 'owner' };
     window.getAvailableQZPrinters = () => Promise.resolve(['Xprinter XP-233B']);
     openPrinterSettings();
@@ -239,7 +239,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const ltr = getComputedStyle($('#align-pad')).direction;
     const hasFrameBtn = !!$('#align-frame');
     $('#qz-settings-close').click();
-    localStorage.removeItem('tazweed_print_align');
+    savePrintAlign({ x: 0, y: 0, shrink: 0 });
     return { start, right2, down1, up, stored, zeroed, clampedUI, ltr, hasFrameBtn };
   });
   check('الشاشة بتفتح على أصفار', pad.start.x === 0 && pad.start.y === 0 && pad.start.s === 0, pad.start);

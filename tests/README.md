@@ -57,7 +57,14 @@ node tests/label-names-test.js
 node tests/topbar-typing-test.js
 node tests/restock-print-test.js
 node tests/raster-label-test.js
+node tests/shared-print-test.js
 ```
+
+`shared-print-test.js` بيثبت إن ضبط الملصق **بيوصل لجهاز عمره ما اتظبط**:
+بيفتح صفحة جديدة تمامًا (سياق تخزين تاني = جهاز تاني فعليًا) ويتأكد إنها
+بتاخد الضبط والمفاتيح من نسخة السحابة من غير ما حد يلمسها. وبيتأكد كمان إن
+إعدادات الصورة المضمونة (`scaleContent: false` و`density: 203`) بتتبعت
+لوحدها، وإن الـ100 ملصق بيتقسّموا على وظايف من 5 صفحات.
 
 ## 5) فحص قراءة الباركود (الأهم قبل أي تعديل في الطباعة)
 
