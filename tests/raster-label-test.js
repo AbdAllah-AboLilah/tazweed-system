@@ -49,10 +49,10 @@ const NAMES = ['Chanvie Leen 58047','طباقيه كويتى كباسين','Qian
 
   // ---------- الصورة بتتبعت لـQZ كصورة مش HTML ----------
   const sent = await p.evaluate(async () => {
-    const msgs = [];
+    const msgs = [], cfgs = [];
     window.qz = {
       configs: { create: (n,o) => ({ printer:n, opts:o }) },
-      print: (cfg, data) => { msgs.push(data); return Promise.resolve(); },
+      print: (cfg, data) => { msgs.push(data); cfgs.push(cfg.opts || {}); return Promise.resolve(); },
       websocket: { connect: () => Promise.resolve() },
       security: { setCertificatePromise(){}, setSignatureAlgorithm(){}, setSignaturePromise(){} },
     };
@@ -74,13 +74,31 @@ const NAMES = ['Chanvie Leen 58047','طباقيه كويتى كباسين','Qian
       hasPrefix: all.some(pg => /^data:/.test(pg.data)),
       maxBytes: Math.max(...bytes), limit: QZ_MAX_MESSAGE_BYTES,
       perPage: all[0].data.length,
+      copies: cfgs.length ? cfgs[cfgs.length-1].copies : null,
+      totalKB: +(bytes.reduce((a,b)=>a+b,0)/1024).toFixed(1),
     };
   });
   check('⭐ بيتبعت كصورة مش HTML', sent.formats.length === 1 && sent.formats[0] === 'image', sent.formats);
   check('الترميز base64', sent.flavors.length === 1 && sent.flavors[0] === 'base64', sent.flavors);
   check('البادئة data: اتشالت (QZ بيرفضها)', !sent.hasPrefix, sent);
-  check('100 ملصق اتبعتوا كلهم', sent.pages === 100, sent);
+  check('⭐ 100 ملصق = صورة واحدة مش 100 (العدد بيروح كـcopies)', sent.pages === 1, sent);
+  check('⭐ عدد النسخ اتبعت للطابعة', sent.copies === 100, sent);
   check('⭐ مفيش رسالة عدّت الحد', sent.maxBytes <= sent.limit, sent);
+
+  // ---------- الرجوع لصفحة لكل ملصق ----------
+  const noCopies = await p.evaluate(async () => {
+    const msgs = [];
+    window.qz.print = (cfg, data) => { msgs.push(data); return Promise.resolve(); };
+    localStorage.setItem('tazweed_qz_tweak_noCopies', '1');
+    const built = await buildItemLabel({ itemName:'كريب', barcodeNumber:'12133', sellingPrice:85 },
+                                       { pageWidthMm:38, pageHeightMm:25, halves:2 }, 60);
+    await tryPrintViaQZ('label', [{ html: built.jobHTML, image: built.image, copies: 60 }],
+                        { pageWidthMm:38, pageHeightMm:25 });
+    localStorage.removeItem('tazweed_qz_tweak_noCopies');
+    return { pages: msgs.flat().length, messages: msgs.length };
+  });
+  check('المفتاح بيرجّع لصفحة لكل ملصق', noCopies.pages === 60, noCopies);
+  check('ولسه بيقسّم على رسايل بالحجم', noCopies.messages > 1, noCopies);
 
   // ---------- الصورة أخف من HTML ----------
   const weight = await p.evaluate(async () => {
