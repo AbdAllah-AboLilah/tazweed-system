@@ -429,7 +429,15 @@ function loginHTML() {
 
         <div class="field">
           <label for="password">كلمة المرور</label>
-          <input class="input" type="password" id="password" required />
+          <div style="position:relative;">
+            <input class="input" type="password" id="password" required
+                   style="padding-inline-start:42px;" autocomplete="current-password" />
+            <button type="button" id="toggle-password" title="إظهار كلمة المرور"
+                    aria-label="إظهار كلمة المرور"
+                    style="position:absolute; inset-inline-start:4px; top:50%; transform:translateY(-50%);
+                           background:none; border:0; cursor:pointer; font-size:16px; line-height:1;
+                           padding:6px 8px; color:var(--text-secondary);">👁️</button>
+          </div>
         </div>
 
         <div class="checkbox-row">
@@ -445,6 +453,23 @@ function loginHTML() {
 }
 
 function attachLoginEvents() {
+  // إظهار/إخفاء كلمة المرور. مفيدة بالذات على التليفون: الكيبورد بيخفي
+  // الحرف بعد جزء من الثانية، وباسورد غلط بيقفل الحساب مؤقتًا بعد كام
+  // محاولة — فالأحسن تشوف اللي كتبته.
+  const toggle = document.getElementById('toggle-password');
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      const pw = document.getElementById('password');
+      if (!pw) return;
+      const showing = pw.type === 'text';
+      pw.type = showing ? 'password' : 'text';
+      toggle.textContent = showing ? '👁️' : '🙈';
+      toggle.title = showing ? 'إظهار كلمة المرور' : 'إخفاء كلمة المرور';
+      toggle.setAttribute('aria-label', toggle.title);
+      pw.focus();
+    });
+  }
+
   const form = document.getElementById('login-form');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1520,9 +1545,11 @@ function attachDashboardEvents() {
   if (sideSearch) {
     let timer = null;
     sideSearch.addEventListener('input', () => {
+      // نفس القاعدة: نسجّل الحرف فورًا، ونأجّل الرسم بس. (الشرح الكامل في
+      // js/print-screen.js عند printResultsHTML)
+      state.categorySearch = sideSearch.value;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        state.categorySearch = sideSearch.value;
         render();
         const again = document.getElementById('side-search');
         if (again) {
@@ -3387,14 +3414,13 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const gapX = 0.8;
   const textW = pageWidthMm - qrBox - padX * 2 - gapX;
 
-  // اسم الصنف بيتقاس فعليًا: لو داخل في سطر واحد يبقى سطر، ولو أطول
-  // بيتقسم على سطرين بدل ما يتقطع بنقط (...) زي ما كان بيحصل.
-  const oneLineFit = fitFontSizeMm(name, textW, true);
-  const nameLines = oneLineFit >= 1.9 ? 1 : 2;
-  const totalLines = nameLines + 1 + (cat.sellingPrice ? 1 : 0);
-  const byHeight = contentH / (totalLines * LINE);
-
-  const nameSize = Math.min(byHeight, 2.7, nameLines === 1 ? oneLineFit : oneLineFit * 1.85);
+  // اسم الصنف: بنقيس التقسيم الحقيقي على سطر وعلى سطرين وناخد الأوضح.
+  // (قبل كده كنا بنخمّن ×1.85 والاسم كان بيتقطع بنقط "…")
+  const otherLines = 1 + (cat.sellingPrice ? 1 : 0); // الباركود + السعر
+  const layout = pickNameLayout(name, textW, contentH, LINE, otherLines, 2.7);
+  const nameLines = layout.lines;
+  const nameSize = layout.size;
+  const byHeight = contentH / ((nameLines + otherLines) * LINE);
   const codeSize = Math.min(byHeight, nameSize * 0.9);
 
   // سعر البيع هو أهم رقم على اللاصقة للزبون، فبياخد أكبر خط متاح في سطره.
@@ -3443,11 +3469,14 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
         }
         .qr { width: ${qrBox}mm; height: ${qrBox}mm; flex: 0 0 ${qrBox}mm; display: block; }
         .txt { flex: 1; min-width: 0; text-align: center; }
-        /* الاسم الطويل بيكمّل في سطر تحته بدل ما يتقطع بنقط */
+        /* ⚠️ مفيش -webkit-line-clamp هنا عن قصد.
+           هي اللي كانت بتحط "…" مكان باقي الاسم. دلوقتي حجم الخط متقاس
+           على التقسيم الحقيقي، فالاسم بيدخل كامل — ولو حصلت مفاجأة على
+           جهاز غريب، اسم متزنوق شوية أحسن من اسم ناقص. */
         .name {
           font-size: ${nameSize.toFixed(2)}mm; font-weight: bold;
           overflow-wrap: anywhere; word-break: break-word;
-          display: -webkit-box; -webkit-line-clamp: ${nameLines}; -webkit-box-orient: vertical;
+          max-height: ${(nameLines * LINE * nameSize).toFixed(2)}mm;
           overflow: hidden;
         }
         /* الرقم bold: على الطابعة الحرارية الخط الرفيع بيطلع باهت ومتقطّع،
@@ -3494,20 +3523,127 @@ async function printLabel(cat, sizeOptions) {
 // ملصق سعر. والاسم بيتاخد من **اسم الفئة بالعربي** (مش الاسم الإنجليزي
 // بتاع الكاشير).
 
-// بيقيس أكبر حجم خط يخلي النص يدخل في العرض المتاح، باستخدام قياس فعلي
-// من الـcanvas بدل ما نخمّن ونلاقي الاسم الطويل اتقطع على الطابعة.
-function fitFontSizeMm(text, maxWidthMm, bold) {
-  const PX_PER_MM = 3.7795;
-  const REF = 100; // بنقيس عند 100px ونحسب النسبة
-  try {
-    const ctx = document.createElement('canvas').getContext('2d');
-    ctx.font = `${bold ? 'bold ' : ''}${REF}px Tahoma, Arial, sans-serif`;
-    const widthAtRef = ctx.measureText(String(text || '')).width;
-    if (!widthAtRef) return maxWidthMm;
-    return ((maxWidthMm * PX_PER_MM) / widthAtRef) * REF / PX_PER_MM;
-  } catch (err) {
-    return maxWidthMm / Math.max(1, String(text || '').length) * 1.8;
+// ============================================================
+// قياس الخط — أكبر حجم يخلي النص **كامل** يدخل
+// ============================================================
+// ⚠️ درس اتعلمناه من ملصقات اتطبعت غلط فعلًا:
+//
+// الطريقة القديمة كانت بتقيس النص على **سطر واحد**، وبعدين لو مش داخل
+// بتقول "خلاص هينقسم سطرين" وتكبّر الخط ×1.85 — رقم متخمّن مبني على إن
+// الاسم هينقسم نصين متساويين.
+//
+// والعربي (والإنجليزي) مابينقسمش متساوي. "طباقيه كويتى كباسين" بتتقسم
+// "طباقيه كويتى" / "كباسين" — السطر الأول أطول من النص بكتير، فبيطلع بره
+// المساحة، والمتصفح بيقصّه ويحط "…" مكان باقي الاسم.
+//
+// الطريقة دي بتقيس **التقسيم الحقيقي**: بتجرّب حجم، تشوف النص بيتقسم كام
+// سطر فعليًا بالعرض المتاح، وتدوّر على أكبر حجم بيدخل في عدد السطور
+// المسموح. مفيش تخمين خالص.
+const FIT_REF_PX = 100; // بنقيس عند 100px ونحسب النسبة
+
+// هامش أمان 4%: القياس بيحصل في كروم بخط Tahoma، لكن اللي بيرسم الملصق
+// وقت الطباعة ممكن يكون محرك تاني بخط بديل مقاساته مختلفة شوية. الـ4% دي
+// بتستحمل الفرق ده — وده سبب "الاسم بيتاكل على جهاز تاني".
+const FIT_SAFETY = 0.96;
+
+function fitMeasureCtx(bold) {
+  const ctx = document.createElement('canvas').getContext('2d');
+  ctx.font = `${bold ? 'bold ' : ''}${FIT_REF_PX}px Tahoma, Arial, sans-serif`;
+  return ctx;
+}
+
+// بتحسب النص بياخد كام سطر لو عرض السطر = budget (بوحدات القياس المرجعية).
+// بتحاكي سلوك المتصفح: بيقسّم عند المسافات، ولو كلمة واحدة أطول من السطر
+// كله بيكسرها جوّه (عشان عندنا overflow-wrap: anywhere).
+function wrappedLineCount(wordWidths, spaceW, budget) {
+  if (!(budget > 0)) return Infinity;
+  let lines = 1;
+  let cur = 0;
+
+  for (let i = 0; i < wordWidths.length; i++) {
+    const w = wordWidths[i];
+    const add = cur === 0 ? w : spaceW + w;
+
+    if (cur + add <= budget) {
+      cur += add;
+      continue;
+    }
+
+    // الكلمة بتدخل سطر لوحدها → سطر جديد
+    if (w <= budget) {
+      lines++;
+      cur = w;
+      continue;
+    }
+
+    // كلمة أطول من السطر كله → بتتكسر جوّه على أكتر من سطر
+    if (cur > 0) lines++;
+    const full = Math.floor(w / budget);
+    lines += full - 1;
+    cur = w - full * budget;
+    if (cur === 0) cur = budget;
+    else lines++;
   }
+
+  return lines;
+}
+
+// أكبر حجم خط (مم) يخلي النص يدخل **كامل** في maxLines سطر بالعرض ده.
+function fitWrappedFontSizeMm(text, maxWidthMm, maxLines, bold) {
+  const str = String(text || '').trim();
+  const lines = Math.max(1, maxLines || 1);
+  if (!str) return maxWidthMm;
+
+  try {
+    const ctx = fitMeasureCtx(bold);
+    const words = str.split(/\s+/).filter(Boolean);
+    const wordWidths = words.map((w) => ctx.measureText(w).width);
+    const spaceW = ctx.measureText(' ').width;
+    const total = ctx.measureText(str).width;
+    if (!total) return maxWidthMm;
+
+    const usableMm = maxWidthMm * FIT_SAFETY;
+
+    // سطر واحد → معادلة مباشرة، مفيش داعي لأي بحث
+    const oneLine = (usableMm * FIT_REF_PX) / total;
+    if (lines === 1) return oneLine;
+
+    // أكتر من سطر: أكبر حجم ممكن نظريًا هو اللي بيملا كل السطور، وأقل
+    // حاجة هي حجم السطر الواحد. بنبحث بينهم عن أكبر واحد فعلًا بيدخل.
+    let lo = oneLine;
+    let hi = oneLine * lines;
+    // budget بوحدات القياس المرجعية عند حجم s (مم): usableMm * REF / s
+    const fits = (s) => wrappedLineCount(wordWidths, spaceW, (usableMm * FIT_REF_PX) / s) <= lines;
+    if (!fits(hi)) {
+      for (let i = 0; i < 24; i++) {
+        const mid = (lo + hi) / 2;
+        if (fits(mid)) lo = mid;
+        else hi = mid;
+      }
+      return lo;
+    }
+    return hi;
+  } catch (err) {
+    // آخر خط دفاع: تقدير خشن. أصغر من اللازم أحسن من أكبر — الأصغر
+    // بيطلع اسم كامل بخط صغير، والأكبر بيطلع اسم ناقص.
+    return (maxWidthMm * lines) / Math.max(1, str.length) * 1.6;
+  }
+}
+
+// بتختار بين "سطر واحد" و"سطرين" للاسم: بتحسب حجم الخط الناتج في
+// الحالتين وتاخد الأكبر.
+//
+// ليه مش دايمًا سطرين؟ لأن السطرين بياخدوا ارتفاع أكتر، فنصيب السطر
+// الواحد من الارتفاع بيقل. الاسم القصير بيطلع أكبر وأوضح في سطر واحد.
+function pickNameLayout(name, widthMm, contentH, lineHeight, otherLines, capMm) {
+  let best = { lines: 1, size: 0 };
+  for (let lines = 1; lines <= 2; lines++) {
+    const byHeight = contentH / ((lines + otherLines) * lineHeight);
+    const byWidth = fitWrappedFontSizeMm(name, widthMm, lines, true);
+    const size = Math.min(byHeight, byWidth, capMm || Infinity);
+    if (size > best.size) best = { lines, size };
+  }
+  return best;
 }
 
 // gradeLabel = النص اللي هيتكتب في السطر التاني: "درجة 56" للدرجات
@@ -3528,12 +3664,11 @@ function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
 
   // اسم الفئة الطويل بيتقسم على سطرين بدل ما يتقطع أو يخرج بره اللاصقة.
   const LINE = 1.2;
-  const oneLineFit = fitFontSizeMm(line1, availableW, true);
-  const nameLines = oneLineFit >= 2.4 ? 1 : 2;
+  const layout = pickNameLayout(line1, availableW, availableH, LINE, 1, null);
+  const nameLines = layout.lines;
+  const size1 = layout.size;
   const byHeight = availableH / ((nameLines + 1) * LINE);
-
-  const size1 = Math.min(byHeight, nameLines === 1 ? oneLineFit : oneLineFit * 1.85);
-  const size2 = Math.min(byHeight, fitFontSizeMm(line2, availableW, true));
+  const size2 = Math.min(byHeight, fitWrappedFontSizeMm(line2, availableW, 1, true));
 
   const halfHTML = `
       <div class="half">
@@ -3561,10 +3696,11 @@ function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
           text-align: center; overflow: hidden;
         }
         .l1, .l2 { font-weight: bold; line-height: ${LINE}; }
+        /* ⚠️ مفيش -webkit-line-clamp — شوف الشرح في ملصق الصنف فوق. */
         .l1 {
           font-size: ${size1.toFixed(2)}mm;
           overflow-wrap: anywhere; word-break: break-word;
-          display: -webkit-box; -webkit-line-clamp: ${nameLines}; -webkit-box-orient: vertical;
+          max-height: ${(nameLines * LINE * size1).toFixed(2)}mm;
           overflow: hidden;
         }
         .l2 { white-space: nowrap; }
@@ -5050,63 +5186,102 @@ async function openPrinterSettings() {
 }
 
 // ============================================================
+// ⚡ قراءة الدرجة من الذاكرة — مش من السحابة
+// ============================================================
+// ⚠️ ده كان أهم سبب لبطء الأزرار.
+//
+// كل زرار (تزويد، +، −، خلصت) كان بيبدأ بـ `await gradeRef.get()` — يعني
+// **يروح للسحابة ويستنى الرد** قبل ما يعمل أي حاجة. على نت بطيء ده ثانية
+// أو اتنين، وانت بتضغط 5 مرات ورا بعض فبتحس إن الزرار "بيسمع مرة وبعدين
+// يقف".
+//
+// والغريب إننا مش محتاجين السحابة أصلًا: النظام مشترك في استماع مباشر على
+// درجات الفئة المفتوحة، فالبيانات **قدامنا في state.grades** ومتحدّثة أول
+// بأول. القراءة من الذاكرة فورية، وبتشتغل وانت **قافل النت**.
+//
+// السحابة بتفضل احتياطي للحالة الوحيدة اللي الدرجة مش فيها الذاكرة (فئة
+// مش مفتوحة دلوقتي).
+function gradeFromState(categoryId, gradeId) {
+  if (categoryId !== state.activeCategoryId) return null;
+  const g = (state.grades || []).find((x) => x.id === gradeId);
+  return g ? { ...g } : null;
+}
+
+async function readGrade(categoryId, gradeId) {
+  const local = gradeFromState(categoryId, gradeId);
+  if (local) return local;
+  const snap = await db.collection('categories').doc(categoryId).collection('grades').doc(gradeId).get();
+  return snap.exists ? { id: snap.id, ...snap.data() } : null;
+}
+
+function gradeRefOf(categoryId, gradeId) {
+  return db.collection('categories').doc(categoryId).collection('grades').doc(gradeId);
+}
+
+// ============================================================
 // نظام النواقص: طلب تزويد → رد أمين المخزن الرئيسي
 // ============================================================
 async function requestShortage(gradeId) {
-  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
-  const snap = await gradeRef.get();
+  const categoryId = state.activeCategoryId;
+  const data = await readGrade(categoryId, gradeId);
+  if (!data) return;
+  const gradeRef = gradeRefOf(categoryId, gradeId);
   fireWrite(gradeRef.update({ status: 'pending' }), 'طلب تزويد');
   pushUndo({
-    label: `${gradeDisplayName(snap.data())} — طلب تزويد`,
-    categoryId: state.activeCategoryId,
+    label: `${gradeDisplayName(data)} — طلب تزويد`,
+    categoryId,
     gradeId,
-    gradeLabel: gradeDisplayName(snap.data()),
-    before: { status: snap.data().status || 'normal' },
+    gradeLabel: gradeDisplayName(data),
+    before: { status: data.status || 'normal' },
     after: { status: 'pending' },
   });
-  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({
     action: 'request_shortage',
-    categoryId: state.activeCategoryId,
+    categoryId,
     categoryName,
     gradeId,
-    gradeNumber: snap.data().number,
+    gradeNumber: data.number,
   });
 }
 
 async function cancelShortage(gradeId) {
-  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
-  const snap = await gradeRef.get();
+  const categoryId = state.activeCategoryId;
+  const data = await readGrade(categoryId, gradeId);
+  if (!data) return;
+  const gradeRef = gradeRefOf(categoryId, gradeId);
   fireWrite(gradeRef.update({ status: 'normal' }), 'إلغاء طلب تزويد');
   pushUndo({
-    label: `${gradeDisplayName(snap.data())} — إلغاء طلب التزويد`,
-    categoryId: state.activeCategoryId,
+    label: `${gradeDisplayName(data)} — إلغاء طلب التزويد`,
+    categoryId,
     gradeId,
-    gradeLabel: gradeDisplayName(snap.data()),
-    before: { status: snap.data().status || 'pending' },
+    gradeLabel: gradeDisplayName(data),
+    before: { status: data.status || 'pending' },
     after: { status: 'normal' },
   });
-  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({
     action: 'cancel_shortage',
-    categoryId: state.activeCategoryId,
+    categoryId,
     categoryName,
     gradeId,
-    gradeNumber: snap.data().number,
+    gradeNumber: data.number,
   });
 }
 
 async function fulfillShortage(gradeId, qty) {
-  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
-  const snap = await gradeRef.get();
-  const data = snap.data();
+  const categoryId = state.activeCategoryId;
+  const data = await readGrade(categoryId, gradeId);
+  if (!data) return;
+  const gradeRef = gradeRefOf(categoryId, gradeId);
   const transferQty = Math.min(qty, data.mainQty || 0);
   const newMainQty = Math.max(0, (data.mainQty || 0) - transferQty);
   const newBranchQty = (data.branchQty || 0) + transferQty;
   fireWrite(gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty }), 'تزويد');
   pushUndo({
     label: `${gradeDisplayName(data)} — تزويد بكمية ${transferQty}`,
-    categoryId: state.activeCategoryId,
+    categoryId,
+    gradeId,
     gradeId,
     gradeLabel: gradeDisplayName(data),
     before: { status: data.status || 'pending', mainQty: data.mainQty || 0, branchQty: data.branchQty || 0 },
@@ -5124,46 +5299,48 @@ async function fulfillShortage(gradeId, qty) {
 }
 
 async function markOutOfStock(gradeId) {
-  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
-  const snap = await gradeRef.get();
-  fireWrite(gradeRef.update({ status: 'out' }), 'خلصت نهائيًا');
+  const categoryId = state.activeCategoryId;
+  const data = await readGrade(categoryId, gradeId);
+  if (!data) return;
+  fireWrite(gradeRefOf(categoryId, gradeId).update({ status: 'out' }), 'خلصت نهائيًا');
   pushUndo({
-    label: `${gradeDisplayName(snap.data())} — خلصت نهائيًا`,
-    categoryId: state.activeCategoryId,
+    label: `${gradeDisplayName(data)} — خلصت نهائيًا`,
+    categoryId,
     gradeId,
-    gradeLabel: gradeDisplayName(snap.data()),
-    before: { status: snap.data().status || 'pending' },
+    gradeLabel: gradeDisplayName(data),
+    before: { status: data.status || 'pending' },
     after: { status: 'out' },
   });
-  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({
     action: 'mark_out_of_stock',
-    categoryId: state.activeCategoryId,
+    categoryId,
     categoryName,
     gradeId,
-    gradeNumber: snap.data().number,
+    gradeNumber: data.number,
   });
 }
 
 async function resetOutOfStock(gradeId) {
-  const gradeRef = db.collection('categories').doc(state.activeCategoryId).collection('grades').doc(gradeId);
-  const snap = await gradeRef.get();
-  fireWrite(gradeRef.update({ status: 'normal' }), 'إرجاع للتوفر');
+  const categoryId = state.activeCategoryId;
+  const data = await readGrade(categoryId, gradeId);
+  if (!data) return;
+  fireWrite(gradeRefOf(categoryId, gradeId).update({ status: 'normal' }), 'إرجاع للتوفر');
   pushUndo({
-    label: `${gradeDisplayName(snap.data())} — رجّعها متاحة`,
-    categoryId: state.activeCategoryId,
+    label: `${gradeDisplayName(data)} — رجّعها متاحة`,
+    categoryId,
     gradeId,
-    gradeLabel: gradeDisplayName(snap.data()),
-    before: { status: snap.data().status || 'out' },
+    gradeLabel: gradeDisplayName(data),
+    before: { status: data.status || 'out' },
     after: { status: 'normal' },
   });
-  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({
     action: 'reset_available',
-    categoryId: state.activeCategoryId,
+    categoryId,
     categoryName,
     gradeId,
-    gradeNumber: snap.data().number,
+    gradeNumber: data.number,
   });
 }
 
@@ -5173,15 +5350,16 @@ async function deleteGrade(categoryId, gradeId, gradeNumber) {
   // قبل الحذف بناخد نسخة كاملة من الدرجة، عشان التراجع يقدر يرجّعها
   // بكل بياناتها (الكميات والحالة والمجموعة).
   try {
-    const snap = await gradeRef.get();
-    if (snap.exists) {
+    const data = await readGrade(categoryId, gradeId);
+    if (data) {
+      const { id, ...fields } = data;
       pushUndo({
         type: 'delete',
-        label: `حذف ${gradeDisplayName(snap.data())}`,
+        label: `حذف ${gradeDisplayName(data)}`,
         categoryId,
         gradeId,
-        gradeLabel: gradeDisplayName(snap.data()),
-        before: snap.data(),
+        gradeLabel: gradeDisplayName(data),
+        before: fields,
         after: {},
       });
     }
@@ -5198,19 +5376,19 @@ async function deleteGrade(categoryId, gradeId, gradeNumber) {
 // تعديل الكميات + سجل العمليات
 // ============================================================
 async function changeQuantity(categoryId, gradeId, field, delta) {
-  const gradeRef = db.collection('categories').doc(categoryId).collection('grades').doc(gradeId);
-  const snap = await gradeRef.get();
-  const oldValue = snap.data()[field] || 0;
+  const data = await readGrade(categoryId, gradeId);
+  if (!data) return;
+  const oldValue = data[field] || 0;
   const newValue = Math.max(0, oldValue + delta);
-  await applyQuantityChange(gradeRef, snap, field, oldValue, newValue);
+  await applyQuantityChange(categoryId, gradeId, data, field, oldValue, newValue);
 }
 
 async function setQuantity(categoryId, gradeId, field, newValue) {
-  const gradeRef = db.collection('categories').doc(categoryId).collection('grades').doc(gradeId);
-  const snap = await gradeRef.get();
-  const oldValue = snap.data()[field] || 0;
+  const data = await readGrade(categoryId, gradeId);
+  if (!data) return;
+  const oldValue = data[field] || 0;
   if (oldValue === newValue) return;
-  await applyQuantityChange(gradeRef, snap, field, oldValue, newValue);
+  await applyQuantityChange(categoryId, gradeId, data, field, oldValue, newValue);
 }
 
 // ⚠️ نقطة جوهرية للعمل بدون إنترنت:
@@ -5268,8 +5446,9 @@ function logActivity(details) {
   );
 }
 
-async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
-  const data = snap.data() || {};
+async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldValue, newValue) {
+  const gradeRef = gradeRefOf(categoryId, gradeId);
+  const data = gradeData || {};
   const update = { [field]: newValue };
 
   // ⭐ الحالة بتتحدد من الكميات لوحدها (شرح القاعدة عند nextStatusFromQuantities)
@@ -5282,8 +5461,8 @@ async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
   const fieldLabel = field === 'branchQty' ? 'الفرع' : 'الرئيسي';
   pushUndo({
     label: `${gradeDisplayName(data)} — ${fieldLabel}: ${oldValue} ← ${newValue}`,
-    categoryId: state.activeCategoryId,
-    gradeId: snap.id,
+    categoryId,
+    gradeId,
     gradeLabel: gradeDisplayName(data),
     before: nextStatus
       ? { [field]: oldValue, status: data.status || 'normal' }
@@ -5291,12 +5470,12 @@ async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
     after: update,
   });
 
-  const categoryName = state.categories.find((c) => c.id === state.activeCategoryId)?.name || '';
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({
     action: 'edit',
-    categoryId: state.activeCategoryId,
+    categoryId,
     categoryName,
-    gradeId: snap.id,
+    gradeId,
     gradeNumber: data.number,
     field,
     oldValue,
@@ -5314,9 +5493,9 @@ async function applyQuantityChange(gradeRef, snap, field, oldValue, newValue) {
           : 'reset_available';
     logActivity({
       action: autoAction,
-      categoryId: state.activeCategoryId,
+      categoryId,
       categoryName,
-      gradeId: snap.id,
+      gradeId,
       gradeNumber: data.name || data.number,
       auto: true,
     });
@@ -5587,22 +5766,42 @@ function undoButtonHTML() {
   return `<button class="btn undo-btn" id="undo-btn" title="تراجع عن: ${escapeHTML(label)}">↩️ تراجع</button>`;
 }
 
+// ⚠️ الشريط ده **ممنوع يغيّر ارتفاعه**.
+//
+// المشكلة اللي كانت بتحصل: النص كان بيتغيّر من "متصل" (4 حروف) لـ"جارٍ رفع
+// البيانات..." (18 حرف). الشريط بيلف على سطرين → بيعلى → كل اللي تحته بينزل
+// → وانت في نص ضغطات متتالية على زرار، الزرار بيتحرك من تحت صباعك وضغطتك
+// بتقع على زرار تاني.
+//
+// الحل: النص بياخد **عرض ثابت** على مقاس أطول حالة، و nowrap. الكلمة
+// بتتغيّر جوه نفس المساحة والشريط مابيتحركش ولا نص مليمتر.
+// كل حالة ليها نصّين: طويل للكمبيوتر وقصير للموبايل. والاتنين بياخدوا
+// **عرض ثابت** من styles.css، فالكلمة بتتغيّر جوه نفس المساحة.
+//
+// ⚠️ ليه نص قصير للموبايل أصلًا؟ أول محاولة كانت عرض ثابت واحد لكل
+// الشاشات — النتيجة إن الشريط بقى **دايمًا** أطول على الموبايل (105px بدل
+// 65px). يعني حلّينا القفزة بإننا خلّينا المشكلة دايمة. النص القصير
+// بيخلّي العرض الثابت صغير، فالشريط مابيعلاش لا في الحالة دي ولا دي.
 function connectionDotHTML() {
-  let colorVar, label;
+  let colorVar, label, short;
   if (!state.isOnline) {
     colorVar = 'var(--danger-text)';
     label = 'غير متصل بالإنترنت';
+    short = 'مفصول';
   } else if (state.hasPendingWrites) {
     colorVar = '#b8860b';
     label = 'جارٍ رفع البيانات...';
+    short = 'بيرفع';
   } else {
     colorVar = '#2e7d32';
     label = 'متصل';
+    short = 'متصل';
   }
   return `
-    <span title="${escapeHTML(label)}" style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary);">
-      <span style="width:9px; height:9px; border-radius:50%; background:${colorVar}; display:inline-block;"></span>
-      ${escapeHTML(label)}
+    <span class="conn" title="${escapeHTML(label)}">
+      <span class="conn-dot" style="background:${colorVar};"></span>
+      <span class="conn-long">${escapeHTML(label)}</span>
+      <span class="conn-short">${escapeHTML(short)}</span>
     </span>`;
 }
 

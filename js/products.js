@@ -609,10 +609,14 @@ function attachProductsEvents() {
     // الفرق محسوس لما تكون بتبحث في عشرات الآلاف.
     let timer = null;
     searchEl.addEventListener('input', () => {
+      // ⚠️ القيمة بتتسجّل **فورًا** مع كل حرف، والرسم هو اللي بيتأجّل.
+      // لو أجّلنا التسجيل كمان (زي ما كان)، الرسم بيلاقي قيمة قديمة
+      // وبيرجّع خانة البحث لحالة قبل آخر حرف — فالحرف بيضيع. ده كان بيبان
+      // على التليفون بالذات: "بضغط الحرف مش بيسمع".
+      state.productSearch = searchEl.value;
+      state.productPage = 1;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        state.productSearch = searchEl.value;
-        state.productPage = 1;
         render();
         const again = document.getElementById('products-search');
         if (again) {

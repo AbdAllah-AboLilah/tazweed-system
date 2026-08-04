@@ -11,8 +11,64 @@
 
 const CAMERA_ID_KEY = 'tazweed_camera_id';
 
+// ============================================================
+// القراءة: المتصفح الأول، والمكتبة احتياطي
+// ============================================================
+// BarcodeDetector حاجة **مبنية جوه المتصفح** — كروم على أندرويد بيدعمها،
+// وهي الأسرع والأدق وبتقرا الباركود الخطي كمان.
+//
+// ⚠️ بس **سفاري على الأيفون مابيدعمهاش خالص**. والنتيجة كانت إن زرار
+// الكاميرا **بيختفي تمامًا على الأيفون** — والمستخدم فاكر إن فيه عطل، وهو
+// إحنا اللي مخفينه.
+//
+// فبقى فيه بديل: مكتبة jsQR اللي بتشتغل بالجافاسكريبت العادي في أي متصفح.
+//
+// ⚠️ فرق مهم لازم يفضل واضح: البديل بيقرا **QR بس**، مش الباركود الخطي
+// بتاع الموردين. وده كفاية للاستخدام الأساسي لأن كل الملصقات اللي النظام
+// بيطبعها QR — لكن لو حد عايز يصوّر باركود خطي، لازم أندرويد.
+function hasNativeDetector() {
+  return typeof BarcodeDetector !== 'undefined';
+}
+
+function hasFallbackDetector() {
+  return typeof jsQR !== 'undefined';
+}
+
 function isBarcodeScanSupported() {
-  return typeof BarcodeDetector !== 'undefined' && !!navigator.mediaDevices;
+  return (hasNativeDetector() || hasFallbackDetector()) && !!navigator.mediaDevices;
+}
+
+// بترجّع قارئ موحّد: detect(video) → مصفوفة فيها { rawValue }.
+// الواجهة واحدة، فالكود اللي فوق مايهموش مين اللي بيقرا.
+function createDetector() {
+  if (hasNativeDetector()) {
+    const native = new BarcodeDetector({
+      formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'itf'],
+    });
+    return { qrOnly: false, detect: (video) => native.detect(video) };
+  }
+
+  // البديل: بنرسم إطار الفيديو على canvas ونقرا البكسلات.
+  // بنصغّر الإطار لأقصى 640 بكسل — القراءة بتبقى أسرع بكتير والـQR لسه
+  // بيتقرا كويس، والأيفون بيسخن أقل.
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  return {
+    qrOnly: true,
+    detect: (video) => {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (!vw || !vh) return Promise.resolve([]);
+      const scale = Math.min(1, 640 / Math.max(vw, vh));
+      const w = Math.max(1, Math.round(vw * scale));
+      const h = Math.max(1, Math.round(vh * scale));
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+      const img = ctx.getImageData(0, 0, w, h);
+      const res = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+      return Promise.resolve(res && res.data ? [{ rawValue: res.data }] : []);
+    },
+  };
 }
 
 function getSavedCameraId() {
@@ -249,9 +305,10 @@ async function openBarcodeScanner(onResult, keepOpen, options) {
 
   if (!(await start())) return;
 
-  const detector = new BarcodeDetector({
-    formats: ['qr_code', 'ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'itf'],
-  });
+  const detector = createDetector();
+  if (detector.qrOnly) {
+    msg.textContent = 'على الأيفون بنقرا الـQR بس — صوّر ملصق النظام.';
+  }
 
   let lastValue = '';
   let lastAt = 0;

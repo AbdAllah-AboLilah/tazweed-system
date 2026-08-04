@@ -126,6 +126,50 @@ html, body {
   white-space: nowrap;
 }
 
+/* ============================================================
+   مؤشّر الاتصال — عرض ثابت عشان الشريط مايعلاش
+   ============================================================
+   المشكلة اللي بيحلها ده: النص كان بيتغيّر من "متصل" لـ"جارٍ رفع
+   البيانات..." — أطول بأربع مرات. الشريط بيلف على سطرين، بيعلى 40 بكسل،
+   وكل اللي تحته بينزل. وانت في نص ضغطات متتالية على زرار، الزرار بيتحرك
+   من تحت صباعك وضغطتك بتقع على زرار تاني.
+
+   العرض الثابت بيخلّي الكلمة تتغيّر جوه نفس المساحة بالظبط. */
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
+
+.conn-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.conn-long,
+.conn-short {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 0 auto;
+}
+
+.conn-long { width: 8.5rem; }
+.conn-short { display: none; }
+
+/* على الشاشات الضيقة بناخد النص القصير — عشان العرض الثابت مايزقّش
+   الشريط لسطرين وهو ساكت. */
+@media (max-width: 560px) {
+  .conn-long { display: none; }
+  .conn-short { display: inline-block; width: 2.7rem; }
+}
+
 .topbar-meta {
   display: flex;
   align-items: center;
