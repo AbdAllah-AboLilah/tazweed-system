@@ -38,12 +38,14 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
                         { pageWidthMm:38, pageHeightMm:25 });
     return window.__cfgs[0];
   });
-  check('⭐ الصورة مابتتكبّرش (ده كان سبب النغمشة)', cfg.scaleContent === false, cfg);
-  check('⭐ الدقة = دقة الطابعة 203', cfg.density === 203, cfg);
-  check('مفيش تنعيم للحواف', cfg.interpolation === 'nearest-neighbor', cfg);
-  check('أبيض وأسود صريح', cfg.colorType === 'blackwhite', cfg);
-  check('المقاس 38×25 مم', cfg.size && cfg.size.width === 38 && cfg.size.height === 25, cfg);
-  check('مفيش هوامش زيادة', cfg.margins === 0, cfg);
+  // ⛔ إعداد الطباعة لازم يفضل **المقاس والوحدة وبس**.
+  // أي خيار زيادة اتحط هنا من غير تجربة على ورق طلّع ملصقات فاضية:
+  // density: 203 مع units: 'mm' يعني "203 نقطة في الملليمتر" = 5156 نقطة
+  // في البوصة، والطابعة وقفت وطلّعت ورق أبيض.
+  check('⭐ المقاس 38×25 مم', cfg.size && cfg.size.width === 38 && cfg.size.height === 25, cfg);
+  check('⛔ مفيش أي خيار زيادة في الإعداد',
+    Object.keys(cfg).sort().join(',') === 'size,units', Object.keys(cfg));
+  check('⛔ مفيش density (دي اللي طلّعت ورق أبيض)', cfg.density === undefined, cfg);
 
   // ---------- وظايف صغيرة لـ100 ملصق ----------
   const big = await p.evaluate(async () => {

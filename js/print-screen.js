@@ -279,7 +279,16 @@ async function printCartLabels(sizeOptions) {
   }
 
   const total = cart.reduce((s, it) => s + it.qty, 0);
-  const approved = await showPrintPreview(jobs, sizeOptions, total);
+  // المعاينة بتعرض الصورة بمقاسها الحقيقي بالبكسل — الشرح في
+  // wrapImageLabelPreviewHTML جوه js/app.js
+  const firstPreview = jobs[0] && jobs[0].image
+    ? [{ html: wrapImageLabelPreviewHTML(jobs[0].image, labelDots(sizeOptions).w, labelDots(sizeOptions).h), copies: total }]
+    : jobs;
+  const approved = await showPrintPreview(
+    firstPreview,
+    { ...sizeOptions, previewPx: jobs[0] && jobs[0].image ? labelDots(sizeOptions) : null },
+    total
+  );
   if (!approved) return;
 
   // نسخة واحدة بفواصل صفحات لنافذة طباعة المتصفح (بتتعامل مع مستند واحد).
