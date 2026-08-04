@@ -3670,17 +3670,19 @@ function renderLabelPNG(cat, sizeOptions) {
     let y = top + topOffset;
 
     ctx.fillStyle = '#000000';
-    // ⚠️ اسم الصنف **مش bold** — وده مقصود.
+    // اسم الصنف غامق زي الرقم والسعر — اتطلب كده صراحة بعد ما جرّبنا
+    // الخط العادي وطلع باهت جنبهم.
     //
-    // قِسنا الفرق: الـbold بياخد **حبر أكتر بـ40%** (9.4% مقابل 6.6% من
-    // مساحة النص). والطابعة الحرارية بتفرد الحبر على النقط المجاورة، فالزيادة
-    // دي بتخلّي أعمدة الحروف تلتحم على الورق — والنتيجة اللي المستخدم وصفها
-    // بـ"الكتابة منغمشة".
+    // ⚠️ سجل المحاولات هنا، عشان محدش يلف في نفس الدايرة تاني:
+    //   • bold + تكبير الصورة من QZ  → منغمش (السبب كان التكبير، v0.28.3)
+    //   • عادي                        → أنضف بس باهت جنب الرقم والسعر
+    //   • bold + من غير تكبير         → اللي إحنا فيه دلوقتي
     //
-    // الاسم هو أطول سطر وأكتر واحد حروفه متزنوقة، فهو أول اللي بيتأثر.
-    // السعر بيفضل bold لأنه أكبر خط وأهم رقم للزبون، والباركود بيفضل bold
-    // (اتطلب صراحة) لأنه أرقام متباعدة مش بتلتحم.
-    y += drawLines(ctx, chosen.lines, nameSize, 'normal', FAMILY, textCx, y, lineH);
+    // الحل الجذري مش في سُمك الخط أصلًا: خطوط المتصفح مصمّمة للشاشة، وإحنا
+    // بنطبع على 203 نقطة/بوصة. الطريقة الاحترافية إن **الطابعة ترسم النص
+    // بخطها الداخلي** (أوامر TSPL) بدل ما نبعتلها صورة — شوف
+    // buildTSPLFontSample تحت.
+    y += drawLines(ctx, chosen.lines, nameSize, 'bold', FAMILY, textCx, y, lineH);
 
     drawLines(ctx, [code], codeSize, 'bold', FAMILY, textCx, y, lineH);
     y += lineH;
@@ -5346,6 +5348,72 @@ async function calibratePrinter(printerName, widthMm, heightMm, gapMm) {
   return true;
 }
 
+// ============================================================
+// 🧪 عيّنة خطوط الطابعة — الطريقة الاحترافية
+// ============================================================
+// إحنا دلوقتي بنرسم الملصق كصورة ونبعتها. ده حلّ مشكلة "الشكل بيختلف من
+// جهاز لجهاز"، بس فضلت مشكلة إن **خطوط المتصفح مصمّمة للشاشة** — وإحنا
+// بنطبع على 203 نقطة/بوصة أبيض وأسود من غير أي تدرّج.
+//
+// الطريقة اللي البرامج الاحترافية بتشتغل بيها (BarTender / NiceLabel /
+// برامج Zebra و TSC) مختلفة تمامًا: **مابتبعتش صورة أصلًا**. بتبعت أوامر
+// للطابعة، والطابعة بترسم بخطوطها المحفوظة في ذاكرتها:
+//
+//   TEXT x,y,"3",0,1,1,"Hejap Kuwaiti"   ← الطابعة بترسم النص بخطها
+//   QRCODE x,y,M,4,A,0,"10632103"        ← الطابعة بتولّد الباركود بنفسها
+//
+// ليه ده أحسن؟ لأن خطوط الطابعة **مرسومة أصلًا نقطة نقطة** لدقة 203،
+// فمفيش تنعيم ولا تقريب ولا عتبة أبيض/أسود. الحرف بيطلع زي ما هو متصمّم.
+//
+// ⚠️ وليه مش عملناها من الأول؟ لحاجتين:
+//   1) خطوط الطابعة الداخلية **إنجليزي بس** — العربي مش موجود فيها.
+//      (أسماء الأصناف عندنا إنجليزي، فدي مش مشكلة للملصق. لكن ملصق الدرجة
+//       عربي، وهيفضل صورة.)
+//   2) مش كل طابعة عندها نفس الخطوط. الأرقام تحت هي المعيار، بس اللي
+//      بيحسم فعلًا هو **ورقة مطبوعة من الطابعة اللي في المحل**.
+//
+// عشان كده الدالة دي بتطبع **ورقة عيّنة**: نفس الاسم بكل خط متاح ومكتوب
+// جنبه اسمه. تطبعها مرة، تبص، وتقولنا أنهي واحد أوضح — وساعتها نبني عليه
+// بدل ما نخمّن.
+function buildTSPLFontSample(widthMm, heightMm, sampleText, sampleCode) {
+  const txt = String(sampleText || 'Hejap Kuwaiti 120').replace(/["\\]/g, '');
+  const code = String(sampleCode || '10632103').replace(/["\\]/g, '');
+  return [
+    `SIZE ${widthMm} mm,${heightMm} mm`,
+    'GAP 2 mm,0 mm',
+    'DIRECTION 1',
+    'REFERENCE 0,0',
+    'CLS',
+    // كل سطر: اسم الخط + نفس النص بيه
+    `TEXT 8,4,"1",0,1,1,"F1 ${txt}"`,
+    `TEXT 8,22,"2",0,1,1,"F2 ${txt}"`,
+    `TEXT 8,46,"3",0,1,1,"F3 ${txt}"`,
+    `TEXT 8,74,"2",0,2,2,"F2x2 ${txt.slice(0, 10)}"`,
+    // الباركود من توليد الطابعة نفسها، 4 نقط للمربع زي اللي بنعمله
+    `QRCODE 8,120,M,4,A,0,"${code}"`,
+    `TEXT 108,124,"2",0,1,1,"QR min printer"`,
+    `TEXT 108,148,"3",0,1,1,"${code}"`,
+    'PRINT 1,1',
+    '',
+  ].join('\r\n');
+}
+
+// بتبعت العيّنة للطابعة. بترجّع true لو اتبعتت.
+async function printTSPLFontSample(printerName, widthMm, heightMm, sampleText, sampleCode) {
+  if (!printerName) return false;
+  if (!(await ensureQZConnected())) return false;
+  const config = qz.configs.create(printerName);
+  await qz.print(config, [
+    {
+      type: 'raw',
+      format: 'command',
+      flavor: 'plain',
+      data: buildTSPLFontSample(widthMm, heightMm, sampleText, sampleCode),
+    },
+  ]);
+  return true;
+}
+
 function getSavedPrinter(type) {
   const key = type === 'label' ? QZ_LABEL_PRINTER_KEY : QZ_RESTOCK_PRINTER_KEY;
   try {
@@ -5618,6 +5686,20 @@ async function openPrinterSettings() {
             <button class="btn" id="cal-run">🎯 عايِر</button>
           </div>
           <div id="cal-status" style="font-size:12px; min-height:16px;"></div>
+
+          <div style="border-top:1px dashed var(--border); margin-top:12px; padding-top:10px;">
+            <div style="font-size:12px; font-weight:500; margin-bottom:4px;">🧪 عيّنة خطوط الطابعة</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:8px;">
+              الملصق دلوقتي بيترسم عندنا كصورة. الطريقة الاحترافية إن
+              <strong>الطابعة ترسم النص بخطها الداخلي</strong> — خط مرسوم أصلًا
+              لدقة الطابعة، فمفيش تنعيم ولا نغمشة.
+              <br>الزرار ده بيطبع <strong>ملصق واحد</strong> فيه نفس الاسم بكل خط
+              في الطابعة ومكتوب جنبه اسمه. بُص أنهي واحد أوضح وقولنا.
+              <br>⚠️ خطوط الطابعة <strong>إنجليزي بس</strong> — العربي هيفضل صورة.
+            </div>
+            <button class="btn" id="tspl-sample">🧪 اطبع عيّنة الخطوط</button>
+            <div id="tspl-status" style="font-size:12px; min-height:16px; margin-top:6px;"></div>
+          </div>
         </div>
 
         <!-- ---------- النسخ من جهاز تاني ---------- -->
@@ -5796,6 +5878,33 @@ async function openPrinterSettings() {
         detailsBox.textContent = 'تعذّرت القراءة: ' + (err && err.message ? err.message : err);
       }
     }, 'قراءة بيانات الطابعات')
+  );
+
+  // ---- عيّنة خطوط الطابعة ----
+  const tsplStatus = overlay.querySelector('#tspl-status');
+  overlay.querySelector('#tspl-sample').addEventListener('click', () =>
+    safeAsync(async () => {
+      const printerName = labelSelect.value;
+      if (!printerName) {
+        tsplStatus.style.color = 'var(--danger-text)';
+        tsplStatus.textContent = 'اختار طابعة الملصق الأول.';
+        return;
+      }
+      saveSelectedPrinter('label', printerName);
+      const w = Number(overlay.querySelector('#cal-w').value) || 38;
+      const h = Number(overlay.querySelector('#cal-h').value) || 25;
+      tsplStatus.style.color = 'var(--text-secondary)';
+      tsplStatus.textContent = 'جارٍ الإرسال...';
+      try {
+        await printTSPLFontSample(printerName, w, h, 'Hejap Kuwaiti 120', '10632103');
+        tsplStatus.style.color = '#2e7d32';
+        tsplStatus.textContent = '✅ اتبعت. شوف الملصق وقولنا أنهي خط أوضح.';
+      } catch (err) {
+        console.error(err);
+        tsplStatus.style.color = 'var(--danger-text)';
+        tsplStatus.textContent = '⚠️ ' + (err && err.message ? err.message : 'تعذّر الإرسال');
+      }
+    }, 'عيّنة خطوط الطابعة')
   );
 
   // ---- ضبط مكان الطباعة ----
