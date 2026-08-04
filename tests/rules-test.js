@@ -145,6 +145,19 @@ const PROFILES = {
   // ---- القراءة مفتوحة للكل ----
   await T('قراءة الدرجات', 'plain', (u) => grade(u).get(), true);
 
+  // ---------- إعدادات الطباعة المشتركة ----------
+  // دي اللي بتخلّي ضبط الملصق واحد لكل الأجهزة بدل ما يتظبط على كل جهاز.
+  const printSettings = (uid) => as(uid).collection('settings').doc('print');
+  const writeSettings = (uid) => printSettings(uid).set({ align: { x: 1 + (seq % 3), y: 0, shrink: 0 } }, { merge: true });
+  const readSettings = (uid) => printSettings(uid).get();
+
+  await T('كتابة إعدادات الطباعة المشتركة', 'owner', writeSettings, true);
+  await T('كتابة إعدادات الطباعة المشتركة', 'branchMgr', writeSettings, false);
+  await T('كتابة إعدادات الطباعة المشتركة', 'branchKeep', writeSettings, false);
+  await T('كتابة إعدادات الطباعة المشتركة', 'plain', writeSettings, false);
+  await T('قراءة إعدادات الطباعة المشتركة', 'plain', readSettings, true);
+  await T('قراءة إعدادات الطباعة المشتركة', 'printer', readSettings, true);
+
   await env.cleanup();
   console.log('\n✅ نجح (' + pass.length + ')');
   if (fail.length) { console.log('\n❌ فشل (' + fail.length + '):'); fail.forEach((x) => console.log('   ' + x)); }

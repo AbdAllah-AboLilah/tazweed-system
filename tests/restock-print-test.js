@@ -117,9 +117,10 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       allHTML: sent.every(m => m.every(pg => pg.type === 'pixel' && pg.format === 'html' && typeof pg.data === 'string')),
     };
   });
-  // من v0.28.1 العدد بيروح للطابعة كـ"عدد نسخ"، فالـ300 ملصق بقوا
-  // **صفحة واحدة** مش 300. ده أهم إصلاح في "الأمر مايوصلش للطابعة".
-  check('⭐ 300 ملصق = صفحة واحدة مش 300', sizes.pages === 1, sizes);
+  // من v0.28.2 الـ300 ملصق بيتقسّموا على وظايف صغيرة ورا بعض — ده أهم
+  // إصلاح في "الأمر مايوصلش للطابعة".
+  check('⭐ 300 ملصق اتبعتوا كلهم', sizes.pages === 300, sizes);
+  check('⭐ اتقسّموا على وظايف صغيرة', sizes.messages === 60, sizes);
   check('⭐ مفيش رسالة عدّت الحد', sizes.maxBytes <= sizes.limit, sizes);
   check('الحد 48 كيلو', sizes.limit === 48 * 1024, sizes.limit);
   check('الأقصى بقى 1000', sizes.maxCopies === 1000, sizes.maxCopies);

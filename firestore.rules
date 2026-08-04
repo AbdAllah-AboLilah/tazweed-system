@@ -254,5 +254,18 @@ service cloud.firestore {
         && request.resource.data.updatedByUid == request.auth.uid;
       allow delete: if can('manageCategories');
     }
+
+    // إعدادات الطباعة المشتركة — بتتقرا على كل جهاز وبتتكتب من صاحب
+    // صلاحية إعدادات الطابعة بس.
+    //
+    // ⚠️ ليه هنا مش على الجهاز؟ لأن ضبط شكل الملصق **واحد للمحل كله**.
+    // لما كان محفوظ على كل جهاز، كان لازم تظبطه على كل كمبيوتر بإيدك.
+    // دلوقتي بتظبطه مرة، وكل الأجهزة بتاخده لوحدها.
+    //
+    // اسم الطابعة **مش هنا** عن قصد: كل كمبيوتر ليه طابعته.
+    match /settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if can('printerSetup');
+    }
   }
 }
