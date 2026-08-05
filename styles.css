@@ -230,6 +230,42 @@ html, body {
 /* أزرار الشريط العلوي: على الكمبيوتر بتبان كلها في صف واحد،
    وعلى الموبايل بتتجمّع في قايمة بتفتح من زرار ☰ — لأن 7 أزرار
    في صف واحد على شاشة 360px بتكسر التخطيط وتزحلق الصفحة كلها. */
+/* ============================================================
+   قايمة منسدلة صغيرة جوه شريط الفئة
+   ============================================================
+   الشريط كان فيه لحد 8 زراير بتلفّ على تلات صفوف على الموبايل. دلوقتي
+   اللي بتستخدمه كل يوم ظاهر، والباقي جوه قايمتين. */
+.tool-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.tool-menu-panel {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  inset-inline-start: 0;
+  z-index: 940;
+  min-width: 190px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+}
+
+.tool-menu-panel.open {
+  display: flex;
+}
+
+.tool-menu-panel .menu-item {
+  width: 100%;
+  text-align: start;
+  white-space: nowrap;
+}
+
 .menu-toggle {
   display: none;
 }
@@ -241,11 +277,53 @@ html, body {
   flex-wrap: wrap;
 }
 
+/* ============================================================
+   شريط التنقّل — متثبّت تحت الشريط العلوي
+   ============================================================
+   الشريط العلوي متثبّت خلاص (position: sticky; top: 0). ده بيثبّت شريط
+   الفئات/الرئيسية/الشيت تحته على طول، فتقدر تنقل بين الشاشات وانت في نص
+   جدول فيه 200 درجة من غير ما ترجع لفوق.
+
+   ⚠️ الـtop لازم يساوي **ارتفاع الشريط العلوي**، وإلا هيغطّي عليه أو
+   يسيب فراغ. الشريط العلوي ارتفاعه 65 بكسل على الموبايل و59 على
+   الكمبيوتر (مقيس فعليًا، شوف tests/topbar-typing-test.js). */
 .tabs {
   display: flex;
   gap: 6px;
   padding: 0.75rem 1rem 0;
   overflow-x: auto;
+  position: sticky;
+  top: 59px;
+  z-index: 940;
+  background: var(--bg, var(--surface));
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+}
+
+@media (max-width: 700px) {
+  .tabs { top: 65px; }
+}
+
+/* سهم الرجوع لفوق — بيظهر بس لما تنزل بعيد */
+.to-top {
+  position: fixed;
+  inset-inline-end: 14px;
+  bottom: 84px;
+  z-index: 900;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  display: none;
+}
+
+.to-top.show {
+  display: block;
 }
 
 .tab {
@@ -668,15 +746,80 @@ th {
   flex: 0 0 auto;
 }
 
-/* صف الفئة في وضع الترتيب: مش زرار، فمالوش تأثير ضغط ولا مؤشر يد —
-   اللي بيتضغط هنا هو سهم ▲/▼ بس. */
+/* ============================================================
+   صف الفئة في القايمة: الاسم + تعديل + حذف
+   ============================================================
+   زراير التعديل والحذف بتفضل صغيرة وجنب بعض، والاسم بياخد الباقي.
+   الحذف لونه تحذيري عشان مايتلخبطش مع التعديل. */
+.side-item-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.side-item-row .side-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.side-item-act {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.55;
+}
+
+.side-item-act:hover {
+  background: var(--surface-muted);
+  opacity: 1;
+}
+
+.side-item-del:hover {
+  background: var(--danger-bg, #fcebeb);
+}
+
+/* صف الفئة في وضع الترتيب */
 .side-item-order {
   cursor: default;
   background: var(--surface-muted);
+  gap: 6px;
 }
 
 .side-item-order:hover {
   background: var(--surface-muted);
+}
+
+/* الفئة اللي "ماسكها" في الترتيب بضغطتين — لازم تبان بوضوح */
+.side-item-held {
+  outline: 2px solid var(--primary, #1565c0);
+  outline-offset: -2px;
+}
+
+/* الجزء اللي بتضغط عليه عشان تمسك الفئة أو تحطها */
+.side-item-grab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 4px 6px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: start;
+  color: inherit;
+}
+
+.side-item-grab:hover {
+  background: var(--surface);
 }
 
 /* نقطة ملوّنة بعدد جواها: الأصفر = فيها طلبات تزويد معلّقة،
