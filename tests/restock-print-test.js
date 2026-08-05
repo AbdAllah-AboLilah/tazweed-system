@@ -41,8 +41,8 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     document.querySelector('[data-rg-mode="each"]').click();
     const value = await promise;
     out.value = value;
-    out.isSentinel = value === RESTOCK_EACH_GROUP;
-    out.hasReplacementChar = /�/.test(String(value));
+    out.isSentinel = value.group === RESTOCK_EACH_GROUP;
+    out.hasReplacementChar = /�/.test(String(value.group));
 
     const names = restockGroupNames(cat, state.grades);
     out.names = names;
@@ -79,7 +79,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     document.querySelector('[data-rg-mode="one"][data-rg-name="الوان"]').click();
     return await promise;
   });
-  check('اختيار مجموعة واحدة بيرجّع اسمها', one === 'الوان', one);
+  check('اختيار مجموعة واحدة بيرجّع اسمها', one.group === 'الوان', one);
 
   const all = await p.evaluate(async () => {
     const promise = chooseRestockGroup(state.categories[0], state.grades);
@@ -87,7 +87,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     document.querySelector('[data-rg-mode="all"]').click();
     return await promise;
   });
-  check('"الورقة كلها" بترجّع نص فاضي', all === '', all);
+  check('"الورقة كلها" بترجّع نص فاضي', all.group === '', all);
 
   // ---------- 2) حجم رسالة الطباعة ----------
   const sizes = await p.evaluate(async () => {
