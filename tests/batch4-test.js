@@ -286,33 +286,19 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ سطر البيانات سطر واحد رفيع', info.h <= 30 && info.nowrap === 'nowrap', info);
   check('وبيتزحلق بدل ما يلفّ', info.scroll === 'auto', info);
 
-  // ---------- 8) شاشة الطباعة: من غير سعر + طباعة مسمّى ----------
+  // ---------- 8) شاشة الطباعة: زرار المسمّى ----------
+  // ⚠️ مفتاح "من غير سعر" العام اتشال من شاشة طباعة السلة في v0.33.0 —
+  // بقى مفتاح **لكل صنف** جوه السلة. اللي بيفحصه دلوقتي batch5-test.
   const printScreen = await p.evaluate(async () => {
-    window.__jobs = [];
-    window.deliverPrint = async (type, jobs, sizeOptions) => { window.__jobs.push({ type, jobs, sizeOptions }); return true; };
-    window.showPrintPreview = async () => true;
     window.productsCache = [{ name: 'كريب سادة', barcode: '28144', price: 85 }];
     state.screen = 'print';
     state.printSearch = '';
-    state.printCart = [{ key: '28144', product: window.productsCache[0], qty: 2 }];
+    state.printCart = [{ key: '28144', product: window.productsCache[0], qty: 2, mode: 'normal' }];
     render();
     const out = {
       customBtn: !!document.getElementById('print-screen-custom-btn'),
       printBtn: !!document.getElementById('print-cart-btn'),
     };
-    // مفتاح "من غير سعر" في شاشة الطباعة
-    document.getElementById('print-cart-btn').click();
-    await new Promise(r => setTimeout(r, 60));
-    out.hasNoPrice = !!document.getElementById('opt-no-price');
-    out.hasGroup = !!document.getElementById('opt-group-name');
-    document.getElementById('opt-no-price').checked = true;
-    document.getElementById('size-measured').click();
-    await new Promise(r => setTimeout(r, 600));
-    out.noPriceFlag = window.__jobs[0] && window.__jobs[0].sizeOptions.noPrice;
-
-    // زرار طباعة المسمّى بيفتح نفس الشاشة
-    state.printCart = [{ key: '28144', product: window.productsCache[0], qty: 2 }];
-    render();
     document.getElementById('print-screen-custom-btn').click();
     await new Promise(r => setTimeout(r, 60));
     out.customOpened = !!document.getElementById('custom-label-form');
@@ -320,11 +306,8 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     state.screen = 'sheets'; state.printCart = []; render();
     return out;
   });
-  check('⭐ زرار "طباعة مسمّى" في شاشة الطباعة', printScreen.customBtn, printScreen);
-  check('⭐ مفتاح "من غير سعر" في شاشة الطباعة', printScreen.hasNoPrice, printScreen);
-  check('ومفتاح المجموعة مش ظاهر هنا', !printScreen.hasGroup, printScreen);
-  check('⭐ الاختيار وصل لطباعة السلة', printScreen.noPriceFlag === true, printScreen);
-  check('زرار المسمّى بيفتح الشاشة', printScreen.customOpened, printScreen);
+  check('زرار "أضف مسمّى" في شاشة الطباعة', printScreen.customBtn && printScreen.printBtn, printScreen);
+  check('وبيفتح شاشة المسمّى', printScreen.customOpened, printScreen);
 
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
 

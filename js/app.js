@@ -228,6 +228,10 @@ function gradeCriticalQty(g, cat) {
 // الدرجات" — فالفئات القديمة بتفضل شغّالة زي ما هي من غير أي تغيير.
 const UNGROUPED_LABEL = 'باقي الدرجات';
 
+// قيمة خاصة في قايمة "من مجموعة" — عشان نفرّق بين "كل المجموعات" (قيمة
+// فاضية) و"اللي مالهاش مجموعة" (كمان قيمة فاضية في البيانات نفسها).
+const ASSIGN_UNGROUPED = '__ungrouped__';
+
 function categoryGroups(cat) {
   const list = (cat && Array.isArray(cat.colorGroups) ? cat.colorGroups : []).filter(Boolean);
   return list;
@@ -3037,13 +3041,19 @@ function openColorGroupsDialog(categoryId) {
             <input class="input" type="number" id="assign-to" min="1" inputmode="numeric" />
           </div>
           <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
-            <label>المجموعة</label>
+            <label>من مجموعة</label>
+            <select class="input" id="assign-source"></select>
+          </div>
+          <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
+            <label>إلى مجموعة</label>
             <select class="input" id="assign-group"></select>
           </div>
           <button class="btn btn-primary" id="assign-btn">نقل</button>
         </div>
-        <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">
-          سيب الخانتين فاضيتين لو عايز تنقل كل الدرجات المرقّمة
+        <div style="font-size:11px; color:var(--text-muted); margin-top:6px; line-height:1.7;">
+          سيب خانتين الأرقام فاضيتين لو عايز تنقل كل الدرجات المرقّمة.
+          <br><strong>"من مجموعة" مهمة:</strong> لو سيبتها "كل المجموعات" والرقم موجود في
+          أكتر من مجموعة، هيتنقلوا كلهم — وهتلاقي نفس الرقم متكرر في المجموعة الجديدة.
         </div>
       </div>
 
@@ -3097,10 +3107,19 @@ function openColorGroupsDialog(categoryId) {
           .join('')
       : '<div class="home-empty">مفيش مجموعات — الفئة كلها قايمة واحدة.</div>';
 
-    const sel = overlay.querySelector('#assign-group');
-    sel.innerHTML =
-      `<option value="">— ${escapeHTML(UNGROUPED_LABEL)} —</option>` +
-      groups.map((n) => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('');
+    const opts = groups.map((n) => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('');
+    overlay.querySelector('#assign-group').innerHTML =
+      `<option value="">— ${escapeHTML(UNGROUPED_LABEL)} —</option>` + opts;
+    // المصدر بيبدأ على المجموعة اللي إنت فاتح عليها — أغلب الوقت دي اللي
+    // بتنقل منها، وكده الاختيار الافتراضي بيبقى الآمن مش الواسع.
+    const cur = state.gradeGroupFilter || '';
+    const srcSel = overlay.querySelector('#assign-source');
+    srcSel.innerHTML =
+      `<option value="">كل المجموعات</option>` +
+      opts +
+      `<option value="${ASSIGN_UNGROUPED}">— ${escapeHTML(UNGROUPED_LABEL)} —</option>`;
+    if (cur === UNGROUPED_LABEL) srcSel.value = ASSIGN_UNGROUPED;
+    else if (cur && groups.includes(cur)) srcSel.value = cur;
     overlay.querySelector('#assign-box').style.display = groups.length ? 'block' : 'none';
 
     listEl.querySelectorAll('[data-group-up]').forEach((btn) => {
@@ -3122,7 +3141,7 @@ function openColorGroupsDialog(categoryId) {
           const next = currentGroups().map((n) => (n === oldName ? newName : n));
           saveGroups(next);
           // الدرجات بتتحدّث كمان، وإلا هتفضل مشاورة على اسم مش موجود
-          const moved = await assignGroupToGrades(categoryId, null, null, newName, oldName);
+          const moved = (await assignGroupToGrades(categoryId, null, null, newName, oldName)).moved;
           say(`✅ الاسم اتغيّر، و${moved} درجة اتحدّثت.`);
           setTimeout(draw, 150);
         }, 'تعديل اسم المجموعة')
@@ -3135,7 +3154,7 @@ function openColorGroupsDialog(categoryId) {
           const name = btn.getAttribute('data-group-del');
           if (!confirm(`تحذف مجموعة "${name}"؟ الدرجات مش هتتمسح — هترجع تحت "${UNGROUPED_LABEL}".`)) return;
           saveGroups(currentGroups().filter((n) => n !== name));
-          const moved = await assignGroupToGrades(categoryId, null, null, '', name);
+          const moved = (await assignGroupToGrades(categoryId, null, null, '', name)).moved;
           say(`✅ المجموعة اتشالت، و${moved} درجة رجعت من غير مجموعة.`);
           setTimeout(draw, 150);
         }, 'حذف المجموعة')
@@ -3164,13 +3183,33 @@ function openColorGroupsDialog(categoryId) {
       const from = parseInt(overlay.querySelector('#assign-from').value, 10);
       const to = parseInt(overlay.querySelector('#assign-to').value, 10);
       const group = overlay.querySelector('#assign-group').value;
+      const sourceRaw = overlay.querySelector('#assign-source').value;
+      // '' = كل المجموعات (السلوك القديم)، ASSIGN_UNGROUPED = اللي مالهاش مجموعة
+      const source = sourceRaw === '' ? null : sourceRaw === ASSIGN_UNGROUPED ? '' : sourceRaw;
       const hasRange = !Number.isNaN(from) && !Number.isNaN(to);
       if (hasRange && to < from) {
         say('⚠️ "إلى" لازم يكون أكبر من أو يساوي "من".');
         return;
       }
       say('جارٍ النقل...');
-      const n = await assignGroupToGrades(categoryId, hasRange ? from : null, hasRange ? to : null, group, null);
+      const res = await assignGroupToGrades(categoryId, hasRange ? from : null, hasRange ? to : null, group, source, true);
+      const n = res.moved;
+      if (res.skipped) {
+        say(
+          `✅ اتنقلت <strong>${n}</strong> درجة لـ"${escapeHTML(group || UNGROUPED_LABEL)}".` +
+            `<br>⚠️ <strong>${res.skipped}</strong> درجة اتخطّت: رقمها موجود خلاص في المجموعة دي` +
+            ` (${escapeHTML(res.skippedNumbers.join('، '))}).`
+        );
+        logActivity({
+          action: 'assign_color_group',
+          categoryId,
+          categoryName: cat.name,
+          oldValue: hasRange ? `${from}-${to}` : 'الكل',
+          newValue: group || UNGROUPED_LABEL,
+        });
+        setTimeout(draw, 150);
+        return;
+      }
       logActivity({
         action: 'assign_color_group',
         categoryId,
@@ -3187,31 +3226,82 @@ function openColorGroupsDialog(categoryId) {
 }
 
 // بتحدّد المجموعة لمدى أرقام درجات (أو للكل لو from/to فاضيين).
-// onlyFromGroup: لو محدّد، بتتغيّر الدرجات اللي مجموعتها الحالية دي بس —
-// بيستخدم في إعادة التسمية والحذف.
-async function assignGroupToGrades(categoryId, from, to, group, onlyFromGroup) {
+// onlyFromGroup: لو محدّد، بتتغيّر الدرجات اللي مجموعتها الحالية دي بس.
+//   null = كل المجموعات، '' = اللي مالهاش مجموعة.
+//
+// ------------------------------------------------------------
+// ⚠️ العطل اللي الدالة دي اتصلحت عشانه — اتبلّغ من الاستخدام الحقيقي
+// ------------------------------------------------------------
+// شاشة النقل كانت بتبعت onlyFromGroup = null دايمًا، يعني "أي درجة رقمها
+// في المدى، في أي مجموعة". والفئة الواحدة فيها نفس الرقم في كذا مجموعة.
+//
+// السيناريو اللي حصل فعلًا (متعاد بالفحص):
+//   قبل :  2 في كيوي | 2 في نصار | 2 في جاد
+//   الأمر:  انقل درجة 2 → "جاد"
+//   بعد :  2 في جاد  | 2 في جاد  | 2 في جاد     ← تلات نسخ!
+//
+// يعني غلطتين مع بعض: **كرّر** الرقم في المجموعة الهدف، و**شال** الدرجة
+// من مجموعات المستخدم مطلبش يلمسها.
+//
+// الإصلاح جزئين:
+//   1) الشاشة بقى فيها "من مجموعة"، والقيمة بتوصل هنا.
+//   2) حتى لو اخترت "كل المجموعات"، الدالة **مابتسمحش** برقم يتكرر في
+//      المجموعة الهدف: أول واحد بيعدّي والباقي بيتخطّى ويترجع في
+//      skippedNumbers عشان المستخدم يشوف إيه اللي مااتنقلش وليه.
+// guardDuplicates: بيمنع تكرار الرقم في المجموعة الهدف. بيتفعّل في النقل
+// اليدوي بس.
+//
+// ⚠️ **متفعّلوش في إعادة التسمية والحذف.** هناك الدرجات موجودة خلاص
+// وإحنا بنغيّر اسم المجموعة عليها بس — لو منعنا واحدة، هتفضل مأشّرة على
+// مجموعة اتشالت، يعني درجة ضايعة مش ظاهرة في أي فلتر.
+async function assignGroupToGrades(categoryId, from, to, group, onlyFromGroup, guardDuplicates) {
   const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
   const snap = await gradesRef.get();
+  const target = group || '';
 
-  const targets = snap.docs.filter((d) => {
+  // الأرقام الموجودة خلاص في المجموعة الهدف — دي اللي مش هنكررها
+  const taken = new Set(
+    snap.docs
+      .map((d) => d.data())
+      .filter((g) => (g.group || '') === target && !g.isBase)
+      .map((g) => String(g.number))
+  );
+
+  const targets = [];
+  const skippedNumbers = [];
+  snap.docs.forEach((d) => {
     const g = d.data();
     if (onlyFromGroup !== null && onlyFromGroup !== undefined) {
-      if ((g.group || '') !== onlyFromGroup) return false;
+      if ((g.group || '') !== onlyFromGroup) return;
     }
     if (from !== null && to !== null) {
       // الدرجات الأساسية أرقامها سالبة، فمدى الأرقام مايمسّهاش
       const n = Number(g.number);
-      if (g.isBase || !Number.isFinite(n) || n < from || n > to) return false;
+      if (g.isBase || !Number.isFinite(n) || n < from || n > to) return;
     }
-    return (g.group || '') !== (group || '');
+    if ((g.group || '') === target) return;
+
+    const num = String(g.number);
+    if (guardDuplicates && !g.isBase) {
+      if (taken.has(num)) {
+        skippedNumbers.push(num);
+        return;
+      }
+      taken.add(num);
+    }
+    targets.push(d);
   });
 
   for (let i = 0; i < targets.length; i += 400) {
     const batch = db.batch();
-    targets.slice(i, i + 400).forEach((d) => batch.update(d.ref, { group: group || '' }));
+    targets.slice(i, i + 400).forEach((d) => batch.update(d.ref, { group: target }));
     await batch.commit();
   }
-  return targets.length;
+  return {
+    moved: targets.length,
+    skipped: skippedNumbers.length,
+    skippedNumbers: [...new Set(skippedNumbers)].sort((a, b) => Number(a) - Number(b)),
+  };
 }
 
 // ------------------------------------------------------------
@@ -4473,6 +4563,156 @@ function renderLabelPNG(cat, sizeOptions) {
   return shrinkToPrinterDots(hi.canvas, W, H);
 }
 
+// ============================================================
+// ✂️ الملصق المقسوم أربعة
+// ============================================================
+// اللاصقة 38×25 مم بتتقسم أربع خلايا 19×12.5، وبينهم خط أسود رأسي تقصّ
+// عليه بالمقص. يعني من نفس اللفة بتطلع 4 ملصقات بدل 2.
+//
+// ------------------------------------------------------------
+// ⚠️ مقاس الـQR بيقفز، مابيتدرّجش — الرقم ده متقاس
+// ------------------------------------------------------------
+// مربع الكود لازم يكون **عدد صحيح من نقط الطابعة**، والكود 21 مربع.
+// فالمقاسات الممكنة تلاتة بس:
+//
+//   4 نقط/مربع → 10.5 مم   (ده اللي في الملصق العادي، ومجرّب على ورق)
+//   3 نقط/مربع →  7.9 مم   (اللي مستخدم هنا)
+//   2 نقط/مربع →  5.3 مم
+//
+// مافيش حاجة بينهم. لو طلبت 9 مم، الحساب بينزل لـ7.9 لوحده.
+//
+// اخترنا 3 لأن 4 بياكل 10.5 من الـ19 مم فمايفضلش للنص إلا 6 مم — والرقم
+// كان بيخرج بره عموده ويركب على الكود.
+//
+// ⚠️ 3 نقط/مربع **مااتجربتش على ورق حقيقي**. فحص القراءة عندنا بيقول
+// إنها بتتقرا، لكن نفس الفحص بيفشل على الملصق اللي شغّال في المحل فعلًا
+// لما نحاكي فرد الحبر — يعني المحاكاة متشائمة وماينفعش نبني عليها. أول
+// طبعة لازم تتجرّب على الماكينة قبل أي كمية.
+const QUARTER_QR_DOTS_PER_MODULE = 3;
+
+// بترسم خلية واحدة من الملصق المقسوم على السياق اللي جايلها.
+//
+// ⭐ كل سطر بيتقصّ على **عرض عموده** مش على الارتفاع بس. ده كان سبب إن
+// رقم الباركود يخرج من عموده ويركب على الكود: مقاسه كان متحسوب من
+// الارتفاع لوحده، والعرض مالوش أي دور في الحساب.
+function drawQuarterCell(ctx, cat, x0, y0, W, H, noPrice) {
+  const F = 'Arial, Helvetica, Tahoma, sans-serif';
+  const name = String(cat.itemName || cat.name || '');
+  const code = String(cat.barcodeNumber || '');
+  const showPrice = !!cat.sellingPrice && !noPrice;
+
+  const pad = mmToDots(0.4);
+  const padX = mmToDots(1.0);
+  const gapX = mmToDots(0.6);
+  const SAFETY = mmToDots(0.6);
+  const contentH = H - pad * 2 - SAFETY;
+  const top = y0 + pad + SAFETY / 2;
+
+  // --- الكود ---
+  const best = buildBestQR(code || name);
+  let qrSize = 0;
+  if (best) {
+    const modulePx = Math.max(1, Math.min(QUARTER_QR_DOTS_PER_MODULE, Math.floor(contentH / best.count)));
+    qrSize = modulePx * best.count;
+    const qrY = top + (contentH - qrSize) / 2;
+    for (let r = 0; r < best.count; r++) {
+      for (let c = 0; c < best.count; c++) {
+        if (best.qr.isDark(r, c)) ctx.fillRect(x0 + padX + c * modulePx, qrY + r * modulePx, modulePx, modulePx);
+      }
+    }
+  }
+
+  // --- عمود النص جنبه ---
+  const textW = W - qrSize - padX * 2 - gapX;
+  const cx = x0 + padX + qrSize + gapX + textW / 2;
+  const LINE = 1.15;
+  // أربع سطور كحد أقصى: اسم (١ أو ٢) + رقم + سعر
+  const rows = 2 + 1 + (showPrice ? 1 : 0);
+  const lineH = contentH / rows;
+  const capPx = lineH / LINE;
+
+  // الاسم: سطر، وسطرين لو طويل، و"…" لو حتى السطرين مكفوش.
+  //
+  // ⚠️ الترتيب هنا مهم: بندوّر على **أكبر خط بيخلّي الاسم يدخل في سطرين**،
+  // مش بنثبّت الخط على ارتفاع السطر ونقص اللي زاد. الغلطة دي حصلت فعلًا:
+  // في نسخة "من غير سعر" السطور بتقل فارتفاع السطر بيكبر، فالخط كبر،
+  // فالاسم بقى مش داخل واتقص — يعني **مساحة أكبر أدّت لاسم أقصر**.
+  //
+  // القص بـ"…" بقى الملاذ الأخير: بس لما الخط ينزل تحت الحد اللي يتقرا.
+  const MIN_NAME_DOTS = 8;
+  const fitName = fitCanvasFont(ctx, name, textW, 2, 'bold', F, capPx);
+  let nameSize = Math.round(fitName.size);
+  let nameLines = fitName.lines;
+  if (nameSize < MIN_NAME_DOTS) {
+    nameSize = MIN_NAME_DOTS;
+    ctx.font = `bold ${nameSize}px ${F}`;
+    const words = name.trim().split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(next).width <= textW || !cur) cur = next;
+      else {
+        lines.push(cur);
+        cur = w;
+      }
+    }
+    if (cur) lines.push(cur);
+    nameLines = lines.slice(0, 2);
+    if (lines.length > 2 && nameLines[1]) {
+      let last = nameLines[1];
+      while (last.length && ctx.measureText(last + '…').width > textW) last = last.slice(0, -1);
+      nameLines[1] = last + '…';
+    }
+  }
+
+  ctx.fillStyle = '#000000';
+  let y = top;
+  y += drawLines(ctx, nameLines, nameSize, 'bold', F, cx, y, lineH);
+
+  // اللي فضل من الارتفاع بيتوزّع على الرقم والسعر — فالاسم القصير بيدّي
+  // للرقم والسعر مساحة أكبر بدل ما تروح فاضي.
+  const restRows = rows - nameLines.length;
+  const restH = restRows > 0 ? (contentH - lineH * nameLines.length) / restRows : lineH;
+  const fitOne = (text, cap) => {
+    const f = fitCanvasFont(ctx, text, textW, 1, 'bold', F, cap);
+    return Math.max(5, Math.round(Math.min(f.size, cap)));
+  };
+
+  if (code) {
+    drawLines(ctx, [code], fitOne(code, Math.min(restH / LINE, nameSize)), 'bold', F, cx, y, restH);
+    y += restH;
+  }
+  if (showPrice) {
+    const price = `${cat.sellingPrice} L.E`;
+    drawLines(ctx, [price], fitOne(price, Math.min(restH / LINE, nameSize * 1.2)), 'bold', F, cx, y, restH);
+  }
+}
+
+function renderQuarterLabelPNG(cat, sizeOptions) {
+  const W = Math.round(mmToDots(sizeOptions.pageWidthMm));
+  const H = Math.round(mmToDots(sizeOptions.pageHeightMm));
+  const hi = makeHiResCanvas(W, H);
+  if (!hi) return '';
+  const ctx = hi.ctx;
+
+  const cellW = Math.floor(W / 2);
+  const cellH = Math.floor(H / 2);
+  ctx.fillStyle = '#000000';
+  [
+    [0, 0],
+    [W - cellW, 0],
+    [0, H - cellH],
+    [W - cellW, H - cellH],
+  ].forEach(([x, y]) => drawQuarterCell(ctx, cat, x, y, cellW, cellH, sizeOptions.noPrice));
+
+  // خط القص: نقطتين في النص، على طول اللاصقة.
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(Math.floor(W / 2) - 1, 0, 2, H);
+
+  return shrinkToPrinterDots(hi.canvas, W, H);
+}
+
 // ملصق الدرجة كصورة كمان — نفس السبب بالظبط: نص بس، بس المحرك التاني
 // بيقسّمه بمقاسات مختلفة فبيتقص.
 function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
@@ -5034,7 +5274,8 @@ async function printGradeLabels(cat, sizeOptions) {
 // الحاجة دي كانت بتتعمل بره النظام على برنامج الطابعة: أي ملصق تعريف
 // (اسم مورّد، ملاحظة على كرتونة، "بضاعة مرتجعة") كان بيحتاج تفتح برنامج
 // تاني وتظبّط المقاس من الأول. دلوقتي بياخد نفس مقاس وضبط ملصقاتنا.
-function openCustomLabelDialog() {
+function openCustomLabelDialog(opts) {
+  const toCart = !!(opts && opts.toCart);
   const overlay = document.createElement('div');
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
@@ -5055,7 +5296,7 @@ function openCustomLabelDialog() {
           <input class="input" type="number" id="custom-copies" value="1" min="1" max="1000" inputmode="numeric" />
         </div>
         <div style="display:flex; gap:8px; justify-content:center;">
-          <button class="btn btn-primary" type="submit">🖨️ كمّل</button>
+          <button class="btn btn-primary" type="submit">${toCart ? '➕ أضف للسلة' : '🖨️ كمّل'}</button>
           <button class="btn" type="button" id="custom-cancel">إلغاء</button>
         </div>
       </form>
@@ -5075,6 +5316,10 @@ function openCustomLabelDialog() {
     const copies = Math.max(1, Math.min(MAX_LABEL_COPIES, Number.isNaN(raw) ? 1 : raw));
     if (!line1 && !line2) return;
     close();
+    if (toCart) {
+      addCustomLabelToCart(line1, line2, copies);
+      return;
+    }
     safeAsync(() => printTextLabel(line1, line2, { ...LABEL_SIZE, copies }), 'طباعة المسمّى');
   });
 }
@@ -5450,11 +5695,14 @@ function hatchSVG() {
 }
 
 // groupName: اسم مجموعة ألوان واحدة عشان تتطبع لوحدها، أو '' للورقة كلها.
-function buildRestockHTML(cat, grades, groupName) {
+function buildRestockHTML(cat, grades, groupName, withBase) {
   const now = new Date().toLocaleString('ar-EG');
-  // الدرجات الأساسية (أبيض/أسود/أوف وايت) **مابتظهرش في الورقة المطبوعة**:
-  // الورقة دي شبكة أرقام بتمشي بيها على الرف، والدرجات دي من غير أرقام
-  // أصلًا — فوجودها بيلخبط الشبكة. متابعتها بتبقى من الشاشة.
+  // الدرجات الأساسية (أبيض/أسود/أوف وايت) مالهاش أرقام، والورقة شبكة
+  // أرقام بتمشي بيها على الرف — فوجودها وسط الأرقام بيلخبط الشبكة.
+  //
+  // ⭐ بقت **اختيارية**: مفتاح في شاشة الطباعة بيحطّها في **قسم لوحدها في
+  // آخر الورقة** بأسمائها، فالشبكة فاضلة نضيفة والأساسية مش ضايعة.
+  const baseGrades = withBase ? grades.filter((g) => g.isBase) : [];
   const rowHTML = (g) => `
       <div class="row">
         <span class="num">${escapeHTML(g.number)}</span>
@@ -5480,6 +5728,23 @@ function buildRestockHTML(cat, grades, groupName) {
         )
         .join('');
 
+  // قسم الأساسية في الآخر. بيتفلتر بنفس المجموعة لو الورقة لمجموعة واحدة.
+  const baseScoped = groupName
+    ? baseGrades.filter((g) => (g.group || UNGROUPED_LABEL) === groupName)
+    : baseGrades;
+  const baseHTML = baseScoped.length
+    ? `<div class="group-title">الدرجات الأساسية</div>
+       <div class="grid base-grid">${baseScoped
+         .map(
+           (g) => `
+      <div class="row">
+        <span class="num base-num">${escapeHTML(g.name || '')}</span>
+        <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
+      </div>`
+         )
+         .join('')}</div>`
+    : '';
+
   const sheetTitle = groupName ? `${cat.name} — ${groupName}` : cat.name;
 
   return `
@@ -5497,6 +5762,9 @@ function buildRestockHTML(cat, grades, groupName) {
         .header .item-name { font-size: 14px; font-weight: bold; color: #000; margin-top: 2px; }
         .header .time { font-size: 11px; font-weight: bold; margin-top: 4px; }
         .grid { column-count: 4; column-gap: 1.5mm; }
+        /* أسماء بدل أرقام → أعمدة أقل وخط أصغر عشان الاسم يدخل */
+        .base-grid { column-count: 2; }
+        .base-num { font-size: 11px; }
         .group-title {
           font-weight: bold; font-size: 12px; text-align: center;
           margin: 4px 0 2px; padding: 1px 0;
@@ -5537,6 +5805,7 @@ function buildRestockHTML(cat, grades, groupName) {
         <div class="time">${escapeHTML(now)}</div>
       </div>
       ${rowsHTML}
+      ${baseHTML}
       <script>
         window.onload = function () { setTimeout(function () { window.print(); }, 300); };
       <\/script>
@@ -5583,8 +5852,8 @@ function restockGroupNames(cat, grades) {
 //                 مع مستند واحد بس)
 //   previewHTML → نفس الورق ورا بعض بخط فاصل بدل فاصل الصفحة، عشان
 //                 تشوفهم كلهم في معاينة واحدة قبل ما تأكّد
-function buildRestockBundle(cat, grades, names) {
-  const papers = names.map((name) => buildRestockHTML(cat, grades, name));
+function buildRestockBundle(cat, grades, names, withBase) {
+  const papers = names.map((name) => buildRestockHTML(cat, grades, name, withBase));
 
   const bodyOf = (html) => {
     const m = html.match(/<body>([\s\S]*?)<\/body>/i);
@@ -5620,22 +5889,25 @@ function buildRestockBundle(cat, grades, names) {
   };
 }
 
+// بترجّع { group, withBase } أو null لو اتلغى.
+//
+// الشاشة بتظهر لو فيه **اختيار** مطلوب فعلًا: يا إما الفئة مقسّمة مجموعات،
+// يا إما فيها درجات أساسية (فمفتاح "اشملها" له معنى). غير كده بتطبع على
+// طول من غير ما تسأل — نفس السلوك القديم.
 function chooseRestockGroup(cat, grades) {
   return new Promise((resolve) => {
     const groups = categoryGroups(cat);
     const numbered = grades.filter((g) => !g.isBase);
+    const hasBase = grades.some((g) => g.isBase);
     const countOf = (name) => numbered.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
-
-    // فئة مش مقسّمة → مفيش سؤال، نطبع على طول زي الأول.
-    if (!groups.length) {
-      resolve('');
-      return;
-    }
+    const savedBase = !!(getSharedPrintSettings() || {}).restockWithBase;
 
     const options = groups.filter((n) => countOf(n) > 0);
     if (countOf(UNGROUPED_LABEL) > 0) options.push(UNGROUPED_LABEL);
-    if (options.length < 2) {
-      resolve('');
+    const needsGroupChoice = groups.length > 0 && options.length >= 2;
+
+    if (!needsGroupChoice && !hasBase) {
+      resolve({ group: '', withBase: false });
       return;
     }
 
@@ -5651,24 +5923,46 @@ function chooseRestockGroup(cat, grades) {
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
           <button class="btn btn-primary" data-rg-mode="all">📄 الورقة كلها (${escapeHTML(numbered.length)} درجة)</button>
-          <button class="btn btn-primary" data-rg-mode="each">
-            🗂️ كل مجموعة في ورقة لوحدها (${escapeHTML(options.length)} ورق)
-          </button>
-          <div style="border-top:1px solid var(--border); margin:2px 0;"></div>
-          ${options
-            .map(
-              (name) =>
-                `<button class="btn" data-rg-mode="one" data-rg-name="${escapeHTML(name)}">${escapeHTML(name)} (${escapeHTML(countOf(name))} درجة)</button>`
-            )
-            .join('')}
+          ${
+            needsGroupChoice
+              ? `<button class="btn btn-primary" data-rg-mode="each">
+                   🗂️ كل مجموعة في ورقة لوحدها (${escapeHTML(options.length)} ورق)
+                 </button>
+                 <div style="border-top:1px solid var(--border); margin:2px 0;"></div>
+                 ${options
+                   .map(
+                     (name) =>
+                       `<button class="btn" data-rg-mode="one" data-rg-name="${escapeHTML(name)}">${escapeHTML(name)} (${escapeHTML(countOf(name))} درجة)</button>`
+                   )
+                   .join('')}`
+              : ''
+          }
         </div>
+        ${
+          hasBase
+            ? `<label class="print-opt" style="justify-content:center;">
+                 <input type="checkbox" id="rg-with-base" ${savedBase ? 'checked' : ''} />
+                 <span><strong>اشمل الدرجات الأساسية</strong><br>
+                   <span class="print-opt-hint">بتتكتب بأسمائها في قسم لوحده آخر الورقة</span></span>
+               </label>`
+            : ''
+        }
         <button class="btn" data-rg-cancel="1">إلغاء</button>
       </div>`;
     document.body.appendChild(overlay);
 
-    const close = (value) => {
+    const close = (group) => {
+      const el = overlay.querySelector('#rg-with-base');
+      const withBase = !!(el && el.checked);
       if (overlay.parentNode) document.body.removeChild(overlay);
-      resolve(value);
+      if (group === null) {
+        resolve(null);
+        return;
+      }
+      // الاختيار بيتحفظ في الإعدادات المشتركة زي باقي خيارات الطباعة —
+      // لو شغلك دايمًا بالأساسية، مش هتعلّم عليها كل مرة.
+      if (el) Promise.resolve(saveSharedPrintSettings({ restockWithBase: withBase })).catch(() => {});
+      resolve({ group, withBase });
     };
     overlay.querySelectorAll('[data-rg-mode]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -5683,14 +5977,15 @@ function chooseRestockGroup(cat, grades) {
 }
 
 async function printRestockPaper(cat, grades) {
-  const groupName = await chooseRestockGroup(cat, grades);
-  if (groupName === null) return;
+  const choice = await chooseRestockGroup(cat, grades);
+  if (!choice) return;
+  const { group: groupName, withBase } = choice;
 
   // ⭐ كل مجموعة في ورقة لوحدها — بضغطة واحدة
   if (groupName === RESTOCK_EACH_GROUP) {
     const names = restockGroupNames(cat, grades);
     if (!names.length) return;
-    const bundle = buildRestockBundle(cat, grades, names);
+    const bundle = buildRestockBundle(cat, grades, names, withBase);
 
     // معاينة واحدة مجمّعة: كل الورق ورا بعض بخط فاصل بينهم.
     const okAll = await showPrintPreview(bundle.previewHTML, {
@@ -5706,7 +6001,7 @@ async function printRestockPaper(cat, grades) {
     return;
   }
 
-  const html = buildRestockHTML(cat, grades, groupName);
+  const html = buildRestockHTML(cat, grades, groupName, withBase);
 
   // معاينة قبل الطباعة — نفس فكرة الملصق: تشوف اللي هيطلع قبل ما تحرق ورق.
   // ورقة التزويد ممكن تبقى متر كامل لو الفئة فيها 165 درجة.

@@ -53,23 +53,55 @@ function printScreenHTML() {
   const totalLabels = cart.reduce((s, it) => s + (it.qty || 0), 0);
   const resultsHTML = printResultsHTML();
 
+  // ------------------------------------------------------------
+  // ⭐ شكل الملصق بيتحدّد **لكل صنف في السلة على حدة**
+  // ------------------------------------------------------------
+  // مش إعداد واحد للطبعة كلها: في نفس الطبعة ممكن يكون فيه صنف عايزه
+  // بالملصق الكامل وصنف تاني عايزه مقسوم أربعة.
+  //
+  // القاعدة: "عادي" و"مقسوم (٤)" **الاتنين مايتختاروش مع بعض** — الملصق
+  // له شكل واحد. و"بدون السعر" مستقلة، بتتحط على أي واحد فيهم.
+  //
+  // ملصق المسمّى (النص الحر) مالوش مفاتيح خالص — مافيهوش سعر ولا باركود
+  // أصلًا فمفيش حاجة تتقسم أو تتشال.
+  const modeRow = (it, i) =>
+    it.custom
+      ? ''
+      : `
+      <div class="cart-modes">
+        <label><input type="checkbox" data-cart-mode="${i}" value="normal" ${
+          it.mode !== 'quarter' ? 'checked' : ''
+        } /> عادي</label>
+        <label><input type="checkbox" data-cart-mode="${i}" value="quarter" ${
+          it.mode === 'quarter' ? 'checked' : ''
+        } /> مقسوم (٤)</label>
+        <label><input type="checkbox" data-cart-noprice="${i}" ${it.noPrice ? 'checked' : ''} /> بدون السعر</label>
+      </div>`;
+
   const cartHTML = !cart.length
     ? `<div class="home-empty">السلة فاضية. ضيف أصناف من فوق.</div>`
     : cart
         .map(
           (it, i) => `
-      <div class="home-row">
-        <div style="flex:1; min-width:0;">
-          <div class="home-row-title">${escapeHTML(it.product.name)}</div>
-          <div class="home-row-sub">${escapeHTML(it.product.barcode || it.product.code || '—')}</div>
+      <div class="cart-item">
+        <div class="home-row" style="border:0; padding-bottom:4px;">
+          <div style="flex:1; min-width:0;">
+            <div class="home-row-title">${escapeHTML(it.custom ? it.custom.line1 : it.product.name)}</div>
+            <div class="home-row-sub">${
+              it.custom
+                ? `✍️ مسمّى${it.custom.line2 ? ' — ' + escapeHTML(it.custom.line2) : ''}`
+                : escapeHTML(it.product.barcode || it.product.code || '—')
+            }</div>
+          </div>
+          <div class="qty-cell">
+            <button class="qty-btn" data-cart-dec="${i}">−</button>
+            <input class="qty-input" type="number" min="1" max="1000" value="${escapeHTML(it.qty)}"
+                   data-cart-qty="${i}" inputmode="numeric" />
+            <button class="qty-btn" data-cart-inc="${i}">+</button>
+          </div>
+          <button class="btn" style="padding:4px 10px; font-size:12px; color:var(--danger-text);" data-cart-del="${i}">حذف</button>
         </div>
-        <div class="qty-cell">
-          <button class="qty-btn" data-cart-dec="${i}">−</button>
-          <input class="qty-input" type="number" min="1" max="1000" value="${escapeHTML(it.qty)}"
-                 data-cart-qty="${i}" inputmode="numeric" />
-          <button class="qty-btn" data-cart-inc="${i}">+</button>
-        </div>
-        <button class="btn" style="padding:4px 10px; font-size:12px; color:var(--danger-text);" data-cart-del="${i}">حذف</button>
+        ${modeRow(it, i)}
       </div>`
         )
         .join('');
@@ -95,7 +127,7 @@ function printScreenHTML() {
         <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
           <button class="btn btn-primary" id="print-cart-btn" ${totalLabels ? '' : 'disabled'}>🖨️ اطبع المحدّد (${totalLabels})</button>
           <button class="btn" id="print-clear-btn" ${cart.length ? '' : 'disabled'}>تفريغ السلة</button>
-          <button class="btn" id="print-screen-custom-btn">✍️ طباعة مسمّى</button>
+          <button class="btn" id="print-screen-custom-btn">✍️ أضف مسمّى</button>
           ${can(state.profile, 'printerSetup') ? `<button class="btn" id="print-settings-btn">⚙️ إعدادات الطابعة</button>` : ''}
           ${isBarcodeScanSupported() ? `<button class="btn" id="print-camera-btn">🎥 اختيار الكاميرا</button>` : ''}
         </div>
@@ -103,15 +135,32 @@ function printScreenHTML() {
     </div>`;
 }
 
-function addProductToPrintCart(product, qty) {
+// بتضيف ملصق نص حر للسلة. مفتاحه فريد كل مرة عشان تقدر تضيف أكتر من
+// مسمّى مختلف في نفس الطبعة من غير ما يندمجوا.
+function addCustomLabelToCart(line1, line2, qty) {
+  state.printCart = state.printCart || [];
+  state.printCart.push({
+    key: 'custom:' + Date.now() + ':' + Math.random().toString(36).slice(2, 7),
+    custom: { line1, line2 },
+    qty: Math.max(1, Math.min(MAX_LABEL_COPIES, Number(qty) || 1)),
+  });
+  saveWorkState();
+  render();
+}
+
+function addProductToPrintCart(product, qty, shape) {
   state.printCart = state.printCart || [];
   const add = Math.max(1, Math.min(MAX_LABEL_COPIES, Number(qty) || 1));
-  const key = product.barcode || product.code || product.name;
+  const mode = shape && shape.mode === 'quarter' ? 'quarter' : 'normal';
+  const noPrice = !!(shape && shape.noPrice);
+  // ⚠️ الدمج بقى على **الباركود + شكل الملصق**: نفس الصنف بشكلين مختلفين
+  // لازم يفضل سطرين، وإلا الشكل الجديد هيمسح القديم في صمت.
+  const key = (product.barcode || product.code || product.name) + '|' + mode + (noPrice ? '|np' : '');
   const found = state.printCart.find((it) => it.key === key);
   if (found) {
     found.qty = Math.min(MAX_LABEL_COPIES, (found.qty || 0) + add);
   } else {
-    state.printCart.push({ key, product, qty: add });
+    state.printCart.push({ key, product, qty: add, mode, noPrice });
   }
   // السلة بتتحفظ على الجهاز — لو التطبيق قفل، بترجع زي ما هي.
   saveWorkState();
@@ -181,15 +230,16 @@ function attachPrintScreenEvents() {
       safeAsync(
         () =>
           openBarcodeScanner(
-            (value, qty) => {
+            (value, qty, shape) => {
               const product = findProductByBarcode(value);
               if (!product) return;
-              addProductToPrintCart(product, qty);
+              addProductToPrintCart(product, qty, shape);
               render();
             },
             true,
             {
               askQty: true,
+              askShape: true,
               lookup: (value) => {
                 const p = findProductByBarcode(value);
                 if (!p) return null;
@@ -243,6 +293,30 @@ function attachPrintScreenEvents() {
     });
   });
 
+  // ---- مفاتيح شكل الملصق لكل صنف ----
+  // "عادي" و"مقسوم" بيتصرّفوا كاختيار واحد: الضغط على واحد بيلغي التاني،
+  // والضغط على المتعلّم أصلًا مابيعملش حاجة (لازم يفضل شكل مختار).
+  document.querySelectorAll('[data-cart-mode]').forEach((box) => {
+    box.addEventListener('change', () => {
+      const i = Number(box.getAttribute('data-cart-mode'));
+      const it = (state.printCart || [])[i];
+      if (!it) return;
+      it.mode = box.value === 'quarter' ? 'quarter' : 'normal';
+      saveWorkState();
+      render();
+    });
+  });
+  document.querySelectorAll('[data-cart-noprice]').forEach((box) => {
+    box.addEventListener('change', () => {
+      const i = Number(box.getAttribute('data-cart-noprice'));
+      const it = (state.printCart || [])[i];
+      if (!it) return;
+      it.noPrice = box.checked;
+      saveWorkState();
+      render();
+    });
+  });
+
   const clearBtn = document.getElementById('print-clear-btn');
   if (clearBtn) {
     clearBtn.addEventListener('click', () => {
@@ -257,22 +331,46 @@ function attachPrintScreenEvents() {
 
   // ملصق النص الحر متاح من هنا كمان، مش من جوه الفئة بس. الموظف الواقف
   // عند الطابعة هو أكتر واحد بيحتاجه، وحسابه مابيشوفش شاشة الفئات أصلًا.
+  // ملصق المسمّى بقى **بيتضاف للسلة** بدل ما يتطبع لوحده — عشان تطبع
+  // مسمّى مع أصناف في نفس الطبعة من غير ما تعمل طبعتين.
   const customBtn = document.getElementById('print-screen-custom-btn');
-  if (customBtn) customBtn.addEventListener('click', () => openCustomLabelDialog());
+  if (customBtn) customBtn.addEventListener('click', () => openCustomLabelDialog({ toCart: true }));
 
   const printBtn = document.getElementById('print-cart-btn');
   if (printBtn) {
     printBtn.addEventListener('click', () => {
       // العدد لكل صنف متحدّد في السلة، فخانة "عدد اللاصقات" العامة
       // مالهاش لازمة هنا (نفس منطق ملصقات الدرجات).
-      // ومفتاح "من غير سعر" موجود هنا زي ما هو في ملصق الصنف — الشاشة دي
-      // بتطبع نفس الملصق بالظبط، فمعقول إن نفس الخيار يبقى متاح.
+      // ومفتاح "من غير سعر" مابقاش هنا: بقى **لكل صنف** جوه السلة، لأن
+      // الطبعة الواحدة ممكن تجمع أصناف بأشكال مختلفة.
       promptLabelSize((sizeOptions) => safeAsync(() => printCartLabels(sizeOptions), 'طباعة السلة'), {
         hideCopies: true,
-        showNoPrice: true,
       });
     });
   }
+}
+
+// بتبني ملصق صنف واحد من السلة حسب الشكل المختار له.
+// بترجّع { html, image } — والصورة بتتستخدم في المعاينة وفي وظيفة الطباعة.
+async function buildCartItemLabel(item, sizeOptions) {
+  if (item.custom) {
+    const png = renderGradeLabelPNG(item.custom.line1, item.custom.line2 || '', sizeOptions);
+    if (png) return { html: wrapImageLabelHTML(png, sizeOptions, 1), image: png };
+    return { html: buildGradeLabelHTML(item.custom.line1, item.custom.line2 || '', sizeOptions, 1), image: null };
+  }
+
+  const source = productAsLabelSource(item.product);
+  const opts = { ...sizeOptions, noPrice: !!item.noPrice };
+
+  if (item.mode === 'quarter') {
+    const png = renderQuarterLabelPNG(source, opts);
+    // لو الرسم فشل (متصفح قديم من غير canvas) بنرجع للملصق العادي بدل
+    // ما نطبع ورق فاضي.
+    if (png) return { html: wrapImageLabelHTML(png, opts, 1), image: png };
+  }
+
+  const built = await buildItemLabel(source, opts, item.qty);
+  return { html: built.jobHTML, image: built.image };
 }
 
 async function printCartLabels(sizeOptions) {
@@ -284,9 +382,7 @@ async function printCartLabels(sizeOptions) {
   // مايتغيّرش على أي جهاز.
   const jobs = [];
   for (const item of cart) {
-    const source = productAsLabelSource(item.product);
-    const built = await buildItemLabel(source, sizeOptions, item.qty);
-    jobs.push({ html: built.jobHTML, image: built.image, copies: item.qty });
+    jobs.push({ ...(await buildCartItemLabel(item, sizeOptions)), copies: item.qty });
   }
 
   const total = cart.reduce((s, it) => s + it.qty, 0);

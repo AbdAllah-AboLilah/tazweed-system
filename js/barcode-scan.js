@@ -355,6 +355,15 @@ async function openBarcodeScanner(onResult, keepOpen, options) {
                </div>`
             : ''
         }
+        ${
+          opts.askShape
+            ? `<div class="cart-modes" style="margin-bottom:12px;">
+                 <label><input type="checkbox" name="scan-shape" value="normal" checked /> عادي</label>
+                 <label><input type="checkbox" name="scan-shape" value="quarter" /> مقسوم (٤)</label>
+                 <label><input type="checkbox" id="scan-noprice" /> بدون السعر</label>
+               </div>`
+            : ''
+        }
         <div style="display:flex; gap:8px;">
           <button class="btn btn-primary" id="scan-card-ok" style="flex:1;">✔️ تم</button>
           <button class="btn" id="scan-card-skip">إلغاء</button>
@@ -372,16 +381,36 @@ async function openBarcodeScanner(onResult, keepOpen, options) {
       card.querySelector('#scan-card-inc').addEventListener('click', () => bump(1));
     }
 
+    // شكل الملصق جوه شاشة التصوير: الصنف بيدخل السلة **جاهز بالشكل
+    // المطلوب**، فمش محتاج تخرج تعدّل عليه بعدين. "عادي" و"مقسوم"
+    // اختيار واحد زي ما هما في السلة بالظبط.
+    const shapeBoxes = [...card.querySelectorAll('[name="scan-shape"]')];
+    shapeBoxes.forEach((box) => {
+      box.addEventListener('change', () => {
+        shapeBoxes.forEach((other) => {
+          other.checked = other === box;
+        });
+        // لازم واحد يفضل متعلّم — الملصق له شكل واحد دايمًا
+        if (!shapeBoxes.some((x) => x.checked)) box.checked = true;
+      });
+    });
+
     card.querySelector('#scan-card-skip').addEventListener('click', hideCard);
     card.querySelector('#scan-card-ok').addEventListener('click', () => {
       const qty = qtyEl ? Math.max(1, Math.min(200, parseInt(qtyEl.value, 10) || 1)) : 1;
+      const picked = shapeBoxes.find((x) => x.checked);
+      const noPriceEl = card.querySelector('#scan-noprice');
+      const shape = {
+        mode: picked && picked.value === 'quarter' ? 'quarter' : 'normal',
+        noPrice: !!(noPriceEl && noPriceEl.checked),
+      };
       hideCard();
       msg.textContent = `✅ ${info.title || value}${opts.askQty ? ` × ${qty}` : ''}`;
       if (keepOpen) {
-        handle(value, qty);
+        handle(value, qty, shape);
       } else {
         close();
-        handle(value, qty);
+        handle(value, qty, shape);
       }
     });
   };
