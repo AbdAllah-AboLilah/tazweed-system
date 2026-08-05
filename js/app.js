@@ -7842,7 +7842,7 @@ function init() {
           if (saved.activeCategoryId) state.activeCategoryId = saved.activeCategoryId;
           state.gradeLabelMode = !!saved.gradeLabelMode;
           state.gradeLabelQty = saved.gradeLabelQty || {};
-          state.printCart = saved.printCart || [];
+          state.printCart = sanitizePrintCart(saved.printCart);
         }
       }
 

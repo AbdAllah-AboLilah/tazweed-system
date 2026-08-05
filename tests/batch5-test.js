@@ -388,6 +388,58 @@ function decodeCell(dataUrl, quiet) {
     JSON.stringify(scanCard.after) === '[false,true]', scanCard);
   check('ولازم واحد يفضل متعلّم', scanCard.stillOne, scanCard);
 
+  // ============================================================
+  // 7) 🐞 السلة المحفوظة — العطل اللي وقّع شاشة الطباعة
+  // ============================================================
+  // v0.33.0 اتشحنت وهي بتحفظ المسمّى من غير بياناته، فأول ما تفتح الشاشة
+  // تاني بتقرا it.product.name على undefined وتقع. الفحصين دول بيمسكوا
+  // الحتّة دي من الناحيتين: الحفظ الصح، والصمود قدام المحفوظ الغلط.
+  const persist = await p.evaluate(() => {
+    state.printCart = [
+      { key: 'a', product: { name: 'كريب', barcode: '28144' }, qty: 2, mode: 'quarter', noPrice: true },
+      { key: 'c', custom: { line1: 'بضاعة مرتجعة', line2: 'نصار' }, qty: 3 },
+    ];
+    saveWorkState();
+    const saved = restoreWorkState(state.user.uid);
+    const back = saved ? saved.printCart : [];
+    return {
+      count: back.length,
+      keptShape: back[0] && back[0].mode === 'quarter' && back[0].noPrice === true,
+      keptCustom: !!(back[1] && back[1].custom && back[1].custom.line1 === 'بضاعة مرتجعة'),
+    };
+  });
+  check('⭐ شكل الملصق بيتحفظ مع السلة', persist.count === 2 && persist.keptShape, persist);
+  check('⭐ وبيانات المسمّى بتتحفظ (دي اللي كانت بتتمسح)', persist.keptCustom, persist);
+
+  const broken = await p.evaluate(() => {
+    // سلة زي اللي على أجهزة الناس فعلًا بعد النسخة المكسورة
+    const bad = [
+      { key: 'x', product: { name: 'كريب', barcode: '28144' }, qty: 1 },
+      { key: 'y', qty: 3 },                       // مسمّى ضاعت بياناته
+      null,
+      { key: 'z', custom: { line1: 'ملاحظة' }, qty: 2 },
+    ];
+    const clean = sanitizePrintCart(bad);
+    const errs = [];
+    const onErr = (e) => errs.push(String(e.message || e));
+    window.addEventListener('error', onErr);
+    state.printCart = clean;
+    state.screen = 'print';
+    render();
+    window.removeEventListener('error', onErr);
+    const out = {
+      kept: clean.length,
+      opened: !!document.getElementById('print-cart-btn'),
+      rows: document.querySelectorAll('.cart-item').length,
+      errs,
+    };
+    state.printCart = []; state.screen = 'sheets'; render();
+    return out;
+  });
+  check('⭐ العنصر المكسور بيتشال، والسليم بيفضل', broken.kept === 2, broken);
+  check('⭐ وشاشة الطباعة بتفتح عادي مش بتقع', broken.opened && broken.rows === 2, broken);
+  check('من غير أي خطأ', broken.errs.length === 0, broken.errs);
+
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
 
   console.log('\n✅ نجح (' + pass.length + ')');

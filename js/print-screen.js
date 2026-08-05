@@ -137,6 +137,18 @@ function printScreenHTML() {
 
 // بتضيف ملصق نص حر للسلة. مفتاحه فريد كل مرة عشان تقدر تضيف أكتر من
 // مسمّى مختلف في نفس الطبعة من غير ما يندمجوا.
+// بتنضّف السلة المحفوظة قبل ما تدخل الشاشة.
+//
+// ليه موجودة؟ نسخة اتشحنت كانت بتحفظ ملصق المسمّى **من غير** بياناته
+// (شوف التعليق في local-store.js). العناصر المكسورة دي موجودة خلاص على
+// أجهزة الناس، والشاشة كانت بتقع عليها بدل ما تفتح.
+//
+// القاعدة: العنصر لازم يكون يا صنف (product) يا مسمّى (custom). أي حاجة
+// تانية بتتشال في صمت — أحسن من إن الشاشة كلها تبوظ.
+function sanitizePrintCart(list) {
+  return (Array.isArray(list) ? list : []).filter((it) => it && (it.product || (it.custom && it.custom.line1)));
+}
+
 function addCustomLabelToCart(line1, line2, qty) {
   state.printCart = state.printCart || [];
   state.printCart.push({
