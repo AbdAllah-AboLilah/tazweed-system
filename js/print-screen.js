@@ -95,6 +95,7 @@ function printScreenHTML() {
         <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
           <button class="btn btn-primary" id="print-cart-btn" ${totalLabels ? '' : 'disabled'}>🖨️ اطبع المحدّد (${totalLabels})</button>
           <button class="btn" id="print-clear-btn" ${cart.length ? '' : 'disabled'}>تفريغ السلة</button>
+          <button class="btn" id="print-screen-custom-btn">✍️ طباعة مسمّى</button>
           ${can(state.profile, 'printerSetup') ? `<button class="btn" id="print-settings-btn">⚙️ إعدادات الطابعة</button>` : ''}
           ${isBarcodeScanSupported() ? `<button class="btn" id="print-camera-btn">🎥 اختيار الكاميرا</button>` : ''}
         </div>
@@ -254,12 +255,22 @@ function attachPrintScreenEvents() {
   const settingsBtn = document.getElementById('print-settings-btn');
   if (settingsBtn) settingsBtn.addEventListener('click', () => safeAsync(() => openPrinterSettings(), 'فتح إعدادات الطابعة'));
 
+  // ملصق النص الحر متاح من هنا كمان، مش من جوه الفئة بس. الموظف الواقف
+  // عند الطابعة هو أكتر واحد بيحتاجه، وحسابه مابيشوفش شاشة الفئات أصلًا.
+  const customBtn = document.getElementById('print-screen-custom-btn');
+  if (customBtn) customBtn.addEventListener('click', () => openCustomLabelDialog());
+
   const printBtn = document.getElementById('print-cart-btn');
   if (printBtn) {
     printBtn.addEventListener('click', () => {
       // العدد لكل صنف متحدّد في السلة، فخانة "عدد اللاصقات" العامة
       // مالهاش لازمة هنا (نفس منطق ملصقات الدرجات).
-      promptLabelSize((sizeOptions) => safeAsync(() => printCartLabels(sizeOptions), 'طباعة السلة'), true);
+      // ومفتاح "من غير سعر" موجود هنا زي ما هو في ملصق الصنف — الشاشة دي
+      // بتطبع نفس الملصق بالظبط، فمعقول إن نفس الخيار يبقى متاح.
+      promptLabelSize((sizeOptions) => safeAsync(() => printCartLabels(sizeOptions), 'طباعة السلة'), {
+        hideCopies: true,
+        showNoPrice: true,
+      });
     });
   }
 }
