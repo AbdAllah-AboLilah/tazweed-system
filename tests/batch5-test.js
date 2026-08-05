@@ -477,6 +477,47 @@ function decodeCell(dataUrl, quiet) {
   check('⭐ وشاشة الطباعة بتفتح عادي مش بتقع', broken.opened && broken.rows === 2, broken);
   check('من غير أي خطأ', broken.errs.length === 0, broken.errs);
 
+  // ============================================================
+  // 8) 🐞 الشاشة المنبثقة الأطول من الموبايل
+  // ============================================================
+  // 16 مجموعة = 16 زرار. الشاشة بقت أطول من الشاشة نفسها، فالعنوان اتقص
+  // من فوق و"إلغاء" ومفتاح الأساسية بقوا تحت الحافة — **والشاشة مابتتزحلقش**
+  // لأنها متمركزة رأسيًا جوه غطاء ثابت.
+  const tallDialog = await p.evaluate(async () => {
+    const cat = { id:'c8', name:'المكملات', colorGroups: [] };
+    const grades = [];
+    for (let i = 1; i <= 16; i++) {
+      const g = 'مجموعة رقم ' + i;
+      cat.colorGroups.push(g);
+      for (let k = 0; k < 3; k++) grades.push({ id:`g${i}_${k}`, number:i*10+k, group:g, branchQty:1, mainQty:1, status:'normal' });
+    }
+    const promise = chooseRestockGroup(cat, grades);
+    await new Promise(r => setTimeout(r, 120));
+    const card = document.querySelector('.dialog-card');
+    const body = card.querySelector('.dialog-body');
+    const foot = card.querySelector('.dialog-foot');
+    const cancel = card.querySelector('[data-rg-cancel]');
+    const cr = card.getBoundingClientRect();
+    const fr = cancel.getBoundingClientRect();
+    const out = {
+      buttons: card.querySelectorAll('[data-rg-mode]').length,
+      cardFitsScreen: cr.top >= -1 && cr.bottom <= window.innerHeight + 1,
+      // الجزء اللي بيتزحلق هو القايمة، مش الكارت كله
+      bodyScrolls: body.scrollHeight > body.clientHeight,
+      // زرار الإلغاء لازم يبقى **ظاهر** جوه الشاشة
+      cancelVisible: fr.top >= 0 && fr.bottom <= window.innerHeight + 1,
+      footPinned: !!foot && foot.getBoundingClientRect().bottom <= cr.bottom + 1,
+    };
+    cancel.click();
+    out.cancelled = (await promise) === null;
+    return out;
+  });
+  check('16 مجموعة = 18 زرار (الكل + كل مجموعة لوحدها + 16)', tallDialog.buttons === 18, tallDialog);
+  check('⭐ الشاشة كلها جوه حدود الموبايل', tallDialog.cardFitsScreen, tallDialog);
+  check('⭐ القايمة هي اللي بتتزحلق', tallDialog.bodyScrolls, tallDialog);
+  check('⭐ وزرار "إلغاء" ظاهر مش تحت الحافة', tallDialog.cancelVisible && tallDialog.footPinned, tallDialog);
+  check('والإلغاء شغّال', tallDialog.cancelled, tallDialog);
+
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
 
   console.log('\n✅ نجح (' + pass.length + ')');
