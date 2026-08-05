@@ -49,10 +49,14 @@ dupes={k:v for k,v in decls.items() if len(set(v))>1}
 print(json.dumps(dupes, ensure_ascii=False, indent=1) if dupes else 'مفيش ✅')
 
 allcode=' '.join(bodies.values())
+# النقطة قبل الاسم معناها إنه خاصية (obj.name) مش استخدام للمتغيّر — بس
+# عامل الفرد (...name) بيبدأ بنقط كمان، فكان بيتحسب "مش مستخدم" وهو
+# مستخدم. بنشيل النقط بتاعة الفرد قبل العدّ.
+usecode=allcode.replace('...',' ')
 print('\n=== 2) معرّفة ومش مستخدمة خالص (كود ميت) ===')
 dead=[]
 for name, fs in decls.items():
-    uses=len(re.findall(r'(?<![\w$.])'+re.escape(name)+r'(?![\w$])', allcode))
+    uses=len(re.findall(r'(?<![\w$.])'+re.escape(name)+r'(?![\w$])', usecode))
     if uses<=len(fs):
         dead.append((name, fs[0]))
 html=open('index.html',encoding='utf-8').read()

@@ -266,6 +266,74 @@ html, body {
   white-space: nowrap;
 }
 
+/* سطر بيانات الصنف — بقى معلومة بس بعد ما الأزرار اتنقلت للقوايم */
+.cat-info-line {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.cat-info-line strong {
+  color: var(--text-primary);
+}
+
+.cat-info-line s {
+  color: var(--text-muted);
+}
+
+/* مفاتيح شاشة "قبل الطباعة" */
+.print-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: start;
+  margin-bottom: 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.print-opt input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.print-opt-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* 🖨️ طباعة مسمّى الدرجة من جوه الصف */
+.grade-print-btn {
+  padding: 4px 10px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.grade-print-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.grade-print-qty {
+  width: 62px;
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.grade-print-go {
+  padding: 4px 8px;
+  font-size: 13px;
+  line-height: 1;
+}
+
 .menu-toggle {
   display: none;
 }

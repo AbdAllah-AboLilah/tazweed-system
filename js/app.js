@@ -61,6 +61,7 @@ const state = {
   users: [], // حسابات المستخدمين (بتتحمّل بس وقت فتح شاشة الحسابات)
   canInstallApp: false, // المتصفح عرض إنه يثبّت النظام كأيقونة
   gradeLabelMode: false, // وضع اختيار درجات لطباعة ملصقاتها
+  printingGradeId: null, // الدرجة اللي فاتح عندها خانة عدد الطباعة السريعة
   gradeLabelQty: {}, // { gradeId: عدد الملصقات المطلوبة }
   isNarrow: window.innerWidth <= NARROW_BREAKPOINT, // موبايل؟ (كارتس بدل جدول)
 };
@@ -182,6 +183,20 @@ const DEFAULT_BASE_CRITICAL_QTY = 3;
 function gradeDisplayName(g) {
   if (g && g.isBase && g.name) return g.name;
   return `درجة ${g ? g.number : ''}`;
+}
+
+// الاسم اللي بيتطبع على ملصق الدرجة. مع خيار "باسم المجموعة" بيبقى
+// "كيوي درجة 56" بدل "درجة 56" — عشان لما يبقى فيه أكتر من مجموعة في
+// نفس الفئة، الملصق لوحده يقول اللون.
+//
+// المجموعة بتتحط **قبل** الدرجة عشان دي قراية العربي الطبيعية، ولأن رقم
+// الدرجة هو اللي العين بتدوّر عليه فبيفضل في الآخر ثابت المكان.
+function gradeLabelText(g, withGroup) {
+  const base = gradeDisplayName(g);
+  if (!withGroup) return base;
+  const group = g && g.group ? String(g.group).trim() : '';
+  if (!group || (g && g.isBase)) return base;
+  return `${group} ${base}`;
 }
 
 // الحد الحرج للدرجة: الدرجات الأساسية ليها حد خاص بيها، وباقي الدرجات
@@ -952,7 +967,6 @@ function qtyCellHTML(categoryId, gradeId, field, value, canEdit) {
 function categoryInfoBarHTML() {
   const cat = state.categories.find((c) => c.id === state.activeCategoryId);
   if (!cat) return '';
-  const canManageCatalog = can(state.profile, 'manageCategories');
 
   if (state.showEditCategoryInfoForm) {
     return `
@@ -986,15 +1000,13 @@ function categoryInfoBarHTML() {
       </div>`;
   }
 
+  // الأزرار كلها اتنقلت لقايمتين في شريط الأدوات تحت (🖨️ طباعة / ⚙️ الفئة).
+  // السطر ده بقى معلومة بس — بتتقرا نادرًا، فمابياخدش مساحة أزرار.
   return `
-    <div style="display:flex; align-items:center; gap:16px; margin-bottom:0.75rem; font-size:13px; color:var(--text-secondary); flex-wrap:wrap;">
-      <span>اسم الصنف: <strong style="color:var(--text-primary);">${escapeHTML(cat.itemName || '—')}</strong></span>
-      <span>الباركود: <strong style="color:var(--text-primary);">${escapeHTML(cat.barcodeNumber || '—')}</strong></span>
-      <span>السعر: <strong style="color:var(--text-primary);">${cat.sellingPrice ? `<s style="color:var(--text-muted);">${escapeHTML(cat.originalPrice || 0)}</s> ${escapeHTML(cat.sellingPrice)}` : '—'}</strong></span>
-      ${canManageCatalog ? `<button class="btn" id="edit-category-info-btn" style="padding:3px 10px; font-size:12px;">تعديل</button>` : ''}
-      ${can(state.profile, 'printLabel') ? `<button class="btn" id="print-label-btn" style="padding:3px 10px; font-size:12px;">🏷️ طباعة ملصق</button>` : ''}
-      ${can(state.profile, 'printRestock') ? `<button class="btn" id="print-restock-btn" style="padding:3px 10px; font-size:12px;">🖨️ طباعة ورقة تزويد</button>` : ''}
-      ${can(state.profile, 'printerSetup') ? `<button class="btn" id="printer-settings-btn" style="padding:3px 10px; font-size:12px;" title="إعدادات طابعات هذا الجهاز">⚙️ إعدادات الطابعة</button>` : ''}
+    <div class="cat-info-line">
+      <span>اسم الصنف: <strong>${escapeHTML(cat.itemName || '—')}</strong></span>
+      <span>الباركود: <strong>${escapeHTML(cat.barcodeNumber || '—')}</strong></span>
+      <span>السعر: <strong>${cat.sellingPrice ? `<s>${escapeHTML(cat.originalPrice || 0)}</s> ${escapeHTML(cat.sellingPrice)}` : '—'}</strong></span>
     </div>`;
 }
 
@@ -1050,6 +1062,23 @@ function nextStatusFromQuantities(data, field, newValue) {
   else target = 'out';
 
   return target === current ? null : target;
+}
+
+// 🖨️ رمز طباعة مسمّى الدرجة — جنب "طلب تزويد" بالظبط.
+// الدوسة الأولى بتفتح خانة العدد جوه الصف (مش شاشة بتفتح)، والتانية
+// بتطبع. الافتراضي 1 لأن ده اللي بيحصل في 90% من المرات.
+function gradePrintBtnHTML(g) {
+  if (!can(state.profile, 'printLabel')) return '';
+  if (state.printingGradeId === g.id) {
+    return `
+      <span class="grade-print-box">
+        <input class="input grade-print-qty" type="number" id="grade-print-qty" value="1" min="1" max="1000"
+               inputmode="numeric" aria-label="عدد اللاصقات" />
+        <button class="btn btn-primary grade-print-go" data-print-grade-go="${escapeHTML(g.id)}" title="اطبع">🖨️</button>
+        <button class="btn grade-print-go" data-print-grade-cancel="1" title="إلغاء">✕</button>
+      </span>`;
+  }
+  return `<button class="btn grade-print-btn" data-print-grade-id="${escapeHTML(g.id)}" title="اطبع مسمّى الدرجة دي">🖨️</button>`;
 }
 
 // محتوى عمود الحالة من غير <td> — عشان نقدر نستخدمه في الجدول (كمبيوتر)
@@ -1123,7 +1152,7 @@ function statusContentHTML(g, canEditBranch, canEditMain) {
 }
 
 function statusCellHTML(g, canEditBranch, canEditMain) {
-  return `<td>${statusContentHTML(g, canEditBranch, canEditMain)}</td>`;
+  return `<td>${statusContentHTML(g, canEditBranch, canEditMain)}${gradePrintBtnHTML(g)}</td>`;
 }
 
 // أزرار الكمية من غير <td> — نفس السبب اللي فوق.
@@ -1184,7 +1213,7 @@ function gradeCardsHTML(canEditBranch, canEditMain, canDeleteGrades) {
                        ${g.status === 'pending' ? 'checked' : ''} ${canEditBranch ? '' : 'disabled'} />`
               }
             </div>`
-              : `<div class="gc-status">${statusContentHTML(g, canEditBranch, canEditMain)}</div>`;
+              : `<div class="gc-status">${statusContentHTML(g, canEditBranch, canEditMain)}${gradePrintBtnHTML(g)}</div>`;
 
           return `
           <div class="grade-card ${rowClassForStatus(g.status)} ${g.isBase ? 'grade-base' : ''}">
@@ -1227,9 +1256,11 @@ function gradeTableHTML() {
     ? `<button class="btn ${state.bulkRequestMode ? 'btn-primary' : ''}" id="toggle-bulk-request-btn">${state.bulkRequestMode ? '✔️ تم' : '📋 طلب تزويد'}</button>`
     : '';
 
-  const labelModeBtn = `<button class="btn ${state.gradeLabelMode ? 'btn-primary' : ''}" id="toggle-grade-label-btn">${
-    state.gradeLabelMode ? '✔️ تم' : '🏷️ طباعة ملصقات درجات'
-  }</button>`;
+  // وضع ملصقات الدرجات مكانه جوه قايمة الطباعة، **إلا** وانت جواه — ساعتها
+  // بيطلع برّه كزرار خروج، عشان ما تضطرش تفتح قايمة عشان تخرج من وضع.
+  const labelModeBtn = state.gradeLabelMode
+    ? `<button class="btn btn-primary" id="toggle-grade-label-btn">✔️ تم</button>`
+    : '';
 
   const selectModeBtn = canDeleteGrades
     ? `<button class="btn ${state.gradeSelectMode ? 'btn-primary' : ''}" id="toggle-grade-select-btn">${
@@ -1257,8 +1288,24 @@ function gradeTableHTML() {
   ].filter(Boolean);
 
   const catMenuItems = [
+    canManageCatalog ? `<button class="btn menu-item" id="edit-category-info-btn">✏️ بيانات الفئة</button>` : '',
     canManageCatalog ? `<button class="btn menu-item" id="color-groups-btn">🎨 مجموعات الألوان</button>` : '',
     canEditBranch ? `<button class="btn menu-item" id="bulk-branch-qty-btn">⬆️ ظبط كميات الفرع</button>` : '',
+  ].filter(Boolean);
+
+  // ------------------------------------------------------------
+  // ⭐ الطباعة كلها في قايمة واحدة
+  // ------------------------------------------------------------
+  // كان فيه 3 زراير طباعة + إعدادات الطابعة، متفرّقين على سطر البيانات
+  // وشريط الأدوات — أربع حاجات بتعمل نفس نوع الشغل في مكانين مختلفين.
+  const printMenuItems = [
+    can(state.profile, 'printLabel') ? `<button class="btn menu-item" id="print-label-btn">🏷️ ملصق الصنف</button>` : '',
+    can(state.profile, 'printRestock') ? `<button class="btn menu-item" id="print-restock-btn">📄 ورقة التزويد</button>` : '',
+    can(state.profile, 'printLabel') && !state.gradeLabelMode
+      ? `<button class="btn menu-item" id="toggle-grade-label-btn">🏷️ ملصقات الدرجات</button>`
+      : '',
+    can(state.profile, 'printLabel') ? `<button class="btn menu-item" id="print-custom-btn">✍️ طباعة مسمّى</button>` : '',
+    can(state.profile, 'printerSetup') ? `<button class="btn menu-item" id="printer-settings-btn">⚙️ إعدادات الطابعة</button>` : '',
   ].filter(Boolean);
 
   const dropdown = (id, label, items) =>
@@ -1271,6 +1318,7 @@ function gradeTableHTML() {
 
   const toolbarHTML = `
     <div style="display:flex; gap:8px; margin-bottom:0.75rem; flex-wrap:wrap;">
+      ${dropdown('tool-print', '🖨️ طباعة', printMenuItems)}
       ${bulkToggleBtn}
       ${labelModeBtn}
       ${selectModeBtn}
@@ -1615,6 +1663,7 @@ function openCategory(categoryId) {
   // عشان مايتطبعش بالغلط على فئة تانية.
   state.gradeLabelMode = false;
   state.gradeLabelQty = {};
+  state.printingGradeId = null;
   saveWorkState();
   render();
   subscribeGrades(categoryId);
@@ -1813,6 +1862,7 @@ function attachDashboardEvents() {
   if (toggleBulkRequestBtn) {
     toggleBulkRequestBtn.addEventListener('click', () => {
       state.bulkRequestMode = !state.bulkRequestMode;
+      state.printingGradeId = null;
       if (state.bulkRequestMode) {
         state.gradeLabelMode = false;
         state.gradeSelectMode = false;
@@ -1826,6 +1876,7 @@ function attachDashboardEvents() {
   if (toggleGradeSelectBtn) {
     toggleGradeSelectBtn.addEventListener('click', () => {
       state.gradeSelectMode = !state.gradeSelectMode;
+      state.printingGradeId = null;
       // الأوضاع التلاتة بتتشارك نفس العمود، فواحد بس بيشتغل في المرة.
       if (state.gradeSelectMode) {
         state.gradeLabelMode = false;
@@ -1898,6 +1949,7 @@ function attachDashboardEvents() {
   if (toggleGradeLabelBtn) {
     toggleGradeLabelBtn.addEventListener('click', () => {
       state.gradeLabelMode = !state.gradeLabelMode;
+      state.printingGradeId = null;
       if (!state.gradeLabelMode) state.gradeLabelQty = {};
       // الأوضاع مابتشتغلش مع بعض — عمود الحالة واحد.
       if (state.gradeLabelMode) {
@@ -1978,7 +2030,10 @@ function attachDashboardEvents() {
     printGradeLabelsBtn.addEventListener('click', () => {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
       if (!cat) return;
-      promptLabelSize((sizeOptions) => safeAsync(() => printGradeLabels(cat, sizeOptions), 'طباعة ملصقات الدرجات'), true);
+      promptLabelSize((sizeOptions) => safeAsync(() => printGradeLabels(cat, sizeOptions), 'طباعة ملصقات الدرجات'), {
+        hideCopies: true,
+        showGroupName: true,
+      });
     });
   }
 
@@ -2158,7 +2213,7 @@ function attachDashboardEvents() {
 
   // ---- القوايم المنسدلة في شريط الفئة ----
   // بتتقفل لما تضغط بره أو تختار حاجة منها.
-  ['tool-add', 'tool-cat'].forEach((id) => {
+  ['tool-print', 'tool-add', 'tool-cat'].forEach((id) => {
     const btn = document.getElementById(id + '-btn');
     const panel = document.getElementById(id + '-panel');
     if (!btn || !panel) return;
@@ -2259,7 +2314,9 @@ function attachDashboardEvents() {
       const cat = state.categories.find((c) => c.id === state.activeCategoryId);
       if (!cat) return;
       // المقاس ← المعاينة ← اختيار الجهاز ← الطباعة (كلها جوه printLabel).
-      promptLabelSize((sizeOptions) => safeAsync(() => printLabel(cat, sizeOptions), 'طباعة الملصق'));
+      promptLabelSize((sizeOptions) => safeAsync(() => printLabel(cat, sizeOptions), 'طباعة الملصق'), {
+        showNoPrice: true,
+      });
     });
   }
 
@@ -2270,6 +2327,11 @@ function attachDashboardEvents() {
       if (!cat) return;
       safeAsync(() => printRestockPaper(cat, state.grades), 'طباعة ورقة التزويد');
     });
+  }
+
+  const printCustomBtn = document.getElementById('print-custom-btn');
+  if (printCustomBtn) {
+    printCustomBtn.addEventListener('click', () => openCustomLabelDialog());
   }
 
   const printerSettingsBtn = document.getElementById('printer-settings-btn');
@@ -2328,6 +2390,35 @@ function attachDashboardEvents() {
 
   document.querySelectorAll('[data-cancel-shortage-id]').forEach((btn) => {
     btn.addEventListener('click', () => cancelShortage(btn.dataset.cancelShortageId));
+  });
+
+  // ---- 🖨️ طباعة مسمّى درجة واحدة من جوه الصف ----
+  document.querySelectorAll('[data-print-grade-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.printingGradeId = btn.dataset.printGradeId;
+      render();
+      const input = document.getElementById('grade-print-qty');
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    });
+  });
+  document.querySelectorAll('[data-print-grade-cancel]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.printingGradeId = null;
+      render();
+    });
+  });
+  document.querySelectorAll('[data-print-grade-go]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.printGradeGo;
+      const input = document.getElementById('grade-print-qty');
+      const raw = parseInt(input ? input.value : '1', 10);
+      state.printingGradeId = null;
+      render();
+      safeAsync(() => printOneGradeLabel(id, Number.isNaN(raw) ? 1 : raw), 'طباعة مسمّى الدرجة');
+    });
   });
 
   // التزويد بضغطة واحدة: بينقل الكمية الافتراضية من الرئيسي للفرع فورًا.
@@ -3436,17 +3527,41 @@ async function executePrintJob(jobId, job) {
 
 // hideCopies: بنخفي خانة "عدد اللاصقات" في وضع ملصقات الدرجات، لأن العدد
 // هناك متحدّد لكل درجة على حدة في الجدول — فخانة واحدة عامة هتلخبط.
-function promptLabelSize(callback, hideCopies) {
+// مقاس اللفة اللي في المحل. مكتوب في مكان واحد عشان لو اتغيّرت اللفة
+// يتغيّر سطر واحد بس.
+const LABEL_SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
+
+// ------------------------------------------------------------
+// شاشة "قبل الطباعة"
+// ------------------------------------------------------------
+// opts:
+//   hideCopies      — العدد بيتحدّد لكل درجة على حدة (وضع ملصقات الدرجات)
+//   showNoPrice     — مفتاح "من غير سعر" (ملصق الصنف بس — هو اللي فيه سعر)
+//   showGroupName   — مفتاح "باسم المجموعة" (ملصقات الدرجات بس)
+//
+// المفتاحين بيتحفظوا في **الإعدادات المشتركة** مش على الجهاز: الاختيار ده
+// قرار شغل ("ملصقاتنا من غير سعر")، مش خاصية جهاز — فلازم يبقى واحد على
+// الأربع أجهزة من غير ما حد يعيد ظبطه.
+function promptLabelSize(callback, opts) {
+  const o = typeof opts === 'boolean' ? { hideCopies: opts } : opts || {};
+  const saved = getSharedPrintSettings() || {};
   const overlay = document.createElement('div');
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;';
+  const toggle = (id, label, on, hint) => `
+      <label class="print-opt">
+        <input type="checkbox" id="${id}" ${on ? 'checked' : ''} />
+        <span><strong>${label}</strong><br><span class="print-opt-hint">${hint}</span></span>
+      </label>`;
   overlay.innerHTML = `
     <div class="card" style="max-width:300px; text-align:center;">
       <div style="margin-bottom:12px; font-size:14px; font-weight:500;">طباعة ملصق</div>
-      <div class="field" style="text-align:start; ${hideCopies ? 'display:none;' : ''}">
+      <div class="field" style="text-align:start; ${o.hideCopies ? 'display:none;' : ''}">
         <label>عدد اللاصقات</label>
         <input class="input" type="number" id="label-copies" value="1" min="1" max="1000" inputmode="numeric" />
       </div>
+      ${o.showNoPrice ? toggle('opt-no-price', 'من غير سعر', saved.labelNoPrice, 'الاسم والباركود بس — والخط بيكبر مكان السعر') : ''}
+      ${o.showGroupName ? toggle('opt-group-name', 'اكتب اسم المجموعة', saved.gradeLabelWithGroup, 'يعني "كيوي درجة 56" بدل "درجة 56"') : ''}
       <div style="margin-bottom:12px; font-size:11px; color:var(--text-secondary); line-height:1.7;">
         المقاس: <strong>38×25 ملم مقسومة نصين</strong> — ده مقاس اللفة اللي عندنا،
         والمحتوى بيتكرر في نصّي اللاصقة.
@@ -3457,12 +3572,24 @@ function promptLabelSize(callback, hideCopies) {
       <button class="btn" id="size-cancel">إلغاء</button>
     </div>`;
   document.body.appendChild(overlay);
-  const pick = (id, opts) =>
+  const pick = (id, sizeOpts) =>
     document.getElementById(id).addEventListener('click', () => {
       const raw = parseInt(document.getElementById('label-copies').value, 10);
       const copies = Math.max(1, Math.min(MAX_LABEL_COPIES, Number.isNaN(raw) ? 1 : raw));
+      const noPriceEl = document.getElementById('opt-no-price');
+      const groupEl = document.getElementById('opt-group-name');
+      const noPrice = !!(noPriceEl && noPriceEl.checked);
+      const withGroup = !!(groupEl && groupEl.checked);
       document.body.removeChild(overlay);
-      callback({ ...opts, copies });
+
+      // الحفظ مابيوقّفش الطباعة: لو النت واقع، تطبع دلوقتي والاختيار
+      // بيتحفظ محليًا ويتزامن بعدين.
+      const patch = {};
+      if (noPriceEl) patch.labelNoPrice = noPrice;
+      if (groupEl) patch.gradeLabelWithGroup = withGroup;
+      if (Object.keys(patch).length) Promise.resolve(saveSharedPrintSettings(patch)).catch(() => {});
+
+      callback({ ...sizeOpts, copies, noPrice, withGroup });
     });
 
   // halves = عدد الأقسام اللي اللاصقة الواحدة مقسومة لها والماكينة بتحسبهم
@@ -3471,7 +3598,7 @@ function promptLabelSize(callback, hideCopies) {
   // المقاسات التانية (38×25 قطعة واحدة، 38×18، 2×4 إنش) اتشالت خلاص:
   // اللفة اللي في المحل مقاس واحد، والخيارات الزيادة كانت بس فرصة إن حد
   // يختار غلط ويطلع ورق مقصوص. لو جِبنا لفة تانية، يترجّع سطر واحد هنا.
-  pick('size-measured', { pageWidthMm: 38, pageHeightMm: 25, halves: 2 });
+  pick('size-measured', { ...LABEL_SIZE });
   document.getElementById('size-cancel').addEventListener('click', () => {
     document.body.removeChild(overlay);
   });
@@ -3846,7 +3973,10 @@ function renderLabelPNG(cat, sizeOptions) {
   const sellNum = Number(cat.sellingPrice) || 0;
   const origNum = Number(cat.originalPrice) || 0;
   const hasDiscount = origNum > 0 && origNum !== sellNum;
-  const showPrice = !!cat.sellingPrice;
+  // ⭐ "من غير سعر": بتشيل سطر السعر خالص — والاسم والرقم بياخدوا مكانه،
+  // يعني الخط بيكبر مش بس السعر بيختفي. مفيدة لما تكون الأسعار بتتغيّر
+  // كتير أو الملصق للتعريف مش للبيع.
+  const showPrice = !!cat.sellingPrice && !sizeOptions.noPrice;
 
   // نفس هندسة الملصق القديم بالظبط، بس بالنقط بدل الملليمترات
   const pad = mmToDots(0.4);
@@ -4091,7 +4221,8 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const sellNum = Number(cat.sellingPrice) || 0;
   const origNum = Number(cat.originalPrice) || 0;
   const hasDiscount = origNum > 0 && origNum !== sellNum;
-  const priceHTML = cat.sellingPrice
+  const showPrice = !!cat.sellingPrice && !sizeOptions.noPrice;
+  const priceHTML = showPrice
     ? `<div class="price">${
         hasDiscount ? `<s>${escapeHTML(cat.originalPrice)} L.E</s>` : ''
       }<b>${escapeHTML(cat.sellingPrice)} L.E</b></div>`
@@ -4139,7 +4270,7 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
 
   // اسم الصنف: بنقيس التقسيم الحقيقي على سطر وعلى سطرين وناخد الأوضح.
   // (قبل كده كنا بنخمّن ×1.85 والاسم كان بيتقطع بنقط "…")
-  const otherLines = 1 + (cat.sellingPrice ? 1 : 0); // الباركود + السعر
+  const otherLines = 1 + (showPrice ? 1 : 0); // الباركود + السعر
   const layout = pickNameLayout(name, textW, contentH, LINE, otherLines, 2.7);
   const nameLines = layout.lines;
   const nameSize = layout.size;
@@ -4490,8 +4621,10 @@ async function printGradeLabels(cat, sizeOptions) {
     return { html: buildGradeLabelHTML(cat.name, label, sizeOptions, copies), preview: null, image: null };
   };
 
+  const nameOf = (g) => gradeLabelText(g, sizeOptions.withGroup);
+
   // المعاينة بتوري أول درجة محدّدة كنموذج
-  const first = buildOne(gradeDisplayName(picks[0].grade), 1);
+  const first = buildOne(nameOf(picks[0].grade), 1);
   const total = picks.reduce((s, p) => s + p.qty, 0);
   const approved = await showPrintPreview(
     first.preview || first.html,
@@ -4502,7 +4635,7 @@ async function printGradeLabels(cat, sizeOptions) {
 
   // كل لاصقة صفحة مستقلة عند QZ (مصفوفة)، عشان ما يحشرش أكتر من واحدة
   // في نفس اللاصقة.
-  const built = picks.map((p) => ({ ...buildOne(gradeDisplayName(p.grade), 1), copies: p.qty }));
+  const built = picks.map((p) => ({ ...buildOne(nameOf(p.grade), 1), copies: p.qty }));
   const jobs = built.map((x) => ({ html: x.html, image: x.image, copies: x.copies }));
 
   // نسخة واحدة بفواصل صفحات لنافذة طباعة المتصفح (بتتعامل مع مستند واحد).
@@ -4514,6 +4647,115 @@ async function printGradeLabels(cat, sizeOptions) {
   const browserHTML = built[0].html.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
   await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML);
+}
+
+// ------------------------------------------------------------
+// ✍️ طباعة مسمّى — ملصق نص حر
+// ------------------------------------------------------------
+// نفس تصميم ملصق الدرجة بالظبط (سطرين نص في نص اللاصقة، من غير QR ولا
+// سعر)، بس النص بتكتبه إنت بإيدك بدل ما ييجي من الفئة والدرجة.
+//
+// الحاجة دي كانت بتتعمل بره النظام على برنامج الطابعة: أي ملصق تعريف
+// (اسم مورّد، ملاحظة على كرتونة، "بضاعة مرتجعة") كان بيحتاج تفتح برنامج
+// تاني وتظبّط المقاس من الأول. دلوقتي بياخد نفس مقاس وضبط ملصقاتنا.
+function openCustomLabelDialog() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:340px; width:100%;">
+      <div style="margin-bottom:12px; font-size:14px; font-weight:500; text-align:center;">✍️ طباعة مسمّى</div>
+      <form id="custom-label-form">
+        <div class="field">
+          <label>السطر الأول</label>
+          <input class="input" id="custom-line1" maxlength="60" placeholder="مثلًا: كريب سادة لوكس" required />
+        </div>
+        <div class="field">
+          <label>السطر التاني (اختياري)</label>
+          <input class="input" id="custom-line2" maxlength="60" placeholder="مثلًا: درجة 56" />
+        </div>
+        <div class="field">
+          <label>عدد اللاصقات</label>
+          <input class="input" type="number" id="custom-copies" value="1" min="1" max="1000" inputmode="numeric" />
+        </div>
+        <div style="display:flex; gap:8px; justify-content:center;">
+          <button class="btn btn-primary" type="submit">🖨️ كمّل</button>
+          <button class="btn" type="button" id="custom-cancel">إلغاء</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => document.body.removeChild(overlay);
+  document.getElementById('custom-cancel').addEventListener('click', close);
+  const first = document.getElementById('custom-line1');
+  if (first) first.focus();
+
+  document.getElementById('custom-label-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const line1 = document.getElementById('custom-line1').value.trim();
+    const line2 = document.getElementById('custom-line2').value.trim();
+    const raw = parseInt(document.getElementById('custom-copies').value, 10);
+    const copies = Math.max(1, Math.min(MAX_LABEL_COPIES, Number.isNaN(raw) ? 1 : raw));
+    if (!line1 && !line2) return;
+    close();
+    safeAsync(() => printTextLabel(line1, line2, { ...LABEL_SIZE, copies }), 'طباعة المسمّى');
+  });
+}
+
+// بتطبع ملصق نص حر (سطرين). نفس مسار ملصق الدرجة: صورة بمقاس نقط
+// الطابعة، معاينة، وبعدين وظايف طباعة صغيرة.
+async function printTextLabel(line1, line2, sizeOptions) {
+  const copies = sizeOptions.copies || 1;
+  const useImage = !getPrintTweak('htmlLabels');
+
+  let previewHTML;
+  let jobHTML;
+  let image = null;
+  let previewPx = null;
+
+  if (useImage) {
+    const png = renderGradeLabelPNG(line1, line2, sizeOptions);
+    if (png) {
+      const d = labelDots(sizeOptions);
+      image = png;
+      previewPx = d;
+      previewHTML = wrapImageLabelPreviewHTML(png, d.w, d.h);
+      jobHTML = wrapImageLabelHTML(png, sizeOptions, 1);
+    }
+  }
+  if (!jobHTML) {
+    jobHTML = buildGradeLabelHTML(line1, line2, sizeOptions, 1);
+    previewHTML = jobHTML;
+  }
+
+  const approved = await showPrintPreview(previewHTML, { ...sizeOptions, previewPx }, copies);
+  if (!approved) return;
+
+  const jobs = [{ html: jobHTML, image, copies }];
+  const fallbackHTML = image
+    ? wrapImageLabelHTML(image, sizeOptions, copies)
+    : buildGradeLabelHTML(line1, line2, sizeOptions, copies);
+  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', fallbackHTML);
+}
+
+// ------------------------------------------------------------
+// 🖨️ ملصق درجة واحدة من جوه الصف
+// ------------------------------------------------------------
+// وضع "ملصقات الدرجات" هدفه الطبعات الكبيرة: تدخل الوضع، تعلّم على 20
+// درجة، تكتب عدد لكل واحدة، تخرج. لكن أكتر حاجة بتحصل فعلًا هي **درجة
+// واحدة دلوقتي** — وكانت بتاخد نفس الخمس خطوات.
+//
+// الرمز ده بيختصرها: دوسة تفتح خانة عدد جوه نفس الصف، ودوسة تطبع.
+async function printOneGradeLabel(gradeId, copies) {
+  const cat = state.categories.find((c) => c.id === state.activeCategoryId);
+  const g = state.grades.find((x) => x.id === gradeId);
+  if (!cat || !g) return;
+  const saved = getSharedPrintSettings() || {};
+  await printTextLabel(cat.name || '', gradeLabelText(g, saved.gradeLabelWithGroup), {
+    ...LABEL_SIZE,
+    copies: Math.max(1, Math.min(MAX_LABEL_COPIES, copies || 1)),
+  });
 }
 
 function extractLabelBody(fullHTML) {
