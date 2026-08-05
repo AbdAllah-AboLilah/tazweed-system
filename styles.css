@@ -361,6 +361,41 @@ html, body {
   flex-shrink: 0;
 }
 
+/* ============================================================
+   شاشة منبثقة بقايمة بتطول مع البيانات
+   ============================================================
+   المشكلة اللي بتحلها: شاشة "تطبع أنهي جزء؟" فيها زرار لكل مجموعة.
+   عند 16 مجموعة الشاشة بقت أطول من الموبايل — العنوان اتقص من فوق،
+   وزرار "إلغاء" ومفتاح الأساسية بقوا تحت حافة الشاشة، **والشاشة
+   مابتتزحلقش** لأنها متمركزة رأسيًا جوه غطاء ثابت.
+
+   الحل: الكارت عمود بارتفاع أقصى، **القايمة لوحدها** هي اللي بتتزحلق،
+   والعنوان فوق والأزرار تحت ثابتين ومضمون إنك تشوفهم. */
+.dialog-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  width: 100%;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 4px;
+}
+
+.dialog-foot {
+  flex: 0 0 auto;
+  padding-top: 10px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
 /* مفاتيح شاشة "قبل الطباعة" */
 .print-opt {
   display: flex;

@@ -3545,7 +3545,7 @@ async function openBaseGradesDialog(categoryId) {
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
   overlay.innerHTML = `
-    <div class="card" style="max-width:340px; width:100%;">
+    <div class="card" style="max-width:340px; width:100%; max-height:88vh; overflow:auto;">
       <div style="font-size:15px; font-weight:500; margin-bottom:6px;">الدرجات الأساسية</div>
       <div style="font-size:12px; color:var(--text-secondary); line-height:1.7; margin-bottom:12px;">
         هيتضاف <strong>أبيض</strong> و<strong>أسود</strong> و<strong>أوف وايت</strong> كدرجات
@@ -3808,7 +3808,7 @@ function choosePrintTarget() {
     overlay.style.cssText =
       'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
     overlay.innerHTML = `
-      <div class="card" style="max-width:320px; width:100%; text-align:center;">
+      <div class="card" style="max-width:320px; width:100%; max-height:88vh; overflow:auto; text-align:center;">
         <div style="margin-bottom:4px; font-size:14px; font-weight:500;">تطبع على أنهي جهاز؟</div>
         <div style="margin-bottom:12px; font-size:11px; color:var(--text-secondary);">
           الأجهزة المتصلة دلوقتي بس هي اللي بتظهر هنا
@@ -5280,7 +5280,7 @@ function openCustomLabelDialog(opts) {
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
   overlay.innerHTML = `
-    <div class="card" style="max-width:340px; width:100%;">
+    <div class="card" style="max-width:340px; width:100%; max-height:88vh; overflow:auto;">
       <div style="margin-bottom:12px; font-size:14px; font-weight:500; text-align:center;">✍️ طباعة مسمّى</div>
       <form id="custom-label-form">
         <div class="field">
@@ -5392,7 +5392,7 @@ function openAddGradeRangeDialog(categoryId) {
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
   overlay.innerHTML = `
-    <div class="card" style="max-width:320px; width:100%;">
+    <div class="card" style="max-width:320px; width:100%; max-height:88vh; overflow:auto;">
       <div style="font-size:15px; font-weight:500; margin-bottom:4px;">إضافة درجات دفعة واحدة</div>
       <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; line-height:1.7;">
         اكتب من رقم كام لرقم كام، والنظام هيضيفهم كلهم مرة واحدة.
@@ -5927,13 +5927,13 @@ function chooseRestockGroup(cat, grades) {
     overlay.style.cssText =
       'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
     overlay.innerHTML = `
-      <div class="card" style="max-width:340px; width:100%; text-align:center;">
+      <div class="dialog-card" style="max-width:340px; text-align:center;">
         <div style="font-size:15px; font-weight:500; margin-bottom:4px;">تطبع أنهي جزء؟</div>
-        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; line-height:1.7;">
+        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:10px; line-height:1.7;">
           اسم المجموعة هيتكتب في عنوان الورقة
           (مثال: ${escapeHTML(cat.name)} — ${escapeHTML(options[0])})
         </div>
-        <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+        <div class="dialog-body" style="display:flex; flex-direction:column; gap:8px;">
           <button class="btn btn-primary" data-rg-mode="all">📄 الورقة كلها (${escapeHTML(grades.length)} درجة)</button>
           ${
             needsGroupChoice
@@ -5950,16 +5950,18 @@ function chooseRestockGroup(cat, grades) {
               : ''
           }
         </div>
-        ${
-          hasBase
-            ? `<label class="print-opt" style="justify-content:center;">
-                 <input type="checkbox" id="rg-with-base" ${savedBase ? 'checked' : ''} />
-                 <span><strong>اشمل الدرجات الأساسية</strong><br>
-                   <span class="print-opt-hint">بتتكتب بأسمائها في قسم لوحده آخر الورقة</span></span>
-               </label>`
-            : ''
-        }
-        <button class="btn" data-rg-cancel="1">إلغاء</button>
+        <div class="dialog-foot">
+          ${
+            hasBase
+              ? `<label class="print-opt" style="justify-content:center; margin-bottom:8px;">
+                   <input type="checkbox" id="rg-with-base" ${savedBase ? 'checked' : ''} />
+                   <span><strong>اشمل الدرجات الأساسية</strong><br>
+                     <span class="print-opt-hint">بتتكتب بأسمائها تحت أرقام كل مجموعة</span></span>
+                 </label>`
+              : ''
+          }
+          <button class="btn" data-rg-cancel="1" style="width:100%;">إلغاء</button>
+        </div>
       </div>`;
     document.body.appendChild(overlay);
 
