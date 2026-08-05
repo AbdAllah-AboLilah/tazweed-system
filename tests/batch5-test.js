@@ -162,17 +162,54 @@ function decodeCell(dataUrl, quiet) {
     return {
       offHasBase: /أبيض/.test(off),
       onHasBase: /أبيض/.test(on) && /أسود/.test(on),
-      onHasTitle: /الدرجات الأساسية/.test(on),
       offRows: (off.match(/class="row"/g) || []).length,
       onRows: (on.match(/class="row"/g) || []).length,
-      // الشبكة الرقمية مااتلخبطتش — الأساسية في قسم لوحده
-      baseAfterNumbers: on.indexOf('الدرجات الأساسية') > on.lastIndexOf('>2<'),
+      // الأساسية في شبكة أسماء منفصلة، تحت أرقام مجموعتها
+      hasBaseGrid: /class="grid base-grid"/.test(on),
+      // ⚠️ لازم ندوّر على الوسم نفسه مش على الاسم: ".base-grid" موجود في
+      // التنسيقات فوق كمان، فالمقارنة كانت بتقع على مكان الـCSS.
+      baseAfterNumbers: on.indexOf('class="grid base-grid"') > on.lastIndexOf('>2<'),
     };
   });
   check('من غير المفتاح: الأساسية مش في الورقة (زي الأول)', !restock.offHasBase && restock.offRows === 2, restock);
   check('⭐ مع المفتاح: الأساسية بتتكتب بأسمائها', restock.onHasBase && restock.onRows === 4, restock);
-  check('⭐ في قسم لوحده اسمه "الدرجات الأساسية"', restock.onHasTitle, restock);
-  check('⭐ وبعد الأرقام مش وسطها (الشبكة مااتلخبطتش)', restock.baseAfterNumbers, restock);
+  check('في شبكة أسماء منفصلة عن شبكة الأرقام', restock.hasBaseGrid, restock);
+  check('⭐ وبعد أرقام مجموعتها مش وسطها', restock.baseAfterNumbers, restock);
+
+  // ⚠️ الحالة اللي كسرت الورقة فعلًا: فئة **كلها** أساسية، كل مجموعة
+  // فيها أبيض/أسود/أوف وايت بتوعها. الورقة كانت بتطلّع كل الأبيض ورا
+  // بعض في قسم واحد من غير أسماء المجموعات — مالهاش أي فايدة على الرف.
+  const allBase = await p.evaluate(() => {
+    const cat = { id:'c9', name:'المكملات', colorGroups:['فيست بأكمام','بونيه رباط','ياقة قميص'] };
+    const grades = [];
+    cat.colorGroups.forEach((grp, i) => {
+      ['أبيض','أسود','أوف وايت'].forEach((n, k) => {
+        grades.push({ id:`b${i}${k}`, number:-3+k, name:n, isBase:true, group:grp, branchQty:1, mainQty:1, status:'normal' });
+      });
+    });
+    const html = buildRestockHTML(cat, grades, '', true);
+    // كل عنوان مجموعة لازم يبقى **قبل** أسماء درجاته
+    const order = cat.colorGroups.map((g) => html.indexOf(`>${g}<`));
+    const firstWhiteAfterEach = cat.colorGroups.map((g) => {
+      const at = html.indexOf(`>${g}<`);
+      return at >= 0 && html.indexOf('أبيض', at) > at;
+    });
+    return {
+      rows: (html.match(/class="row"/g) || []).length,
+      titles: cat.colorGroups.filter((g) => html.includes(`>${g}<`)).length,
+      ordered: order.every((v, i) => v > 0 && (i === 0 || v > order[i-1])),
+      eachHasWhite: firstWhiteAfterEach.every(Boolean),
+      whites: (html.match(/أبيض/g) || []).length,
+      // العدّاد في شاشة الاختيار لازم يشوف الأساسية كمان
+      names: restockGroupNames(cat, grades, true),
+      namesNoBase: restockGroupNames(cat, grades, false),
+    };
+  });
+  check('⭐ فئة كلها أساسية: كل الدرجات بتطلع في الورقة', allBase.rows === 9 && allBase.whites === 3, allBase);
+  check('⭐ وكل مجموعة تحت اسمها', allBase.titles === 3 && allBase.ordered, allBase);
+  check('⭐ وأسماء الدرجات بعد عنوان مجموعتها', allBase.eachHasWhite, allBase);
+  check('⭐ و"كل مجموعة في ورقة" بتطلّع 3 ورق مش صفر',
+    allBase.names.length === 3 && allBase.namesNoBase.length === 0, allBase);
 
   const restockUI = await p.evaluate(async () => {
     const cat = state.categories[0];
