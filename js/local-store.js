@@ -175,7 +175,22 @@ function saveWorkState() {
     activeCategoryId: state.activeCategoryId || null,
     gradeLabelMode: !!state.gradeLabelMode,
     gradeLabelQty: state.gradeLabelQty || {},
-    printCart: (state.printCart || []).map((it) => ({ key: it.key, product: it.product, qty: it.qty })),
+    // ⚠️ القايمة دي **قايمة سماح**: أي حقل مش مكتوب هنا بيتمسح عند الحفظ.
+    //
+    // ده عطّل شاشة الطباعة فعلًا في v0.33.0: ضفنا ملصق المسمّى (بيتخزّن في
+    // custom من غير product) وشكل الملصق (mode/noPrice)، ونسينا نضيفهم هنا.
+    // فالمسمّى كان بيتحفظ **من غير custom ومن غير product**، وأول ما تفتح
+    // الشاشة تاني بتقرا it.product.name على undefined والشاشة كلها بتقع.
+    //
+    // 📌 أي حقل جديد في عنصر السلة لازم يتضاف هنا.
+    printCart: (state.printCart || []).map((it) => ({
+      key: it.key,
+      product: it.product,
+      qty: it.qty,
+      custom: it.custom,
+      mode: it.mode,
+      noPrice: it.noPrice,
+    })),
     savedAt: Date.now(),
   });
 }
