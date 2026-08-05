@@ -45,6 +45,11 @@ const state = {
   stockTotals: null, // { branch, main, grades, at } — بيتحسب بالطلب بس
   showAddCategoryForm: false,
   showAddGradeForm: false,
+  catMoving: null,             // الفئة اللي "ماسكها" في وضع الترتيب
+  // شاشة إضافة الدرجة بتفضل مفتوحة بعد الإضافة، فمحتاجة تفتكر:
+  lastGradeGroup: '',          // آخر مجموعة اخترتها (عشان ماتختارهاش كل مرة)
+  lastAddedGrade: null,        // آخر درجة اتضافت — بتظهر كرسالة تأكيد
+  newGradeStartsWithOne: false, // الافتراضي صفر في الفرع، والمفتاح ده بيخلّيه 1
   showEditCategoryInfoForm: false,
   pendingCount: 0,
   resolvingGradeId: null,
@@ -225,15 +230,20 @@ function groupedGrades(grades, cat) {
 }
 
 // خانة اختيار مجموعة — بتظهر بس لو الفئة مقسّمة، فالفورم مايكبرش من غير داعي.
-function groupSelectHTML(id, cat) {
+// selected = المجموعة المختارة مسبقًا. بتستخدم عشان الشاشة **تفتكر** آخر
+// مجموعة ضفت فيها، فلما تضيف عشر درجات في نفس المجموعة ماتختارهاش عشر مرات.
+function groupSelectHTML(id, cat, selected) {
   const groups = categoryGroups(cat);
   if (!groups.length) return '';
+  const sel = String(selected == null ? '' : selected);
+  const opt = (value, label) =>
+    `<option value="${escapeHTML(value)}"${value === sel ? ' selected' : ''}>${escapeHTML(label)}</option>`;
   return `
         <div class="field" style="margin-bottom:0; min-width:120px;">
           <label>المجموعة</label>
           <select class="input" id="${id}">
-            <option value="">— ${escapeHTML(UNGROUPED_LABEL)} —</option>
-            ${groups.map((n) => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('')}
+            ${opt('', `— ${UNGROUPED_LABEL} —`)}
+            ${groups.map((n) => opt(n, n)).join('')}
           </select>
         </div>`;
 }
@@ -686,7 +696,12 @@ function sideMenuHTML() {
       ${
         orderMode
           ? `<div style="font-size:11px; color:var(--text-secondary); padding:0 4px 8px; line-height:1.7;">
-               اضغط ▲ أو ▼ عشان تحرّك الفئة. الترتيب بيتحفظ على طول ويظهر لكل الناس.
+               ${
+                 state.catMoving
+                   ? `<strong style="color:var(--primary,#1565c0);">ماسك: ${escapeHTML((state.categories.find((c) => c.id === state.catMoving) || {}).name || '')}</strong>
+                      <br>دوس على المكان اللي عايزها فيه.`
+                   : 'دوس على الفئة عشان "تمسكها"، وبعدين دوس على المكان اللي عايزها فيه.'
+               }
                ${filter !== 'all' || search ? '<br><strong style="color:var(--danger-text);">شيل الفلتر والبحث الأول</strong> — الترتيب بيتحرّك في القايمة الكاملة بس.' : ''}
              </div>`
           : ''
@@ -708,11 +723,27 @@ function sideMenuHTML() {
             ? list
                 .map((cat, idx) => {
                   const flags = categoryNeedsFlags(cat.id);
+                  // ------------------------------------------------------------
+                  // ⭐ الترتيب بضغطتين
+                  // ------------------------------------------------------------
+                  // الأسهم كانت بتحرّك خانة واحدة، فنقل فئة من آخر 20 فئة
+                  // لأولها = 19 ضغطة، والصفحة بترجع لأولها بعد كل ضغطة.
+                  //
+                  // دلوقتي: دوس على الفئة → بتتمسك، دوس على مكانها → بتروحه.
+                  // ضغطتين مهما كانت المسافة. والأسهم سايبينها للتحريك البسيط.
                   if (orderMode) {
+                    const held = state.catMoving === cat.id;
+                    const moving = !!state.catMoving;
                     return `
-            <div class="side-item side-item-order">
-              <span class="side-item-name">${escapeHTML(cat.name)}</span>
-              <span style="display:flex; gap:4px;">
+            <div class="side-item side-item-order ${held ? 'side-item-held' : ''}">
+              <button class="side-item-grab" data-cat-pick="${escapeHTML(cat.id)}"
+                      title="${held ? 'دوس تاني عشان تسيبها' : moving ? 'حطها هنا' : 'امسك الفئة دي'}">
+                <span class="side-item-name">${escapeHTML(cat.name)}</span>
+                <span style="font-size:11px; color:var(--text-secondary); flex:0 0 auto;">
+                  ${held ? '✋ ماسكها' : moving ? '⬇️ حطها هنا' : '↕️'}
+                </span>
+              </button>
+              <span style="display:flex; gap:4px; flex:0 0 auto;">
                 <button class="btn" style="padding:2px 8px;" data-cat-move-up="${escapeHTML(cat.id)}"
                         ${canReorder && idx > 0 ? '' : 'disabled'} title="لفوق">▲</button>
                 <button class="btn" style="padding:2px 8px;" data-cat-move-down="${escapeHTML(cat.id)}"
@@ -721,11 +752,25 @@ function sideMenuHTML() {
             </div>`;
                   }
                   return `
-            <button class="side-item ${cat.id === state.activeCategoryId && state.screen === 'sheets' ? 'side-item-active' : ''}"
-                    data-category-id="${escapeHTML(cat.id)}">
-              <span class="side-item-name">${escapeHTML(cat.name)}</span>
-              <span class="side-item-dots">${categoryDotsHTML(flags)}</span>
-            </button>`;
+            <div class="side-item-row">
+              <button class="side-item ${cat.id === state.activeCategoryId && state.screen === 'sheets' ? 'side-item-active' : ''}"
+                      data-category-id="${escapeHTML(cat.id)}">
+                <span class="side-item-name">${escapeHTML(cat.name)}</span>
+                <span class="side-item-dots">${categoryDotsHTML(flags)}</span>
+              </button>
+              ${
+                canManageCatalog
+                  ? `<button class="side-item-act" data-cat-rename="${escapeHTML(cat.id)}"
+                             title="غيّر اسم الفئة" aria-label="غيّر اسم الفئة">✏️</button>`
+                  : ''
+              }
+              ${
+                can(state.profile, 'deleteCategories')
+                  ? `<button class="side-item-act side-item-del" data-cat-delete="${escapeHTML(cat.id)}"
+                             title="احذف الفئة" aria-label="احذف الفئة">🗑️</button>`
+                  : ''
+              }
+            </div>`;
                 })
                 .join('')
             : `<div class="home-empty" style="padding:10px;">مفيش فئة بالمواصفات دي.</div>`
@@ -874,6 +919,7 @@ function dashboardHTML() {
         </div>
       </div>
       ${navRowHTML}
+      <button class="to-top" id="to-top-btn" title="ارجع لفوق" aria-label="ارجع لفوق">▲</button>
       <div class="app-body">
         ${sideMenuHTML()}
         <div class="main-area">${bodyHTML}</div>
@@ -1193,17 +1239,43 @@ function gradeTableHTML() {
 
   const missingBase = canAddGrades && !state.grades.some((g) => g.isBase);
 
+  // ------------------------------------------------------------
+  // ⭐ الزراير اتجمّعت في قايمتين بدل 8 زراير متناثرة
+  // ------------------------------------------------------------
+  // الشريط كان فيه لحد 8 زراير في صف واحد، وعلى الموبايل كانوا بيلفّوا على
+  // تلات صفوف ويبلعوا نص الشاشة. والزراير اللي بتتضغط كل يوم (التزويد
+  // والطباعة والتحديد) كانت مختلطة باللي بتتضغط مرة في الشهر (مجموعات
+  // الألوان، حذف الفئة).
+  //
+  // دلوقتي: **اللي بتستخدمه كل يوم ظاهر**، والباقي جوه قايمتين.
+  // وحذف الفئة اتشال من هنا خالص — مكانه بقى قايمة الفئات، عشان تحذف من
+  // بره الفئة مش وانت جواها.
+  const addMenuItems = [
+    canAddGrades ? `<button class="btn menu-item" id="add-grade-btn">➕ درجة واحدة</button>` : '',
+    canAddGrades ? `<button class="btn menu-item" id="add-grade-range-btn">➕ درجات دفعة</button>` : '',
+    missingBase ? `<button class="btn menu-item" id="add-base-grades-btn">⚪ الدرجات الأساسية</button>` : '',
+  ].filter(Boolean);
+
+  const catMenuItems = [
+    canManageCatalog ? `<button class="btn menu-item" id="color-groups-btn">🎨 مجموعات الألوان</button>` : '',
+    canEditBranch ? `<button class="btn menu-item" id="bulk-branch-qty-btn">⬆️ ظبط كميات الفرع</button>` : '',
+  ].filter(Boolean);
+
+  const dropdown = (id, label, items) =>
+    items.length
+      ? `<span class="tool-menu">
+           <button class="btn" id="${id}-btn" aria-haspopup="true">${label} ▾</button>
+           <span class="tool-menu-panel" id="${id}-panel">${items.join('')}</span>
+         </span>`
+      : '';
+
   const toolbarHTML = `
     <div style="display:flex; gap:8px; margin-bottom:0.75rem; flex-wrap:wrap;">
       ${bulkToggleBtn}
       ${labelModeBtn}
       ${selectModeBtn}
-      ${canAddGrades ? `<button class="btn" id="add-grade-btn">+ إضافة درجة</button>` : ''}
-      ${canAddGrades ? `<button class="btn" id="add-grade-range-btn">+ إضافة درجات دفعة</button>` : ''}
-      ${missingBase ? `<button class="btn" id="add-base-grades-btn">+ الدرجات الأساسية</button>` : ''}
-      ${canManageCatalog ? `<button class="btn" id="color-groups-btn">🎨 مجموعات الألوان</button>` : ''}
-      ${canEditBranch ? `<button class="btn" id="bulk-branch-qty-btn">⬆️ ظبط كميات الفرع</button>` : ''}
-      ${can(state.profile, 'deleteCategories') ? `<button class="btn" id="delete-category-btn">حذف الفئة دي</button>` : ''}
+      ${dropdown('tool-add', '➕ إضافة', addMenuItems)}
+      ${dropdown('tool-cat', '⚙️ الفئة', catMenuItems)}
     </div>`;
 
   // فلتر سريع: بدل ما تدوّر بعينك في 200 درجة على اللي محتاج تزويد.
@@ -1299,17 +1371,35 @@ function gradeTableHTML() {
   // الارتفاع الدقيق بيتظبط بعد الرسم في syncActionBarSpacer().
   const spacerHTML = actionBarHTML ? '<div class="action-bar-spacer" id="action-bar-spacer"></div>' : '';
 
+  // ⭐ الكمية الافتراضية للدرجة الجديدة.
+  // كانت 1 في الفرع دايمًا. بس الاستخدام الحقيقي إنك بتضيف الدرجة **قبل**
+  // ما تعدّها، فالصفر أصح كبداية. واللي بيضيف وهو ماسك البضاعة يقدر يقلب
+  // المفتاح ويخلّيها 1.
+  const startWithOne = !!state.newGradeStartsWithOne;
+  const lastAdded = state.lastAddedGrade;
+
   const addGradeFormHTML = state.showAddGradeForm
     ? `
     <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
+      ${
+        lastAdded
+          ? `<div style="font-size:12px; color:#2e7d32; margin-bottom:8px;">
+               ✅ اتضافت درجة ${escapeHTML(lastAdded.number)}${lastAdded.group ? ` في "${escapeHTML(lastAdded.group)}"` : ''} — كمّل
+             </div>`
+          : ''
+      }
       <form id="add-grade-form" style="display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end;">
         <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" data-draft="grade_num" required /></div>
-        <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="1" /></div>
+        <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="${startWithOne ? 1 : 0}" /></div>
         <div class="field" style="margin-bottom:0;"><label>الرئيسي</label><input class="input" style="width:70px;" type="number" id="new-grade-main" value="0" /></div>
-        ${groupSelectHTML('new-grade-group', cat)}
+        ${groupSelectHTML('new-grade-group', cat, state.lastGradeGroup)}
         <button class="btn btn-primary" type="submit">إضافة</button>
-        <button class="btn" type="button" id="cancel-add-grade">إلغاء</button>
+        <button class="btn" type="button" id="cancel-add-grade">إغلاق</button>
       </form>
+      <label style="display:flex; gap:6px; align-items:center; margin-top:10px; font-size:12px; cursor:pointer; color:var(--text-secondary);">
+        <input type="checkbox" id="grade-start-one" ${startWithOne ? 'checked' : ''} />
+        ابدأ الدرجة الجديدة بـ 1 في الفرع (بدل صفر)
+      </label>
     </div>`
     : '';
 
@@ -1624,11 +1714,79 @@ function attachDashboardEvents() {
   // ---- ترتيب الفئات ----
   const catOrderBtn = document.getElementById('cat-order-btn');
   if (catOrderBtn) {
+    // الخروج من وضع الترتيب بيسيب أي فئة ماسكها
+    catOrderBtn.addEventListener('click', () => {
+      state.catMoving = null;
+    });
+  }
+  if (catOrderBtn) {
     catOrderBtn.addEventListener('click', () => {
       state.categoryOrderMode = !state.categoryOrderMode;
       render();
     });
   }
+  // ---- الترتيب بضغطتين: امسك الفئة، وبعدين دوس على مكانها ----
+  document.querySelectorAll('[data-cat-pick]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      safeAsync(async () => {
+        const id = btn.getAttribute('data-cat-pick');
+        if (!state.catMoving) {
+          state.catMoving = id;
+          render();
+          return;
+        }
+        if (state.catMoving === id) {
+          state.catMoving = null;
+          render();
+          return;
+        }
+        const from = state.catMoving;
+        state.catMoving = null;
+        await moveCategoryTo(from, id);
+      }, 'ترتيب الفئات')
+    );
+  });
+
+  // ---- تعديل اسم الفئة من القايمة ----
+  document.querySelectorAll('[data-cat-rename]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      safeAsync(async () => {
+        const id = btn.getAttribute('data-cat-rename');
+        const cat = state.categories.find((c) => c.id === id);
+        if (!cat) return;
+        const next = prompt('اسم الفئة:', cat.name || '');
+        if (next === null) return;
+        const name = String(next).trim();
+        if (!name || name === cat.name) return;
+        await renameCategory(id, name);
+      }, 'تعديل اسم الفئة')
+    );
+  });
+
+  // ---- حذف الفئة من القايمة ----
+  // ⚠️ التأكيد بيطلب منك **تكتب اسم الفئة**. السبب: الزرار ده جنب كل فئة
+  // في قايمة فيها 34 فئة، وضغطة غلط معناها ضياع فئة بكل درجاتها. سؤال
+  // "متأكد؟" العادي بيتضغط عليه بالعادة من غير قراية.
+  document.querySelectorAll('[data-cat-delete]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      safeAsync(async () => {
+        const id = btn.getAttribute('data-cat-delete');
+        const cat = state.categories.find((c) => c.id === id);
+        if (!cat) return;
+        const typed = prompt(
+          `حذف فئة "${cat.name}" بكل درجاتها — الخطوة دي مالهاش رجعة.\n\n` +
+            `لو متأكد، اكتب اسم الفئة بالظبط:`
+        );
+        if (typed === null) return;
+        if (String(typed).trim() !== String(cat.name).trim()) {
+          alert('الاسم مش مطابق — مااتحذفش حاجة.');
+          return;
+        }
+        await deleteCategory(cat.id, cat.name);
+      }, 'حذف الفئة')
+    );
+  });
+
   document.querySelectorAll('[data-cat-move-up]').forEach((btn) => {
     btn.addEventListener('click', () => safeAsync(() => moveCategory(btn.getAttribute('data-cat-move-up'), -1), 'ترتيب الفئات'));
   });
@@ -1979,11 +2137,53 @@ function attachDashboardEvents() {
     });
   }
 
+  // ---- سهم الرجوع لفوق ----
+  // بيظهر بس لما تنزل أكتر من شاشة — الفئة فيها 200 درجة، والرجوع لفوق
+  // بالسحب بياخد وقت.
+  const toTop = document.getElementById('to-top-btn');
+  if (toTop) {
+    const box = document.querySelector('[data-keep-scroll]') || document.scrollingElement;
+    const target = box === document.scrollingElement ? window : box;
+    const sync = () => {
+      const y = box === document.scrollingElement ? window.scrollY : box.scrollTop;
+      toTop.classList.toggle('show', y > 400);
+    };
+    target.addEventListener('scroll', sync, { passive: true });
+    sync();
+    toTop.addEventListener('click', () => {
+      if (box === document.scrollingElement) window.scrollTo({ top: 0, behavior: 'smooth' });
+      else box.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
+  // ---- القوايم المنسدلة في شريط الفئة ----
+  // بتتقفل لما تضغط بره أو تختار حاجة منها.
+  ['tool-add', 'tool-cat'].forEach((id) => {
+    const btn = document.getElementById(id + '-btn');
+    const panel = document.getElementById(id + '-panel');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasOpen = panel.classList.contains('open');
+      document.querySelectorAll('.tool-menu-panel.open').forEach((p) => p.classList.remove('open'));
+      if (!wasOpen) panel.classList.add('open');
+    });
+    panel.addEventListener('click', () => panel.classList.remove('open'));
+  });
+  document.addEventListener(
+    'click',
+    () => document.querySelectorAll('.tool-menu-panel.open').forEach((p) => p.classList.remove('open')),
+    { once: true }
+  );
+
   const addGradeBtn = document.getElementById('add-grade-btn');
   if (addGradeBtn) {
     addGradeBtn.addEventListener('click', () => {
       state.showAddGradeForm = !state.showAddGradeForm;
+      state.lastAddedGrade = null;
       render();
+      const numEl = document.getElementById('new-grade-number');
+      if (numEl) numEl.focus();
     });
   }
 
@@ -2008,9 +2208,30 @@ function attachDashboardEvents() {
       }
 
       await addGrade(state.activeCategoryId, { number, branchQty, mainQty, group });
+
+      // ⭐ الشاشة **بتفضل مفتوحة**. السبب: الناس بتضيف درجات ورا بعض، وكل
+      // مرة كانت الشاشة بتتقفل فتضطر تفتحها من تاني وتختار المجموعة من
+      // تاني. دلوقتي بتفضّي رقم الدرجة بس وتسيب كل حاجة تانية زي ما هي.
+      state.lastGradeGroup = group;
+      state.lastAddedGrade = { number, group };
       clearDrafts('grade_');
-      state.showAddGradeForm = false;
       render();
+
+      // المؤشر بيرجع لخانة الرقم جاهز للدرجة اللي بعدها
+      const numEl = document.getElementById('new-grade-number');
+      if (numEl) {
+        numEl.value = '';
+        numEl.focus();
+      }
+    });
+  }
+
+  const startOneBox = document.getElementById('grade-start-one');
+  if (startOneBox) {
+    startOneBox.addEventListener('change', () => {
+      state.newGradeStartsWithOne = startOneBox.checked;
+      const branch = document.getElementById('new-grade-branch');
+      if (branch) branch.value = startOneBox.checked ? 1 : 0;
     });
   }
 
@@ -2019,6 +2240,7 @@ function attachDashboardEvents() {
     cancelAddGrade.addEventListener('click', () => {
       clearDrafts('grade_');
       state.showAddGradeForm = false;
+      state.lastAddedGrade = null;
       render();
     });
   }
@@ -2269,6 +2491,28 @@ async function deleteCategory(categoryId, categoryName) {
 //
 // وبنكتب **بس** الفئات اللي رقمها اتغيّر فعلًا — في الحالة العادية دي
 // فئتين، مش 26.
+// بتنقل الفئة لمكان فئة تانية (الترتيب بضغطتين).
+// بتشيلها من مكانها وتحطها **مكان الهدف بالظبط**، والباقي بيزحلق.
+async function moveCategoryTo(fromId, toId) {
+  const list = state.categories.slice();
+  const from = list.findIndex((c) => c.id === fromId);
+  const to = list.findIndex((c) => c.id === toId);
+  if (from === -1 || to === -1 || from === to) return;
+
+  const [moved] = list.splice(from, 1);
+  list.splice(to, 0, moved);
+  await commitCategoryOrder(list);
+}
+
+async function renameCategory(categoryId, name) {
+  const before = state.categories.find((c) => c.id === categoryId);
+  fireWrite(db.collection('categories').doc(categoryId).update({ name }), 'تعديل اسم الفئة');
+  // الشاشة بتتحدّث فورًا من غير ما تستنى السحابة — مهم وانت أوفلاين.
+  if (before) before.name = name;
+  render();
+  logActivity({ action: 'rename_category', categoryId, categoryName: name, oldName: before ? before.name : '' });
+}
+
 async function moveCategory(categoryId, direction) {
   const list = state.categories.slice();
   const i = list.findIndex((c) => c.id === categoryId);
@@ -2279,7 +2523,11 @@ async function moveCategory(categoryId, direction) {
   const tmp = list[i];
   list[i] = list[j];
   list[j] = tmp;
+  await commitCategoryOrder(list);
+}
 
+// بتكتب الترتيب الجديد للقايمة كلها. مشتركة بين الأسهم والترتيب بضغطتين.
+async function commitCategoryOrder(list) {
   const batch = db.batch();
   let writes = 0;
   list.forEach((cat, idx) => {
@@ -4878,9 +5126,13 @@ function printHTMLSilently(htmlContent) {
 // (localStorage)، مش في حساب المستخدم على السحابة — لأن الطابعة فعليًا
 // موصولة بجهاز معيّن، مش بشخص معيّن. لو نفس الحساب اتفتح من جهاز تاني،
 // هيحتاج يختار طابعاته هو تاني.
-// أقصى حجم لرسالة واحدة رايحة لـQZ. الشرح الكامل عند مكان الاستخدام في
-// tryPrintViaQZ — باختصار: الرسالة الأكبر من كده بتتضاع في صمت والطابعة
-// "بتاخد الأمر ومفيش حاجة بتتطبع".
+// أقصى حجم لرسالة واحدة رايحة لـQZ: الرسالة الأكبر من كده بتتضاع في صمت
+// والطابعة "بتاخد الأمر ومفيش حاجة بتتطبع".
+//
+// ⚠️ مش مستخدم في الكود ده — التقسيم بقى بعدد الصفحات (QZ_PAGES_PER_JOB)
+// مش بالحجم. الرقم فاضل هنا عشان الفحوصات (restock-print و raster-label)
+// بتتأكد إن مفيش رسالة عدّته. متمسحوش وانت شايف audit.py بيقول "كود ميت" —
+// مسحه معناه إن الحد مابقاش متفحوص وممكن نرجع لنفس العطل من غير ما ناخد بالنا.
 const QZ_MAX_MESSAGE_BYTES = 48 * 1024;
 
 // عدد الصفحات في وظيفة الطباعة الواحدة. الشرح الكامل عند مكان الاستخدام —

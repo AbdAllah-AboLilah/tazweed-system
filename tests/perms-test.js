@@ -41,7 +41,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
         addGrade: has('add-grade-btn'),
         addRange: has('add-grade-range-btn'),
         selectDelete: has('toggle-grade-select-btn'),
-        deleteCat: has('delete-category-btn'),
+        deleteCat: (() => { state.sideMenuOpen = true; render(); return !!document.querySelector('[data-cat-delete]'); })(),
         colorGroups: has('color-groups-btn'),
         bulkQty: has('bulk-branch-qty-btn'),
         editCat: has('edit-category-info-btn'),

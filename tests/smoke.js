@@ -119,7 +119,10 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       const has = (id) => !!document.getElementById(id);
       return {
         err: null,
-        deleteCategory: has('delete-category-btn'),
+        // ⚠️ من v0.30.0 حذف الفئة اتنقل من جوه الفئة لقايمة الفئات —
+        // عشان تحذف من بره الفئة مش وانت جواها. الفحص بيدوّر على المكان
+        // الجديد، وبيفتح القايمة الجانبية عشان تترسم.
+        deleteCategory: (() => { state.sideMenuOpen = true; render(); return !!document.querySelector('[data-cat-delete]'); })(),
         addGrade: has('add-grade-btn'),
         colorGroups: has('color-groups-btn'),
         selectDelete: has('toggle-grade-select-btn'),
