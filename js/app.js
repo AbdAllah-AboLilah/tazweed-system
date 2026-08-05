@@ -5699,51 +5699,59 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
   const now = new Date().toLocaleString('ar-EG');
   // الدرجات الأساسية (أبيض/أسود/أوف وايت) مالهاش أرقام، والورقة شبكة
   // أرقام بتمشي بيها على الرف — فوجودها وسط الأرقام بيلخبط الشبكة.
+  // عشان كده بتتعرض في **شبكة أسماء منفصلة تحت أرقام مجموعتها**.
   //
-  // ⭐ بقت **اختيارية**: مفتاح في شاشة الطباعة بيحطّها في **قسم لوحدها في
-  // آخر الورقة** بأسمائها، فالشبكة فاضلة نضيفة والأساسية مش ضايعة.
-  const baseGrades = withBase ? grades.filter((g) => g.isBase) : [];
+  // ------------------------------------------------------------
+  // ⚠️ ليه تحت **كل مجموعة** مش في قسم واحد آخر الورقة؟
+  // ------------------------------------------------------------
+  // أول نسخة كانت بتلمّهم كلهم في قسم واحد اسمه "الدرجات الأساسية".
+  // ده باين معقول لما الأساسية تلات درجات في فئة أرقام — لكن فيه فئات
+  // (زي "المكملات") **كلها أساسية**: كل مجموعة فيها أبيض وأسود وأوف وايت
+  // بتوعها. الورقة ساعتها كانت بتطلع:
+  //
+  //   الدرجات الأساسية
+  //   أبيض | أبيض | أبيض | أبيض | أسود | أسود | أسود ...
+  //
+  // ١٥ "أبيض" ورا بعض من غير أي طريقة تعرف كل واحد بتاع مجموعة مين —
+  // ورقة مالهاش أي فايدة على الرف.
   const rowHTML = (g) => `
       <div class="row">
         <span class="num">${escapeHTML(g.number)}</span>
         <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
       </div>`;
 
-  const numbered = grades.filter((g) => !g.isBase);
+  const baseRowHTML = (g) => `
+      <div class="row">
+        <span class="num base-num">${escapeHTML(g.name || '')}</span>
+        <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
+      </div>`;
+
+  // جسم المجموعة الواحدة: شبكة الأرقام، وتحتها شبكة أسماء الأساسية.
+  const bodyOfSection = (list) => {
+    const nums = list.filter((g) => !g.isBase);
+    const base = withBase ? list.filter((g) => g.isBase) : [];
+    return (
+      (nums.length ? `<div class="grid">${nums.map(rowHTML).join('')}</div>` : '') +
+      (base.length ? `<div class="grid base-grid">${base.map(baseRowHTML).join('')}</div>` : '')
+    );
+  };
+
+  // الأساسية بتدخل التجميع بس لو المفتاح مفتوح — وإلا الورقة زي الأول
+  // بالظبط: أرقام وبس.
+  const relevant = withBase ? grades : grades.filter((g) => !g.isBase);
 
   // مجموعة واحدة: الورقة كلها بقت للمجموعة دي، فاسمها بيروح **للعنوان
   // فوق** (كريب سادة لوكس — بيجات) ومفيش داعي لعنوان جوّه.
   // الورقة الكاملة: كل مجموعة تحت عنوانها، زي شكل الشيت الأصلي.
-  const scoped = groupName
-    ? numbered.filter((g) => (g.group || UNGROUPED_LABEL) === groupName)
-    : numbered;
-
   const rowsHTML = groupName
-    ? `<div class="grid">${scoped.map(rowHTML).join('')}</div>`
-    : groupedGrades(scoped, cat)
+    ? bodyOfSection(relevant.filter((g) => (g.group || UNGROUPED_LABEL) === groupName))
+    : groupedGrades(relevant, cat)
         .map(
           (section) => `
       ${section.name ? `<div class="group-title">${escapeHTML(section.name)}</div>` : ''}
-      <div class="grid">${section.grades.map(rowHTML).join('')}</div>`
+      ${bodyOfSection(section.grades)}`
         )
         .join('');
-
-  // قسم الأساسية في الآخر. بيتفلتر بنفس المجموعة لو الورقة لمجموعة واحدة.
-  const baseScoped = groupName
-    ? baseGrades.filter((g) => (g.group || UNGROUPED_LABEL) === groupName)
-    : baseGrades;
-  const baseHTML = baseScoped.length
-    ? `<div class="group-title">الدرجات الأساسية</div>
-       <div class="grid base-grid">${baseScoped
-         .map(
-           (g) => `
-      <div class="row">
-        <span class="num base-num">${escapeHTML(g.name || '')}</span>
-        <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
-      </div>`
-         )
-         .join('')}</div>`
-    : '';
 
   const sheetTitle = groupName ? `${cat.name} — ${groupName}` : cat.name;
 
@@ -5805,7 +5813,6 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
         <div class="time">${escapeHTML(now)}</div>
       </div>
       ${rowsHTML}
-      ${baseHTML}
       <script>
         window.onload = function () { setTimeout(function () { window.print(); }, 300); };
       <\/script>
@@ -5832,12 +5839,15 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
 // والاسم في خاصية منفصلة. والثابت ده بقى **جوه الجافاسكريبت بس**.
 const RESTOCK_EACH_GROUP = '\u0000each';
 
-// المجموعات اللي فيها درجات مرقّمة فعلًا، بترتيبها المحفوظ،
+// المجموعات اللي فيها درجات **هتتطبع فعلًا**، بترتيبها المحفوظ،
 // و"باقي الدرجات" في الآخر لو فيه درجات من غير مجموعة.
-function restockGroupNames(cat, grades) {
+//
+// ⚠️ withBase لازم يوصل لهنا: من غيره الفئة اللي كلها أساسية بتطلّع
+// **صفر ورق**، والفئة اللي فيها مجموعة أساسية بس بتطلّع ورقة فاضية.
+function restockGroupNames(cat, grades, withBase) {
   const groups = categoryGroups(cat);
-  const numbered = grades.filter((g) => !g.isBase);
-  const countOf = (name) => numbered.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
+  const relevant = withBase ? grades : grades.filter((g) => !g.isBase);
+  const countOf = (name) => relevant.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
   const names = groups.filter((n) => countOf(n) > 0);
   if (countOf(UNGROUPED_LABEL) > 0) names.push(UNGROUPED_LABEL);
   return names;
@@ -5897,9 +5907,11 @@ function buildRestockBundle(cat, grades, names, withBase) {
 function chooseRestockGroup(cat, grades) {
   return new Promise((resolve) => {
     const groups = categoryGroups(cat);
-    const numbered = grades.filter((g) => !g.isBase);
     const hasBase = grades.some((g) => g.isBase);
-    const countOf = (name) => numbered.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
+    // ⚠️ العدّ بيشمل الأساسية كمان. فيه فئات (زي "المكملات") **كلها**
+    // أساسية — لو عدّينا الأرقام بس، كل المجموعات هتطلع صفر، فشاشة
+    // الاختيار مش هتعرض ولا مجموعة والعدّاد هيقول "0 درجة".
+    const countOf = (name) => grades.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
     const savedBase = !!(getSharedPrintSettings() || {}).restockWithBase;
 
     const options = groups.filter((n) => countOf(n) > 0);
@@ -5922,7 +5934,7 @@ function chooseRestockGroup(cat, grades) {
           (مثال: ${escapeHTML(cat.name)} — ${escapeHTML(options[0])})
         </div>
         <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
-          <button class="btn btn-primary" data-rg-mode="all">📄 الورقة كلها (${escapeHTML(numbered.length)} درجة)</button>
+          <button class="btn btn-primary" data-rg-mode="all">📄 الورقة كلها (${escapeHTML(grades.length)} درجة)</button>
           ${
             needsGroupChoice
               ? `<button class="btn btn-primary" data-rg-mode="each">
@@ -5983,7 +5995,7 @@ async function printRestockPaper(cat, grades) {
 
   // ⭐ كل مجموعة في ورقة لوحدها — بضغطة واحدة
   if (groupName === RESTOCK_EACH_GROUP) {
-    const names = restockGroupNames(cat, grades);
+    const names = restockGroupNames(cat, grades, withBase);
     if (!names.length) return;
     const bundle = buildRestockBundle(cat, grades, names, withBase);
 
