@@ -38,13 +38,19 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
                         { pageWidthMm:38, pageHeightMm:25 });
     return window.__cfgs[0];
   });
-  // ⛔ إعداد الطباعة لازم يفضل **المقاس والوحدة وبس**.
-  // أي خيار زيادة اتحط هنا من غير تجربة على ورق طلّع ملصقات فاضية:
-  // density: 203 مع units: 'mm' يعني "203 نقطة في الملليمتر" = 5156 نقطة
-  // في البوصة، والطابعة وقفت وطلّعت ورق أبيض.
+  // ⛔ إعداد الطباعة مقفول على قايمة معروفة. أي خيار زيادة اتحط من غير
+  // تجربة على ورق طلّع ملصقات فاضية: density: 203 مع units: 'mm' يعني
+  // "203 نقطة في الملليمتر" = 5156 نقطة في البوصة، والطابعة طلّعت ورق أبيض.
+  //
+  // في v0.35 اتزوّد اتنين **بقياس**: scaleContent: false و
+  // interpolation: nearest-neighbor. من غيرهم QZ بيعيد تحجيم صورتنا،
+  // والتحجيم بيطلّع 5752 نقطة رمادية في صورة مفيهاش ولا واحدة — والطابعة
+  // أبيض/أسود، فالرمادي بيتحوّل عشوائي = الحروف المهرّية.
   check('⭐ المقاس 38×25 مم', cfg.size && cfg.size.width === 38 && cfg.size.height === 25, cfg);
-  check('⛔ مفيش أي خيار زيادة في الإعداد',
-    Object.keys(cfg).sort().join(',') === 'size,units', Object.keys(cfg));
+  check('⛔ الإعداد مقفول على القايمة المعروفة بس',
+    Object.keys(cfg).sort().join(',') === 'interpolation,scaleContent,size,units', Object.keys(cfg));
+  check('⭐ QZ ممنوع يعيد تحجيم الصورة',
+    cfg.scaleContent === false && cfg.interpolation === 'nearest-neighbor', cfg);
   check('⛔ مفيش density (دي اللي طلّعت ورق أبيض)', cfg.density === undefined, cfg);
 
   // ---------- وظايف صغيرة لـ100 ملصق ----------
