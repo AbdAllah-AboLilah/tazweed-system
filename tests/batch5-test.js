@@ -631,6 +631,83 @@ function decodeCell(dataUrl, quiet) {
   check('والدرجة اللي مالهاش مجموعة مابتتغيّرش',
     rowGroup[1] && rowGroup[1][1] === 'درجة 5', rowGroup);
 
+  // ============================================================
+  // 12) تنبيهات فشل الطباعة
+  // ============================================================
+  // "بتاخد الأمر ومفيش حاجة بتتطبع" كان بيحصل في صمت. دلوقتي كل حالة
+  // ليها رسالة بتقول **السبب** واللي المستخدم يعمله.
+  const alerts = await p.evaluate(async () => {
+    const said = [];
+    const asked = [];
+    window.alert = (m) => said.push(String(m));
+    window.confirm = (m) => { asked.push(String(m)); return true; };
+    window.deliverPrint = window.__realDeliverPrint;
+    window.showPrintPreview = async () => true;
+    try { localStorage.setItem('tazweed_qz_label_printer', 'P'); } catch (e) {}
+    const jobs = [{ html: '<html></html>', image: null, copies: 1 }];
+    const size = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
+    const base = {
+      websocket: { isActive: () => true, connect: () => Promise.resolve() },
+      printers: { find: () => Promise.resolve('P') },
+      configs: { create: (n, o) => ({ n, o }) },
+      print: () => Promise.resolve(),
+      api: { setPromiseType(){}, setSha256Type(){} },
+      security: { setCertificatePromise(){}, setSignatureAlgorithm(){}, setSignaturePromise(){} },
+    };
+    const out = {};
+
+    // (أ) الطابعة المحفوظة مش موجودة
+    said.length = 0;
+    window.qz = { ...base, printers: { find: () => Promise.reject(new Error('not found')) } };
+    await tryPrintViaQZ('label', jobs, size);
+    out.missingPrinter = said.join(' | ');
+
+    // (ب) QZ مش شغّال
+    said.length = 0;
+    window.qz = { ...base, websocket: { isActive: () => false, connect: () => Promise.reject(new Error('no qz')) } };
+    qzConnected = false; qzConnecting = null;
+    await tryPrintViaQZ('label', jobs, size);
+    out.noQZ = said.join(' | ');
+
+    // (ج) الطابعة وقفت في النص
+    said.length = 0;
+    let n = 0;
+    window.qz = { ...base, print: () => (++n > 3 ? Promise.reject(new Error('paper out')) : Promise.resolve()) };
+    qzConnected = true; qzConnecting = null;
+    await tryPrintViaQZ('label', [{ html: '<html></html>', image: null, copies: 40 }], size);
+    out.midFail = said.join(' | ');
+
+    // (د) الطبعة الكبيرة عدّت — النظام بيسأل خرجوا ولا لأ
+    said.length = 0; asked.length = 0;
+    window.qz = { ...base };
+    await tryPrintViaQZ('label', [{ html: '<html></html>', image: null, copies: 40 }], size);
+    out.askedAfterBig = asked.join(' | ');
+    out.quietWhenOk = said.length === 0;
+
+    // (هـ) ولو قال "مطلعش" بيوجّهه
+    said.length = 0; asked.length = 0;
+    window.confirm = (m) => { asked.push(String(m)); return false; };
+    await tryPrintViaQZ('label', [{ html: '<html></html>', image: null, copies: 40 }], size);
+    out.guidedWhenNotOut = said.join(' | ');
+
+    // (و) الملصق الواحد مابيسألش
+    said.length = 0; asked.length = 0;
+    await tryPrintViaQZ('label', jobs, size);
+    out.singleQuiet = asked.length === 0 && said.length === 0;
+    return out;
+  });
+  check('⭐ الطابعة مش موجودة: بيقول الاسم والسبب',
+    /مش لاقيها/.test(alerts.missingPrinter) && /QZ Tray/.test(alerts.missingPrinter), alerts.missingPrinter);
+  check('⭐ QZ مش شغّال: بيقولك شغّله', /QZ Tray مش شغّال/.test(alerts.noQZ), alerts.noQZ);
+  check('⭐ وقفت في النص: بيقول اتطبع كام وفاضل كام',
+    /وقفت في النص/.test(alerts.midFail) && /فاضل/.test(alerts.midFail), alerts.midFail);
+  check('⭐ الطبعة الكبيرة: بيسأل خرجوا فعلًا ولا لأ',
+    /خرجوا من الماكينة/.test(alerts.askedAfterBig), alerts.askedAfterBig);
+  check('ولو قال خرجوا: مابيدوّشش', alerts.quietWhenOk, alerts);
+  check('⭐ ولو قال مطلعش: بيوجّهه للورق والغطا',
+    /ماطبعتش/.test(alerts.guidedWhenNotOut) && /الورق/.test(alerts.guidedWhenNotOut), alerts.guidedWhenNotOut);
+  check('الملصق الواحد مابيسألش أصلًا', alerts.singleQuiet, alerts);
+
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
 
   console.log('\n✅ نجح (' + pass.length + ')');
