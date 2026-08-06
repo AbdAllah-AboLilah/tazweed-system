@@ -45,6 +45,9 @@ function decodeCell(dataUrl, quiet) {
       batch: () => ({ update:(r,d)=>writes.push({ref:r,update:d}), set:(r,d)=>writes.push({batchSet:d}), commit:()=>Promise.resolve() }) };
     window.firebase = { firestore: { FieldValue: { serverTimestamp: () => 'TS' } } };
     window.__gradeDocs = [];
+    // ⚠️ فحوص بتستبدل deliverPrint بمحاكي. الفحص اللي عايز يعدّي على
+    // مسار QZ الحقيقي لازم يرجّعها — عشان كده بنحفظها هنا قبل أي استبدال.
+    window.__realDeliverPrint = deliverPrint;
     try { localStorage.removeItem('tazweed_shared_print'); } catch (e) {}
     state.user={uid:'me'}; state.profile={name:'x',role:'owner',warehouseAccess:'both'};
     state.view='dashboard'; state.screen='sheets'; state.isOnline=true;
@@ -267,8 +270,10 @@ function decodeCell(dataUrl, quiet) {
   });
   check('مقاس الملصق المقسوم 304×200 نقطة زي العادي',
     quarter.geom.w === 304 && quarter.geom.h === 200, quarter.geom);
-  check('⭐ فيه خط قص أسود على طول النص',
-    quarter.geom.midDark >= 190, quarter.geom);
+  // الخط بيبدأ وينتهي عند الهامش الآمن (2 مم × 2 = 32 نقطة)، فطوله
+  // 200 - 32 = 168 نقطة. مابيلمسش الحرف عشان الإزاحة ماتاكلش منه.
+  check('⭐ فيه خط قص أسود، ومابيلمسش حرف الورقة',
+    quarter.geom.midDark >= 160 && quarter.geom.midDark <= 175, quarter.geom);
   check('⭐ "بدون السعر" بيغيّر الصورة فعلًا', quarter.differs, {});
   check('⭐ الكود بيتقرا في الخلية الواحدة', decodeCell(quarter.normal, 16) === '13845560', {});
   check('⭐ وبيتقرا من غير سعر كمان', decodeCell(quarter.noPrice, 16) === '13845560', {});
@@ -517,6 +522,114 @@ function decodeCell(dataUrl, quiet) {
   check('⭐ القايمة هي اللي بتتزحلق', tallDialog.bodyScrolls, tallDialog);
   check('⭐ وزرار "إلغاء" ظاهر مش تحت الحافة', tallDialog.cancelVisible && tallDialog.footPinned, tallDialog);
   check('والإلغاء شغّال', tallDialog.cancelled, tallDialog);
+
+  // ============================================================
+  // 9) 🐞 الهوامش الآمنة — الكلام كان بيتقص من حرف الورقة
+  // ============================================================
+  // اتصوّر على ورق حقيقي: "Hejap Kuwaiti 12(" و "Balea Repaie Vi".
+  // السبب إن المحتوى كان على بُعد 1 مم من الحرف (والمقسوم صفر)، والطابعة
+  // بتلعب 1-1.5 مم وهي بتسحب الورق.
+  //
+  // الفحص مابيقيسش الهامش — بيقيس **اللي بيضيع فعلًا**: بيزحلق الصورة
+  // 1.5 مم ويعدّ الحبر اللي خرج بره الورق. ده اللي المستخدم بيشوفه.
+  const clip = await p.evaluate(() => {
+    const size = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
+    const cat = { itemName: 'Hejap Kuwaiti 120', name: 'كريب سادة لوكس', barcodeNumber: '10632103', sellingPrice: 120 };
+    const lost = (url, mm) => new Promise((res) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+        const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+        const d = x.getImageData(0, 0, c.width, c.height).data;
+        const band = Math.round(mm * 203 / 25.4);
+        let n = 0;
+        for (let y = 0; y < c.height; y++) for (let px = 0; px < c.width; px++) {
+          const edge = px < band || px >= c.width - band || y < band || y >= c.height - band;
+          if (edge && d[((y * c.width + px) << 2)] < 128) n++;
+        }
+        res(n);
+      };
+      img.src = url;
+    });
+    return Promise.all([
+      lost(renderLabelPNG(cat, { ...size }), 1.5),
+      lost(renderGradeLabelPNG('كريب سادة لوكس', 'كيوي درجة 9999', { ...size }), 1.5),
+      lost(renderQuarterLabelPNG(cat, { ...size }), 1.5),
+    ]).then(([item, grade, quarter]) => ({ item, grade, quarter }));
+  });
+  check('⭐ ملصق الصنف: مفيش حبر بيضيع مع إزاحة 1.5 مم', clip.item === 0, clip);
+  check('⭐ ملصق الدرجة: ولا حاجة كمان', clip.grade === 0, clip);
+  check('⭐ المقسوم ٤: ولا حاجة كمان', clip.quarter === 0, clip);
+
+  // ============================================================
+  // 10) 🐞 الرسالة الرايحة لـQZ رجعت تعدّي الحد
+  // ============================================================
+  // التقسيم كان بعدد ثابت (5 صفحات). أول ما الملصق تقل، الـ5 صفحات بقت
+  // 49 و61 كيلو والحد 48 — فالرسالة بتتضاع في صمت و"مفيش حاجة بتتطبع".
+  // دلوقتي التقسيم **بالحجم**، فأي تصميم جديد بيتعامل معاه لوحده.
+  const bigPrint = await p.evaluate(async () => {
+    window.deliverPrint = window.__realDeliverPrint;   // نرجّع المسار الحقيقي
+    const msgs = [];
+    window.qz = {
+      websocket: { isActive: () => true, connect: () => Promise.resolve() },
+      printers: { find: () => Promise.resolve('P') },
+      configs: { create: (n, o) => ({ n, o }) },
+      print: (c, pages) => { msgs.push(pages.reduce((s, pg) => s + (pg.data ? pg.data.length : 0), 0)); return Promise.resolve(); },
+      api: { setPromiseType(){}, setSha256Type(){} },
+      security: { setCertificatePromise(){}, setSignatureAlgorithm(){}, setSignaturePromise(){} },
+    };
+    try { localStorage.setItem('tazweed_qz_label_printer', 'P'); } catch (e) {}
+    window.showPrintPreview = async () => true;
+    const prod = { name: 'كريب سادة لوكس', barcode: '6291108735848', price: 135 };
+    const runs = {};
+    const seen = [];
+    const orig = window.showPrintProgress;
+    window.showPrintProgress = (t) => { seen.push(t); return orig(t); };
+    for (const mode of ['normal', 'quarter']) {
+      msgs.length = 0;
+      state.printCart = [{ key: 'a', product: prod, qty: 100, mode }];
+      await printCartLabels({ pageWidthMm: 38, pageHeightMm: 25, halves: 2 });
+      runs[mode] = { jobs: msgs.length, max: Math.max(...msgs) };
+    }
+    window.showPrintProgress = orig;
+    state.printCart = [];
+    return { ...runs, limit: QZ_MAX_MESSAGE_BYTES, progress: seen };
+  });
+  check('⭐ 100 ملصق عادي: كل رسالة تحت الحد',
+    bigPrint.normal.max <= bigPrint.limit, bigPrint);
+  check('⭐ 100 مقسوم ٤: كل رسالة تحت الحد (دي اللي كانت بتقع)',
+    bigPrint.quarter.max <= bigPrint.limit, bigPrint);
+  check('واتقسّموا على وظايف صغيرة',
+    bigPrint.normal.jobs >= 10 && bigPrint.quarter.jobs >= 10, bigPrint);
+  check('⭐ شريط التقدم بيظهر في الطبعات الكبيرة',
+    bigPrint.progress.length === 2 && bigPrint.progress.every((n) => n === 100), bigPrint.progress);
+
+  // ============================================================
+  // 11) رمز 🖨️ بيطبع اسم المجموعة
+  // ============================================================
+  const rowGroup = await p.evaluate(async () => {
+    state.categories = [{ id: 'c1', name: 'كريب سادة لوكس', colorGroups: ['كيوي'] }];
+    state.activeCategoryId = 'c1';
+    state.grades = [
+      { id: 'g1', number: 9999, group: 'كيوي', branchQty: 1, mainQty: 1, status: 'normal' },
+      { id: 'g2', number: 5, group: '', branchQty: 1, mainQty: 1, status: 'normal' },
+    ];
+    // المفتاح المشترك **مقفول** عن قصد: الرمز مالوش دعوة بيه
+    await saveSharedPrintSettings({ gradeLabelWithGroup: false });
+    const seen = [];
+    const orig = window.renderGradeLabelPNG;
+    window.renderGradeLabelPNG = (a, b2, s) => { seen.push([a, b2]); return orig(a, b2, s); };
+    window.showPrintPreview = async () => true;
+    await printOneGradeLabel('g1', 1);
+    await printOneGradeLabel('g2', 1);
+    window.renderGradeLabelPNG = orig;
+    return seen;
+  });
+  check('⭐ الدرجة اللي في مجموعة: الملصق فيه اسم المجموعة',
+    rowGroup[0] && rowGroup[0][0] === 'كريب سادة لوكس' && rowGroup[0][1] === 'كيوي درجة 9999', rowGroup);
+  check('⭐ وحتى لو المفتاح المشترك مقفول', rowGroup[0] && /كيوي/.test(rowGroup[0][1]), rowGroup);
+  check('والدرجة اللي مالهاش مجموعة مابتتغيّرش',
+    rowGroup[1] && rowGroup[1][1] === 'درجة 5', rowGroup);
 
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
 
