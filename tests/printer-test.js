@@ -59,15 +59,30 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     setPrintTweak('blackwhite', false);
     return { off, allOn, oneOn, count: PRINT_TWEAKS.length, keys: PRINT_TWEAKS.map((t) => t.key) };
   });
-  check('كله مقفول = الإعداد زي ما هو بالظبط',
-    JSON.stringify(tweaks.off) === JSON.stringify({ size: { width: 38, height: 25 }, units: 'mm' }), tweaks.off);
+  // ⚠️ الفحص ده اتغيّر في v0.35 عن قصد، وده سببه:
+  //
+  // كان بيقول "من غير أي مفتاح، الإعداد = المقاس والوحدة وبس". وده كان
+  // بيسيب QZ يشتغل بإعداده الافتراضي scaleContent: true — يعني بيعيد
+  // تحجيم صورتنا. والقياس: 5752 نقطة رمادية بتظهر بعد التحجيم في صورة
+  // مفيهاش ولا نقطة رمادية أصلاً. والطابعة أبيض/أسود، فالرمادي بيتحوّل
+  // عشوائي = الحروف المهرّية اللي المستخدم بيشتكي منها.
+  //
+  // دلوقتي مفتاحين مفتوحين افتراضيًا (noScale و sharp)، والفحص بقى بيقفل
+  // على **الإعداد الجديد بالظبط** — ولسه بيمنع أي خيار زيادة يتحط من غير
+  // تجربة على ورق (زي density اللي طلّع ملصقات فاضية في v0.28.2).
+  check('⭐ الإعداد الافتراضي = المقاس + منع التحجيم وبس',
+    JSON.stringify(tweaks.off) === JSON.stringify({
+      size: { width: 38, height: 25 }, units: 'mm',
+      scaleContent: false, interpolation: 'nearest-neighbor',
+    }), tweaks.off);
   check('5 مفاتيح', tweaks.count === 5, tweaks.keys);
   check('كله مفتوح = الأربعة اتطبقوا',
     tweaks.allOn.scaleContent === false && tweaks.allOn.colorType === 'blackwhite'
     && tweaks.allOn.interpolation === 'nearest-neighbor' && tweaks.allOn.rasterize === true, tweaks.allOn);
-  check('مفتاح واحد = هو بس اللي اتطبق',
-    tweaks.oneOn.colorType === 'blackwhite' && tweaks.oneOn.scaleContent === undefined
-    && tweaks.oneOn.rasterize === undefined, tweaks.oneOn);
+  check('مفتاح واحد زيادة = هو بس اللي اتزوّد',
+    tweaks.oneOn.colorType === 'blackwhite' && tweaks.oneOn.rasterize === undefined, tweaks.oneOn);
+  check('⭐ وقفل مفتاح افتراضي بيتحفظ فعلًا (مايرجعش يفتح لوحده)',
+    tweaks.oneOn.scaleContent === undefined, tweaks.oneOn);
   check('المقاس الأساسي مابيتلمسش أبدًا',
     tweaks.allOn.size.width === 38 && tweaks.allOn.size.height === 25 && tweaks.allOn.units === 'mm', tweaks.allOn);
 
