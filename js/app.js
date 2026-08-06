@@ -4280,6 +4280,46 @@ function legacyQRDataURL(text, sizePx) {
 // ومكسب تالت: الصورة أخف بكتير من HTML فيه صورة base64 جوّه — فالطبعات
 // الكبيرة (100 ملصق) بقت تعدّي، وقبل كده كانت بتقف.
 const PRINTER_DPI = 203; // Xprinter XP-233B وأغلب الطابعات الحرارية
+
+// ============================================================
+// ⭐ الهامش الآمن — أهم رقم في الملصق
+// ============================================================
+// الطابعة الحرارية بتسحب الورق ميكانيكيًا، وفيه لعب طبيعي **حوالي 1 إلى
+// 1.5 مم** في كل طبعة. الملصق اللي محتواه لازق في الحرف بيتقص.
+//
+// ده حصل فعلًا واتصوّر على ورق (v0.33): "Hejap Kuwaiti 12(" و
+// "Balea Repaie Vi" — الكلام متقصوص من حرف اللاصقة.
+//
+// القياس اللي بنينا عليه: بمحاكاة إزاحة 1.5 مم على التصميم القديم
+// (هامش 1 مم) **522 نقطة حبر وقعت بره الورق والكود بطّل يتقرا**.
+// وبهامش 2 مم: صفر نقطة ضاعت والكود اتقرا.
+//
+// ⚠️ التمن: اللاصقة 12.5 مم ارتفاع، ومربع الكود لازم عدد صحيح من نقط
+// الطابعة. فبهامش 2 مم الكود بينزل من 10.5 لـ7.9 مم. مافيش حل يجمع
+// الاتنين — ده مقاس الورق مش اختيار.
+const SAFE_MARGIN_MM = 2.0;
+
+// ============================================================
+// سُمك خط الملصق
+// ============================================================
+// الطابعة الحرارية بتفرد الحبر حوالين كل نقطة سودا — ده اللي بيلزّق
+// الحروف ببعض ("النغمشة"). القياس على نفس النص:
+//
+//   غامق → 7.7% حبر، وبعد الفرد 11.9%
+//   عادي → 5.5% حبر، وبعد الفرد  9.7%
+//
+// الفرد نفسه (+4.2%) واحد في الحالتين — **ده حرارة الطابعة مش تصميمنا**.
+// بس الغامق بيبدأ من نقطة أعلى، فبينتهي بحبر أكتر بـ23%.
+//
+// ⚠️ سجل المحاولات (عشان محدش يلف في الدايرة تاني):
+//   • غامق + تكبير من QZ  → منغمش (السبب كان التكبير، اتصلح v0.28.3)
+//   • عادي                → اتجرّب وقتها وبان باهت — **بس التجربة دي كانت
+//     قبل ما نصلّح التكبير**، يعني المقارنة مكانتش نضيفة
+//   • عادي + من غير تكبير + هوامش آمنة → اللي إحنا فيه دلوقتي
+//
+// 📌 الحل الأساسي للنغمشة **مش هنا**: هو تنزيل الحرارة من إعدادات
+// الطابعة (🔥 وضوح الطباعة). ده بيقلّل الفرد من المصدر.
+const LABEL_WEIGHT = 'normal';
 const mmToDots = (mm) => (mm * PRINTER_DPI) / 25.4;
 
 // مقاس الملصق بنقط الطابعة — 38×25 مم = 304×200 نقطة
@@ -4445,13 +4485,11 @@ function renderLabelPNG(cat, sizeOptions) {
   const showPrice = !!cat.sellingPrice && !sizeOptions.noPrice;
 
   // نفس هندسة الملصق القديم بالظبط، بس بالنقط بدل الملليمترات
-  const pad = mmToDots(0.4);
-  // 1.6 مم مش 1.2: الطابعة بتزحلق شوية، والحرف الأخير كان بيتاكل من
-  // الحرف. الـ0.4 مم الزيادة على كل جنب بتاكل شوية من عرض النص بس بتشيل
-  // احتمال ضياع حرف. (وللزحلقة الكبيرة فيه أداة الإطار في الإعدادات.)
-  const padX = mmToDots(1.6);
+  // الهامش واحد في الأربع نواحي — شوف SAFE_MARGIN_MM فوق
+  const pad = mmToDots(SAFE_MARGIN_MM);
+  const padX = mmToDots(SAFE_MARGIN_MM);
   const gapX = mmToDots(0.8);
-  const SAFETY = mmToDots(0.6);
+  const SAFETY = 0;
   const contentH = halfH - pad * 2 - SAFETY;
   // ⭐ هامش الأمان بيتوزّع **نص فوق ونص تحت** بدل ما يبقى كله تحت.
   // قبل كده المحتوى كان بيقع أعلى من نص اللاصقة بحوالي 0.3 مم، وده كان
@@ -4461,7 +4499,7 @@ function renderLabelPNG(cat, sizeOptions) {
 
   // ⭐ الـQR بمربعات من عدد صحيح من النقط — ده اللي بيخلّيه يتقرا بسرعة.
   const best = buildBestQR(code || name);
-  const qrAvail = Math.min(contentH - mmToDots(0.4), mmToDots(11));
+  const qrAvail = Math.min(contentH, mmToDots(11));
   let qrSize = Math.floor(qrAvail);
   let modulePx = 0;
   if (best) {
@@ -4496,7 +4534,7 @@ function renderLabelPNG(cat, sizeOptions) {
     let chosen = null;
     for (let maxLines = 1; maxLines <= 2; maxLines++) {
       const byHeight = contentH / ((maxLines + otherLines) * LINE);
-      const fit = fitCanvasFont(ctx, name, textW, maxLines, 'bold', FAMILY, Math.min(byHeight, capPx));
+      const fit = fitCanvasFont(ctx, name, textW, maxLines, LABEL_WEIGHT, FAMILY, Math.min(byHeight, capPx));
       if (!chosen || fit.size > chosen.size) chosen = { ...fit, maxLines, byHeight };
     }
 
@@ -4526,9 +4564,9 @@ function renderLabelPNG(cat, sizeOptions) {
     // بنطبع على 203 نقطة/بوصة. الطريقة الاحترافية إن **الطابعة ترسم النص
     // بخطها الداخلي** (أوامر TSPL) بدل ما نبعتلها صورة — شوف
     // buildTSPLFontSample تحت.
-    y += drawLines(ctx, chosen.lines, nameSize, 'bold', FAMILY, textCx, y, lineH);
+    y += drawLines(ctx, chosen.lines, nameSize, LABEL_WEIGHT, FAMILY, textCx, y, lineH);
 
-    drawLines(ctx, [code], codeSize, 'bold', FAMILY, textCx, y, lineH);
+    drawLines(ctx, [code], codeSize, LABEL_WEIGHT, FAMILY, textCx, y, lineH);
     y += lineH;
 
     if (showPrice) {
@@ -4540,7 +4578,7 @@ function renderLabelPNG(cat, sizeOptions) {
 
       ctx.font = `normal ${oldPriceSize}px ${FAMILY}`;
       const origW = orig ? ctx.measureText(orig).width : 0;
-      ctx.font = `bold ${priceSize}px ${FAMILY}`;
+      ctx.font = `${LABEL_WEIGHT} ${priceSize}px ${FAMILY}`;
       const sellW = ctx.measureText(sell).width;
       const totalW = origW + (orig ? gap : 0) + sellW;
       let x = textCx - totalW / 2;
@@ -4554,7 +4592,7 @@ function renderLabelPNG(cat, sizeOptions) {
         ctx.fillRect(x, lineY - Math.max(1, oldPriceSize * 0.04), origW, Math.max(1, oldPriceSize * 0.08));
         x += origW + gap;
       }
-      ctx.font = `bold ${priceSize}px ${FAMILY}`;
+      ctx.font = `${LABEL_WEIGHT} ${priceSize}px ${FAMILY}`;
       ctx.fillText(sell, x, cy);
       ctx.textAlign = 'center';
     }
@@ -4601,10 +4639,12 @@ function drawQuarterCell(ctx, cat, x0, y0, W, H, noPrice) {
   const code = String(cat.barcodeNumber || '');
   const showPrice = !!cat.sellingPrice && !noPrice;
 
-  const pad = mmToDots(0.4);
-  const padX = mmToDots(1.0);
+  // نفس الهامش الآمن، بس محسوب من حرف **الخلية** — والخلايا الجوانية
+  // بتاخد نصه لأن جنبها خط القص مش حرف الورق.
+  const pad = mmToDots(SAFE_MARGIN_MM);
+  const padX = mmToDots(SAFE_MARGIN_MM * 0.75);
   const gapX = mmToDots(0.6);
-  const SAFETY = mmToDots(0.6);
+  const SAFETY = 0;
   const contentH = H - pad * 2 - SAFETY;
   const top = y0 + pad + SAFETY / 2;
 
@@ -4640,7 +4680,7 @@ function drawQuarterCell(ctx, cat, x0, y0, W, H, noPrice) {
   //
   // القص بـ"…" بقى الملاذ الأخير: بس لما الخط ينزل تحت الحد اللي يتقرا.
   const MIN_NAME_DOTS = 8;
-  const fitName = fitCanvasFont(ctx, name, textW, 2, 'bold', F, capPx);
+  const fitName = fitCanvasFont(ctx, name, textW, 2, LABEL_WEIGHT, F, capPx);
   let nameSize = Math.round(fitName.size);
   let nameLines = fitName.lines;
   if (nameSize < MIN_NAME_DOTS) {
@@ -4668,24 +4708,24 @@ function drawQuarterCell(ctx, cat, x0, y0, W, H, noPrice) {
 
   ctx.fillStyle = '#000000';
   let y = top;
-  y += drawLines(ctx, nameLines, nameSize, 'bold', F, cx, y, lineH);
+  y += drawLines(ctx, nameLines, nameSize, LABEL_WEIGHT, F, cx, y, lineH);
 
   // اللي فضل من الارتفاع بيتوزّع على الرقم والسعر — فالاسم القصير بيدّي
   // للرقم والسعر مساحة أكبر بدل ما تروح فاضي.
   const restRows = rows - nameLines.length;
   const restH = restRows > 0 ? (contentH - lineH * nameLines.length) / restRows : lineH;
   const fitOne = (text, cap) => {
-    const f = fitCanvasFont(ctx, text, textW, 1, 'bold', F, cap);
+    const f = fitCanvasFont(ctx, text, textW, 1, LABEL_WEIGHT, F, cap);
     return Math.max(5, Math.round(Math.min(f.size, cap)));
   };
 
   if (code) {
-    drawLines(ctx, [code], fitOne(code, Math.min(restH / LINE, nameSize)), 'bold', F, cx, y, restH);
+    drawLines(ctx, [code], fitOne(code, Math.min(restH / LINE, nameSize)), LABEL_WEIGHT, F, cx, y, restH);
     y += restH;
   }
   if (showPrice) {
     const price = `${cat.sellingPrice} L.E`;
-    drawLines(ctx, [price], fitOne(price, Math.min(restH / LINE, nameSize * 1.2)), 'bold', F, cx, y, restH);
+    drawLines(ctx, [price], fitOne(price, Math.min(restH / LINE, nameSize * 1.2)), LABEL_WEIGHT, F, cx, y, restH);
   }
 }
 
@@ -4706,9 +4746,11 @@ function renderQuarterLabelPNG(cat, sizeOptions) {
     [W - cellW, H - cellH],
   ].forEach(([x, y]) => drawQuarterCell(ctx, cat, x, y, cellW, cellH, sizeOptions.noPrice));
 
-  // خط القص: نقطتين في النص، على طول اللاصقة.
+  // خط القص: نقطتين في النص. **مابيلمسش حرف الورقة** — بيبدأ وينتهي عند
+  // الهامش الآمن زي باقي المحتوى، عشان الإزاحة ماتاكلش منه.
+  const cutPad = mmToDots(SAFE_MARGIN_MM);
   ctx.fillStyle = '#000000';
-  ctx.fillRect(Math.floor(W / 2) - 1, 0, 2, H);
+  ctx.fillRect(Math.floor(W / 2) - 1, cutPad, 2, H - cutPad * 2);
 
   return shrinkToPrinterDots(hi.canvas, W, H);
 }
@@ -4729,8 +4771,8 @@ function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
   const FAMILY = 'Tahoma, Arial, sans-serif';
   const line1 = String(categoryName || '');
   const line2 = String(gradeLabel || '');
-  const pad = mmToDots(0.8);
-  const SAFETY = mmToDots(0.6);
+  const pad = mmToDots(SAFE_MARGIN_MM);
+  const SAFETY = 0;
   const availW = W - pad * 2;
   const availH = halfH - pad * 2 - SAFETY;
   const topOffset = pad + SAFETY / 2; // هامش الأمان نص فوق ونص تحت
@@ -4742,22 +4784,22 @@ function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
     let chosen = null;
     for (let maxLines = 1; maxLines <= 2; maxLines++) {
       const byHeight = availH / ((maxLines + 1) * LINE);
-      const fit = fitCanvasFont(ctx, line1, availW, maxLines, 'bold', FAMILY, byHeight);
+      const fit = fitCanvasFont(ctx, line1, availW, maxLines, LABEL_WEIGHT, FAMILY, byHeight);
       if (!chosen || fit.size > chosen.size) chosen = fit;
     }
     const n1 = chosen.lines.length;
     const byHeight = availH / ((n1 + 1) * LINE);
     // مقاسات بأعداد صحيحة من نقط الطابعة — الشرح في renderLabelPNG
     const size1 = Math.max(6, Math.round(Math.min(chosen.size, byHeight)));
-    const fit2 = fitCanvasFont(ctx, line2, availW, 1, 'bold', FAMILY, byHeight);
+    const fit2 = fitCanvasFont(ctx, line2, availW, 1, LABEL_WEIGHT, FAMILY, byHeight);
     const size2 = Math.max(6, Math.round(Math.min(fit2.size, byHeight)));
 
     const lineH = availH / (n1 + 1);
     // المحتوى في نص النصف رأسيًا
     const blockH = lineH * (n1 + 1);
     let y = top + topOffset + (availH - blockH) / 2;
-    y += drawLines(ctx, chosen.lines, size1, 'bold', FAMILY, W / 2, y, lineH);
-    drawLines(ctx, fit2.lines.length ? fit2.lines : [line2], size2, 'bold', FAMILY, W / 2, y, lineH);
+    y += drawLines(ctx, chosen.lines, size1, LABEL_WEIGHT, FAMILY, W / 2, y, lineH);
+    drawLines(ctx, fit2.lines.length ? fit2.lines : [line2], size2, LABEL_WEIGHT, FAMILY, W / 2, y, lineH);
   }
 
   return shrinkToPrinterDots(hi.canvas, W, H);
@@ -5372,8 +5414,10 @@ async function printOneGradeLabel(gradeId, copies) {
   const cat = state.categories.find((c) => c.id === state.activeCategoryId);
   const g = state.grades.find((x) => x.id === gradeId);
   if (!cat || !g) return;
-  const saved = getSharedPrintSettings() || {};
-  await printTextLabel(cat.name || '', gradeLabelText(g, saved.gradeLabelWithGroup), {
+  // ⭐ الرمز ده **دايمًا** بيكتب اسم المجموعة لو الدرجة ليها مجموعة.
+  // مش تابع لمفتاح: إنت واقف على الدرجة في قايمة مجموعتها، فالملصق
+  // المفروض يقول نفس اللي شايفه على الشاشة.
+  await printTextLabel(cat.name || '', gradeLabelText(g, true), {
     ...LABEL_SIZE,
     copies: Math.max(1, Math.min(MAX_LABEL_COPIES, copies || 1)),
   });
@@ -6835,10 +6879,39 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     // وكل واحدة صغيرة لدرجة إنها مستحيل تتخنق.
     //
     // أبطأ شوية من وظيفة واحدة — بس بتطبع فعلًا، وده اللي يهم.
+    // ------------------------------------------------------------
+    // ⚠️ التقسيم بالحجم **و**بالعدد — والحجم هو الحاكم
+    // ------------------------------------------------------------
+    // العطل ده **رجع تاني** في v0.33، والسبب إننا كنا بنقسّم بعدد ثابت
+    // (5 صفحات) وناسيين إن حجم الصفحة بيكبر مع التصميم. القياس الحقيقي:
+    //
+    //   الملصق العادي   → الصفحة 10 كيلو → 5 صفحات = 49 كيلو  ❌
+    //   المقسوم أربعة   → الصفحة 12 كيلو → 5 صفحات = 61 كيلو  ❌
+    //   والحد الآمن 48 كيلو.
+    //
+    // يعني العدد الثابت **مايضمنش حاجة**: أول ما الملصق يتقل، الرسالة
+    // بتعدّي الحد وتتضاع في صمت — "بياخد الأمر ومفيش حاجة بتتطبع".
+    //
+    // 📌 القاعدة دلوقتي: نقيس البايتات ونقفل الرسالة قبل ما تعدّي الحد.
+    // وأي تصميم ملصق جديد بيتعامل معاه لوحده من غير ما حد يفتكر يعدّل رقم.
+    const sizeOf = (pg) => (pg && pg.data ? pg.data.length : 0) + 64; // 64 = حِمل الغلاف
     const perMessage = [];
-    for (let i = 0; i < pages.length; i += QZ_PAGES_PER_JOB) {
-      perMessage.push(pages.slice(i, i + QZ_PAGES_PER_JOB));
+    let chunk = [];
+    let bytes = 0;
+    for (const pg of pages) {
+      const s = sizeOf(pg);
+      // نقفل الرسالة لو زوّدنا هنعدّي الحد، أو لو وصلنا العدد الأقصى.
+      // الصفحة الواحدة لو أكبر من الحد أصلًا بتروح لوحدها — أحسن من
+      // إننا نبعت رسالة فاضية.
+      if (chunk.length && (bytes + s > QZ_MAX_MESSAGE_BYTES || chunk.length >= QZ_PAGES_PER_JOB)) {
+        perMessage.push(chunk);
+        chunk = [];
+        bytes = 0;
+      }
+      chunk.push(pg);
+      bytes += s;
     }
+    if (chunk.length) perMessage.push(chunk);
 
     let done = 0;
     try {
