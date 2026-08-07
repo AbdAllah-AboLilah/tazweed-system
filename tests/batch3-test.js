@@ -187,13 +187,21 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const j = window.__jobs[0];
     out.copies = j && j.jobs[0].copies;
     out.isImage = !!(j && j.jobs[0].image && /^data:image\/png/.test(j.jobs[0].image));
+    // نفس المسار اللي بيمشي فيه ملصق الصنف بالظبط — أيًا كان المفتاح
+    const ref = await buildItemLabel({ itemName:'س', barcodeNumber:'1', sellingPrice:1 },
+                                     { pageWidthMm:38, pageHeightMm:25, halves:2 }, 1);
+    out.sameRoute = out.isImage === !!ref.image;
+    out.hasText = !!(j && /بضاعة مرتجعة/.test(j.jobs[0].html || ''));
     out.size = j && [j.sizeOptions.pageWidthMm, j.sizeOptions.pageHeightMm, j.sizeOptions.halves].join('x');
     return out;
   });
   check('شاشة "طباعة مسمّى" بتفتح والمؤشر في أول خانة', custom.opened && custom.focused, custom);
   check('⭐ نص فاضي مابيطبعش', custom.emptyBlocked, custom);
   check('⭐ المسمّى اتطبع بالعدد الصح', custom.jobs === 1 && custom.copies === 4, custom);
-  check('⭐ بيتبعت كصورة زي باقي الملصقات', custom.isImage, custom);
+  // ⚠️ مش "بيتبعت كصورة" — الافتراضي اتغيّر في v0.36.0. اللي يهم إنه بيمشي
+  // في **نفس** مسار باقي الملصقات، مش مسار لوحده.
+  check('⭐ بيمشي في نفس مسار باقي الملصقات', custom.sameRoute, custom);
+  check('⭐ نص المسمّى وصل الطباعة', custom.hasText, custom);
   check('بنفس مقاس اللفة 38×25 نصين', custom.size === '38x25x2', custom);
 
   // ---------- 5) رمز الطباعة جوه صف الدرجة ----------
@@ -232,11 +240,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
   // الرمز بيستخدم اسم الفئة + مسمّى الدرجة (وبيحترم مفتاح المجموعة المحفوظ)
   const rowText = await p.evaluate(async () => {
+    // بنراقب الطريقتين (صورة/نص) — الافتراضي اتغيّر في v0.36.0
     const seen = [];
-    const orig = window.renderGradeLabelPNG;
-    window.renderGradeLabelPNG = (a, b, s) => { seen.push([a, b]); return orig(a, b, s); };
+    const oPNG = window.renderGradeLabelPNG;
+    const oHTML = window.buildGradeLabelHTML;
+    window.renderGradeLabelPNG = (a, b, s) => { seen.push([a, b]); return oPNG(a, b, s); };
+    window.buildGradeLabelHTML = (a, b, s, c) => { seen.push([a, b]); return oHTML(a, b, s, c); };
     await printOneGradeLabel('g1', 1);
-    window.renderGradeLabelPNG = orig;
+    window.renderGradeLabelPNG = oPNG;
+    window.buildGradeLabelHTML = oHTML;
     return seen[0];
   });
   check('⭐ الملصق = اسم الفئة + مسمّى الدرجة',

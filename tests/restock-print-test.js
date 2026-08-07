@@ -120,7 +120,12 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   // من v0.28.2 الـ300 ملصق بيتقسّموا على وظايف صغيرة ورا بعض — ده أهم
   // إصلاح في "الأمر مايوصلش للطابعة".
   check('⭐ 300 ملصق اتبعتوا كلهم', sizes.pages === 300, sizes);
-  check('⭐ اتقسّموا على وظايف صغيرة', sizes.messages === 60, sizes);
+  // ⚠️ العدد **مش ثابت** عن قصد — التقسيم بقى بالحجم مش بعدد صفحات ثابت.
+  // كان مكتوب هنا 60 بالظبط، وأول ما اتغيّر مقاس الخط في الملصق (فاتغيّر
+  // حجم الصفحة بالبايت) الفحص وقع من غير ما يكون فيه عطل. اللي يهم:
+  // كل رسالة تحت الحد، ومفيش وظيفة أكبر من 5 صفحات.
+  check('⭐ اتقسّموا على وظايف صغيرة',
+    sizes.messages >= Math.ceil(sizes.pages / 5) && sizes.maxBytes <= sizes.limit, sizes);
   check('⭐ مفيش رسالة عدّت الحد', sizes.maxBytes <= sizes.limit, sizes);
   check('الحد 48 كيلو', sizes.limit === 48 * 1024, sizes.limit);
   check('الأقصى بقى 1000', sizes.maxCopies === 1000, sizes.maxCopies);

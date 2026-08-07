@@ -616,14 +616,23 @@ function decodeCell(dataUrl, quiet) {
     ];
     // المفتاح المشترك **مقفول** عن قصد: الرمز مالوش دعوة بيه
     await saveSharedPrintSettings({ gradeLabelWithGroup: false });
+    // ⚠️ من v0.36.0 الافتراضي بقى الملصق النصّي، يعني `renderGradeLabelPNG`
+    // ممكن ماتتنداش خالص. الفحص بيراقب **الطريقتين** عشان يفضل صحيح مهما
+    // كان المفتاح مقفول ولا مفتوح.
     const seen = [];
-    const orig = window.renderGradeLabelPNG;
-    window.renderGradeLabelPNG = (a, b2, s) => { seen.push([a, b2]); return orig(a, b2, s); };
+    const oPNG = window.renderGradeLabelPNG;
+    const oHTML = window.buildGradeLabelHTML;
+    window.renderGradeLabelPNG = (a, b2, s) => { seen.push([a, b2]); return oPNG(a, b2, s); };
+    window.buildGradeLabelHTML = (a, b2, s, c) => { seen.push([a, b2]); return oHTML(a, b2, s, c); };
     window.showPrintPreview = async () => true;
     await printOneGradeLabel('g1', 1);
     await printOneGradeLabel('g2', 1);
-    window.renderGradeLabelPNG = orig;
-    return seen;
+    window.renderGradeLabelPNG = oPNG;
+    window.buildGradeLabelHTML = oHTML;
+    // الطريقتين ممكن يتندهوا مع بعض للملصق الواحد — بناخد أول واحد لكل درجة
+    const uniq = [];
+    for (const s of seen) if (!uniq.some((u) => u[0] === s[0] && u[1] === s[1])) uniq.push(s);
+    return uniq;
   });
   check('⭐ الدرجة اللي في مجموعة: الملصق فيه اسم المجموعة',
     rowGroup[0] && rowGroup[0][0] === 'كريب سادة لوكس' && rowGroup[0][1] === 'كيوي درجة 9999', rowGroup);
