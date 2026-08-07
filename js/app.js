@@ -4485,17 +4485,15 @@ function renderLabelPNG(cat, sizeOptions) {
   const showPrice = !!cat.sellingPrice && !sizeOptions.noPrice;
 
   // نفس هندسة الملصق القديم بالظبط، بس بالنقط بدل الملليمترات
-  // الهامش واحد في الأربع نواحي — شوف SAFE_MARGIN_MM فوق
-  const pad = mmToDots(SAFE_MARGIN_MM);
+  // ⭐ الهامش الآمن على **حرف الورقة** بس، مش على خط القص اللي في النص —
+  // نفس منطق الملصق النصّي بالظبط (شوف الشرح في buildLabelHTML).
+  // ده اللي رجّع الباركود من 7.9مم لـ9.5مم من غير ما نضحّي بالأمان.
+  const outer = mmToDots(SAFE_MARGIN_MM);
+  const inner = mmToDots(halves > 1 ? 0.6 : SAFE_MARGIN_MM);
+  const pad = outer;
   const padX = mmToDots(SAFE_MARGIN_MM);
   const gapX = mmToDots(0.8);
-  const SAFETY = 0;
-  const contentH = halfH - pad * 2 - SAFETY;
-  // ⭐ هامش الأمان بيتوزّع **نص فوق ونص تحت** بدل ما يبقى كله تحت.
-  // قبل كده المحتوى كان بيقع أعلى من نص اللاصقة بحوالي 0.3 مم، وده كان
-  // باين في النصف السفلي بالذات (الباركود التحتاني مركزه أعلى من مركز
-  // اللاصقة). التوزيع المتساوي بينزّله لمكانه الصح.
-  const topOffset = pad + SAFETY / 2;
+  const contentH = halfH - outer - inner;
 
   // ⭐ الـQR بمربعات من عدد صحيح من النقط — ده اللي بيخلّيه يتقرا بسرعة.
   const best = buildBestQR(code || name);
@@ -4516,6 +4514,8 @@ function renderLabelPNG(cat, sizeOptions) {
 
   for (let h = 0; h < halves; h++) {
     const top = h * halfH;
+    // النص الأول: الهامش الكبير فوق. النص التاني: الكبير تحت.
+    const topOffset = h === 0 ? outer : inner;
 
     // --- الـQR ---
     if (best && qrSize > 0) {
@@ -4771,15 +4771,17 @@ function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
   const FAMILY = 'Tahoma, Arial, sans-serif';
   const line1 = String(categoryName || '');
   const line2 = String(gradeLabel || '');
-  const pad = mmToDots(SAFE_MARGIN_MM);
-  const SAFETY = 0;
-  const availW = W - pad * 2;
-  const availH = halfH - pad * 2 - SAFETY;
-  const topOffset = pad + SAFETY / 2; // هامش الأمان نص فوق ونص تحت
+  // الهامش الآمن على حرف الورقة بس — خط القص اللي في النص مش حرف
+  const outer = mmToDots(SAFE_MARGIN_MM);
+  const inner = mmToDots(halves > 1 ? 0.6 : SAFE_MARGIN_MM);
+  const pad = outer;
+  const availW = W - mmToDots(SAFE_MARGIN_MM) * 2;
+  const availH = halfH - outer - inner;
   const LINE = 1.2;
 
   for (let h = 0; h < halves; h++) {
     const top = h * halfH;
+    const topOffset = h === 0 ? outer : inner;
 
     let chosen = null;
     for (let maxLines = 1; maxLines <= 2; maxLines++) {
@@ -4886,12 +4888,24 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
       }<b>${escapeHTML(cat.sellingPrice)} L.E</b></div>`
     : '';
 
-  // هامش أمان رأسي: الطابعة الحرارية بتاكل جزء بسيط من أعلى وأسفل اللاصقة،
-  // فبنسيب 0.6مم فاضيين عشان المحتوى ما يخرجش بره حدود الورق.
-  const SAFETY_MM = 0.6;
-  const pad = 0.4;
+  // ------------------------------------------------------------
+  // ⭐ الهامش الآمن **بره بس** — الخط اللي في النص مش حرف ورق
+  // ------------------------------------------------------------
+  // الطابعة بتلعب 1-1.5مم وهي بتسحب الورق، فأي محتوى أقرب من كده لحرف
+  // اللاصقة بيتاكل (اتصوّر على ورق: "Hejap Kuwaiti 12(").
+  //
+  // بس ده بينطبق على **حروف الورقة** بس — فوق أول نص وتحت تاني نص.
+  // الخط اللي بينهم في النص ده مجرد مكان القص، مافيش طابعة بتاكل منه
+  // حاجة. لما كنا بنحط 2مم على الأربع جهات كنا بنضيّع 8مم من 25 من غير
+  // أي سبب، والباركود كان بيصغّر لـ8مم عشانهم.
+  //
+  // دلوقتي: 2مم على الحرف الخارجي، و0.6مم بس على خط القص (كفاية إن
+  // الكلام مايلزقش في بعضه) — والباركود رجع 9.5مم.
+  const OUTER_MM = SAFE_MARGIN_MM;
+  const INNER_MM = halves > 1 ? 0.6 : SAFE_MARGIN_MM;
+  const pad = OUTER_MM;
   const LINE = 1.2;
-  const contentH = halfHeight - pad * 2 - SAFETY_MM;
+  const contentH = halfHeight - OUTER_MM - INNER_MM;
 
   // ------------------------------------------------------------
   // ⭐ هامش حقيقي حوالين الـQR — سبب "الباركود متاكل منه حتة"
@@ -4922,23 +4936,74 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   //
   // 1.2 ملم على الجانبين = تلات أضعاف اللي كان. والعرض 38 ملم، فالمساحة
   // الباقية للنص لسه أكتر من كفاية (24 ملم).
-  const padX = 1.2;
+  const padX = SAFE_MARGIN_MM;
   const gapX = 0.8;
   const textW = pageWidthMm - qrBox - padX * 2 - gapX;
 
-  // اسم الصنف: بنقيس التقسيم الحقيقي على سطر وعلى سطرين وناخد الأوضح.
-  // (قبل كده كنا بنخمّن ×1.85 والاسم كان بيتقطع بنقط "…")
   const otherLines = 1 + (showPrice ? 1 : 0); // الباركود + السعر
-  const layout = pickNameLayout(name, textW, contentH, LINE, otherLines, 2.7);
-  const nameLines = layout.lines;
-  const nameSize = layout.size;
-  const byHeight = contentH / ((nameLines + otherLines) * LINE);
-  const codeSize = Math.min(byHeight, nameSize * 0.9);
+  const codeText = String(cat.barcodeNumber || '');
+  const priceText = cat.sellingPrice ? `${cat.sellingPrice} L.E` : '';
+  const oldPriceText = hasDiscount ? `${cat.originalPrice} L.E` : '';
+  // السعر المشطوب والسعر الحقيقي في نفس السطر، فبنقيسهم مع بعض.
+  const priceLineText = (oldPriceText ? oldPriceText + '  ' : '') + priceText;
 
-  // سعر البيع هو أهم رقم على اللاصقة للزبون، فبياخد أكبر خط متاح في سطره.
-  // byHeight هو نصيب السطر الواحد من الارتفاع، فمينفعش نعدّيه وإلا السعر
-  // بيتقطع من تحت. والسعر المشطوب بياخد حجم أصغر عشان الفرق يبان.
-  const priceSize = Math.min(byHeight, nameSize * 1.15);
+  // ============================================================
+  // ⭐ توزيع الارتفاع: كل سطر بمقاسه هو، والتصغير **بالنسبة** لو زنقنا
+  // ============================================================
+  // العطل اللي اتصوّر على ورق: صنف اسمه طويل ("Biotherm whitening Cream
+  // senstive Area 100g offer") طلع بكل كلامه صغير — حتى الرقم والسعر
+  // القصيّرين. السبب إن الطريقة القديمة كانت بتقسّم الارتفاع على عدد
+  // السطور **بالتساوي**: الاسم لما ياخد سطرين بدل سطر، عدد السطور يبقى 4
+  // بدل 3، فنصيب كل سطر ينزل من 2.75مم لـ2.06 — والرقم والسعر بيدفعوا
+  // التمن مع إنهم مالهمش ذنب.
+  //
+  // دلوقتي:
+  //   • كل عنصر ليه "مقاسه الطبيعي" = أكبر خط يخلّيه يدخل في **عرضه هو**
+  //     (والاسم كمان محكوم بسقف 2.7مم عشان مايبقاش أكبر من اللزوم).
+  //   • الرقم والسعر ليهم سقف نسبي من نصيب السطر الواحد — الرقم أقل
+  //     شوية لأنه خطة الطوارئ، والسعر أعلى لأنه أهم رقم للزبون.
+  //   • لو مجموع الطبيعي عدّى الارتفاع المتاح، **الكل** بيصغّر بنفس
+  //     النسبة. يعني الاسم الطويل بيدفع نصيبه بس، مش بيجرّ الباقي معاه.
+  //
+  // وبنجرّب سطر/سطرين/تلاتة للاسم وناخد اللي بيطلّع أكبر خط للاسم — فده
+  // بياخد السطر التالت **بس** لما يبقى مكسب فعلي، مش كل مرة.
+  const evenShare = contentH / ((1 + otherLines) * LINE); // نصيب السطر لو الاسم سطر واحد
+  const CODE_SHARE = 0.88;  // الرقم: خطة الطوارئ لو الباركود مارضيش يتقرا
+  const PRICE_SHARE = 0.95; // السعر: أهم رقم للزبون
+  const codeNat = Math.min(evenShare * CODE_SHARE, fitWrappedFontSizeMm(codeText, textW, 1, true));
+  const priceNat = showPrice
+    ? Math.min(evenShare * PRICE_SHARE, fitWrappedFontSizeMm(priceLineText, textW, 1, true))
+    : 0;
+  const otherH = (codeNat + priceNat) * LINE;
+
+  let best = { lines: 1, size: 0, factor: 1 };
+  for (let L = 1; L <= 3; L++) {
+    const nat = Math.min(2.7, fitWrappedFontSizeMm(name, textW, L, true));
+    const needed = L * nat * LINE + otherH;
+    if (needed <= contentH) {
+      // فيه مكان للكل بمقاسه الطبيعي — الفاضل بيبقى فراغ وخلاص
+      if (nat > best.size + 1e-6) best = { lines: L, size: nat, factor: 1 };
+      continue;
+    }
+    let factor = contentH / needed;
+    let size = nat * factor;
+    // ------------------------------------------------------------
+    // ⭐ لما نزنق، **الاسم** هو اللي يتنازل — مش الرقم والسعر
+    // ------------------------------------------------------------
+    // الاسم على سطرين بمقاس السطر الواحد بياخد ضِعف الارتفاع، فلو سبناه
+    // بيجرّ الرقم والسعر تحته. القاعدة: الرقم والسعر عمرهم ما يبقوا أصغر
+    // من الاسم. لو ده حصل، بنعيد الحساب والاسم مربوط بمقاس الرقم —
+    // فالتلاتة بيوصلوا لتوازن بدل ما الاسم ياكل من نصيبهم.
+    if (size > codeNat * factor) {
+      factor = contentH / ((L * codeNat + codeNat + priceNat) * LINE);
+      size = Math.min(nat, codeNat * factor);
+    }
+    if (size > best.size + 1e-6) best = { lines: L, size, factor };
+  }
+  const nameLines = best.lines;
+  const nameSize = best.size;
+  const codeSize = codeNat * best.factor;
+  const priceSize = priceNat * best.factor;
   const oldPriceSize = priceSize * 0.8;
 
   const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '<div class="qr"></div>';
@@ -4976,11 +5041,26 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
         .half {
           height: ${halfHeight}mm; width: 100%;
           display: flex; align-items: center; gap: ${gapX}mm;
-          padding: ${pad}mm ${padX}mm ${pad + SAFETY_MM}mm;
+          padding: ${OUTER_MM}mm ${padX}mm ${INNER_MM}mm;
           overflow: hidden;
         }
+        /* النص التاني مقلوب: الهامش الكبير بقى تحت (على حرف الورقة)
+           والصغير فوق (على خط القص). الارتفاع المتاح واحد في الحالتين،
+           فمقاس الخط واحد — الفرق مكان الفراغ بس. */
+        .half + .half { padding: ${INNER_MM}mm ${padX}mm ${OUTER_MM}mm; }
         .qr { width: ${qrBox}mm; height: ${qrBox}mm; flex: 0 0 ${qrBox}mm; display: block; }
-        .txt { flex: 1; min-width: 0; text-align: center; }
+        /* ⭐ عمود النص بنفس ارتفاع الكود بالظبط، والسطور بتتوزّع فيه.
+           كده أول سطر بيبدأ مع حرف الكود العلوي وآخر سطر بينتهي مع
+           السفلي. قبل كده كان متمركز رأسيًا، فلما يكون أقصر من الكود
+           كان بيبان نازل عنه شوية. */
+        .txt {
+          flex: 1; min-width: 0; text-align: center;
+          height: ${contentH.toFixed(2)}mm;
+          display: flex; flex-direction: column; justify-content: space-between;
+        }
+        /* ⚠️ الأسطر ماينضغطوش. من غير ده، لو مجموع ارتفاعهم عدّى العمود
+           بكسر بسيط، الفليكس بيضغطهم والاسم بيتقص من تحت. */
+        .txt > * { flex: 0 0 auto; }
         /* ⚠️ مفيش -webkit-line-clamp هنا عن قصد.
            هي اللي كانت بتحط "…" مكان باقي الاسم. دلوقتي حجم الخط متقاس
            على التقسيم الحقيقي، فالاسم بيدخل كامل — ولو حصلت مفاجأة على
@@ -4994,7 +5074,10 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
         /* الرقم bold: على الطابعة الحرارية الخط الرفيع بيطلع باهت ومتقطّع،
            والرقم ده هو خطة الطوارئ لو الباركود مارضيش يتقرا — فلازم يبان. */
         .code { font-size: ${codeSize.toFixed(2)}mm; letter-spacing: 0.15mm; font-weight: bold; }
-        .price { display: flex; justify-content: center; align-items: baseline; gap: ${pad * 2}mm; white-space: nowrap; }
+        /* ⚠️ الفراغ ده رقم ثابت عن قصد. كان مربوط بالحشو، فلما كبّرنا
+           الحشو الآمن بقى 4مم بين السعرين جوه عمود عرضه 24 — والسعر
+           اضطر يصغّر عشانه. */
+        .price { display: flex; justify-content: center; align-items: baseline; gap: 1.2mm; white-space: nowrap; }
         .price s { font-weight: normal; font-size: ${oldPriceSize.toFixed(2)}mm; }
         .price b { font-weight: bold; font-size: ${priceSize.toFixed(2)}mm; }
       </style>
@@ -5177,9 +5260,13 @@ function fitWrappedFontSizeMm(text, maxWidthMm, maxLines, bold) {
 //
 // ليه مش دايمًا سطرين؟ لأن السطرين بياخدوا ارتفاع أكتر، فنصيب السطر
 // الواحد من الارتفاع بيقل. الاسم القصير بيطلع أكبر وأوضح في سطر واحد.
+// ⭐ بنجرّب لحد **تلات** سطور للاسم.
+// السبب: الاسم الطويل على سطرين بيضطر الخط يصغّر جدًا. السطر التالت
+// بيدّي الحروف مساحة أكبر — بس بيتاخد **بس** لو طلّع خط أكبر فعلًا،
+// لأن السطر الزيادة بياكل من ارتفاع السطور التانية.
 function pickNameLayout(name, widthMm, contentH, lineHeight, otherLines, capMm) {
   let best = { lines: 1, size: 0 };
-  for (let lines = 1; lines <= 2; lines++) {
+  for (let lines = 1; lines <= 3; lines++) {
     const byHeight = contentH / ((lines + otherLines) * lineHeight);
     const byWidth = fitWrappedFontSizeMm(name, widthMm, lines, true);
     const size = Math.min(byHeight, byWidth, capMm || Infinity);
@@ -5195,11 +5282,13 @@ function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
   const halfHeight = pageHeightMm / (halves || 1);
   const copyCount = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(copies, 10) || 1));
 
-  // هامش أمان رأسي زي ملصق الصنف — الطابعة بتاكل جزء بسيط من الحواف.
-  const SAFETY_MM = 0.6;
-  const pad = 0.8;
-  const availableW = pageWidthMm - pad * 2;
-  const availableH = halfHeight - pad * 2 - SAFETY_MM;
+  // هامش أمان زي ملصق الصنف بالظبط: كبير على حرف الورقة، صغير على خط
+  // القص اللي في النص. (شوف الشرح المطوّل في buildLabelHTML)
+  const OUTER_MM = SAFE_MARGIN_MM;
+  const INNER_MM = halves > 1 ? 0.6 : SAFE_MARGIN_MM;
+  const pad = OUTER_MM;
+  const availableW = pageWidthMm - SAFE_MARGIN_MM * 2;
+  const availableH = halfHeight - OUTER_MM - INNER_MM;
 
   const line1 = String(categoryName || '');
   const line2 = String(gradeLabel || '');
@@ -5232,11 +5321,13 @@ function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
         .label + .label { page-break-before: always; break-before: page; }
         .half {
           height: ${halfHeight}mm; width: 100%;
-          padding: ${pad}mm ${pad}mm ${pad + SAFETY_MM}mm;
+          padding: ${OUTER_MM}mm ${SAFE_MARGIN_MM}mm ${INNER_MM}mm;
           display: flex; flex-direction: column;
           align-items: center; justify-content: center;
           text-align: center; overflow: hidden;
         }
+        /* النص التاني مقلوب — الهامش الكبير على حرف الورقة السفلي */
+        .half + .half { padding: ${INNER_MM}mm ${SAFE_MARGIN_MM}mm ${OUTER_MM}mm; }
         .l1, .l2 { font-weight: bold; line-height: ${LINE}; }
         /* ⚠️ مفيش -webkit-line-clamp — شوف الشرح في ملصق الصنف فوق. */
         .l1 {
@@ -6265,9 +6356,17 @@ const PRINT_TWEAKS = [
     apply: (cfg) => (cfg.rasterize = true),
   },
   {
+    // ⭐ مفتوح افتراضيًا من v0.36 بعد تجربة على ورق حقيقي.
+    //
+    // الملصق بيتبعت لـQZ كـ**نص HTML** فبيرسمه بمحرّكه على دقة الطابعة
+    // مباشرة. الطريقة التانية (صورة مرسومة عندنا) اتجرّبت على نفس الورق
+    // وطلعت أهرى — والمستخدم قارن الاتنين بنفسه.
+    //
+    // ⚠️ الملصق المقسوم أربعة **لسه بالصورة** — مافيش نسخة HTML منه.
     key: 'htmlLabels',
-    label: '↩️ ارجع لملصق HTML القديم',
-    hint: 'الملصق دلوقتي بيتبعت كصورة مرسومة عندنا. افتح ده بس لو حصلت مشكلة',
+    label: '📝 ابعت الملصق كنص (الافتراضي)',
+    hint: 'مجرّب على ورق وطالع حاد. اقفله لو عايز تجرّب طريقة الصورة',
+    defaultOn: true,
     apply: () => {},
   },
 ];

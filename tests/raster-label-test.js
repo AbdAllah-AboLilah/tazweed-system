@@ -59,7 +59,9 @@ const NAMES = ['Chanvie Leen 58047','طباقيه كويتى كباسين','Qian
     window.isQZAvailable = () => true;
     window.ensureQZConnected = () => Promise.resolve(true);
     localStorage.setItem('tazweed_qz_label_printer', 'Xprinter XP-233B');
-    localStorage.removeItem('tazweed_qz_tweak_htmlLabels');
+    // ⚠️ من v0.36.0 الملصق النصّي (HTML) بقى **هو الافتراضي**، فمسح المفتاح
+    // مابقاش معناه "مطفي". لازم نكتب '0' صراحةً عشان نفحص طريق الصورة.
+    localStorage.setItem('tazweed_qz_tweak_htmlLabels', '0');
 
     const built = await buildItemLabel({ itemName:'Chanvie Leen 58047', barcodeNumber:'62808737', sellingPrice:495 },
                                        { pageWidthMm:38, pageHeightMm:25, halves:2 }, 100);
@@ -124,10 +126,18 @@ const NAMES = ['Chanvie Leen 58047','طباقيه كويتى كباسين','Qian
     localStorage.setItem('tazweed_qz_tweak_htmlLabels', '1');
     const built = await buildItemLabel({ itemName:'كريب', barcodeNumber:'12133', sellingPrice:85 },
                                        { pageWidthMm:38, pageHeightMm:25, halves:2 }, 1);
+    // مسح المفتاح = الرجوع للافتراضي، والافتراضي دلوقتي HTML كمان
     localStorage.removeItem('tazweed_qz_tweak_htmlLabels');
-    return { image: built.image, isHTML: /class="qr"/.test(built.jobHTML) };
+    const dflt = await buildItemLabel({ itemName:'كريب', barcodeNumber:'12133', sellingPrice:85 },
+                                      { pageWidthMm:38, pageHeightMm:25, halves:2 }, 1);
+    localStorage.setItem('tazweed_qz_tweak_htmlLabels', '0');
+    return { image: built.image, isHTML: /class="qr"/.test(built.jobHTML),
+             dfltImage: dflt.image, dfltIsHTML: /class="qr"/.test(dflt.jobHTML) };
   });
   check('المفتاح بيرجّع لـHTML القديم', back.image === null && back.isHTML, back);
+  // ⭐ v0.36.0: الملصق النصّي رجع يبقى الافتراضي — ده اللي المستخدم جرّبه
+  // على الورق ولقاه أنضف. الصورة فضلت موجودة ورا مفتاح لو احتجناها.
+  check('⭐ الافتراضي بقى الملصق النصّي', back.dfltImage === null && back.dfltIsHTML, back);
   check('المفتاح موجود في الشاشة', await p.evaluate(() => PRINT_TWEAKS.some(t => t.key === 'htmlLabels')));
 
   // ---------- المعاينة = المطبوع ----------
