@@ -5899,7 +5899,7 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
       <style>
         @page { size: 80mm auto; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; box-sizing: border-box; }
-        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 1mm; margin: 0; width: 70mm; }
+        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 1mm; margin: 0; width: 66mm; }
         .header { text-align: center; margin-bottom: 8px; }
         .header .tab-name { font-weight: bold; font-size: 16px; }
         .header .item-name { font-size: 14px; font-weight: bold; color: #000; margin-top: 2px; }
