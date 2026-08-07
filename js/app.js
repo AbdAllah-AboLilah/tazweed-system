@@ -7091,12 +7091,13 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     const tooBig = pages.find((pg) => sizeOf(pg) > QZ_MAX_MESSAGE_BYTES);
     if (tooBig) {
       if (progress) progress.close();
-      console.error('صفحة أكبر من حد الرسالة:', sizeOf(tooBig));
-      alert(
-        '⚠️ الطباعة ماتمّتش — الملصق تقيل أوي على الطابعة.\n\n' +
-          'ده عيب في التصميم مش في الطابعة. بلّغ عنه.'
-      );
-      return true;
+      // ⚠️ صفحة واحدة (زي ورقة تزويد فئة كبيرة) أكبر من حد رسالة QZ.
+      // قبل كده كنا بنرجّع true هنا وده كان بيوهم deliverPrint إن الطباعة
+      // "اتظبطت" فيمنعه يرجع لنافذة طباعة المتصفح — يعني الورقة مابتطبعش
+      // خالص من غير أي بديل. دلوقتي بنرجّع false عشان يرجع تلقائيًا
+      // لنافذة المتصفح، اللي مالهاش حد أقصى لحجم الصفحة أصلًا.
+      console.warn('صفحة أكبر من حد رسالة QZ — راجع لنافذة طباعة المتصفح:', sizeOf(tooBig));
+      return false;
     }
 
     let done = 0;
