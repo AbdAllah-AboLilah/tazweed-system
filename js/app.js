@@ -6157,6 +6157,26 @@ async function printRestockPaper(cat, grades) {
   const approved = await showPrintPreview(html, { pageWidthMm: 80, autoHeight: true });
   if (!approved) return;
 
+  // ⚠️ الفئة الكبيرة (كل المجموعات مع بعض) ممكن تعدّي حد رسالة QZ
+  // (QZ_MAX_MESSAGE_BYTES) وهي صفحة واحدة. من غير الفحص ده كانت هتوصل
+  // لـtryPrintViaQZ وتفشل هناك، وترجع لنافذة طباعة المتصفح — اللي بتحتاج
+  // مقاس ورق ثابت من درايفر الطابعة بدل الرول المستمر التلقائي.
+  //
+  // الحل: لو الورقة كبيرة، نقسّمها **قبل** ما توصل لـQZ لنفس شكل خيار
+  // "كل مجموعة في ورقة لوحدها" (بضغطة واحدة، رول متواصل، من غير ما
+  // نلمس نافذة المتصفح أو إعدادات الطابعة خالص).
+  const RESTOCK_SAFE_BYTES = 32 * 1024; // هامش أمان تحت حد QZ (48 كيلو)
+  const estByteSize = new TextEncoder().encode(html).length;
+
+  if (estByteSize > RESTOCK_SAFE_BYTES && !groupName) {
+    const names = restockGroupNames(cat, grades, withBase);
+    if (names.length > 1) {
+      const bundle = buildRestockBundle(cat, grades, names, withBase);
+      await deliverPrint('restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML);
+      return;
+    }
+  }
+
   // ورقة التزويد رول مستمر (الارتفاع مفتوح)، فمش بنفرض مقاس على QZ.
   await deliverPrint('restock', html, null, 'width=700,height=800');
 }
