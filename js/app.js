@@ -5821,14 +5821,6 @@ function showRollPreview(html, sizeOptions) {
 // ولا -webkit-text-stroke. فإصلاح print-color-adjust القديم (v0.8.3) كان
 // صح لكن مالوش لازمة في مسار QZ. الخطوط دي "رسم" مش "خلفية"، فأي محرك
 // بيرسمها إجباري ومفيش إعداد طباعة يقدر يشيلها.
-function hatchSVG() {
-  const lines = [];
-  for (let x = -20; x <= 100; x += 5) {
-    lines.push(`<line x1="${x}" y1="20" x2="${x + 20}" y2="0" stroke="#000" stroke-width="2.2" />`);
-  }
-  return `<svg class="hatch" viewBox="0 0 100 20" preserveAspectRatio="none">${lines.join('')}</svg>`;
-}
-
 // groupName: اسم مجموعة ألوان واحدة عشان تتطبع لوحدها، أو '' للورقة كلها.
 function buildRestockHTML(cat, grades, groupName, withBase) {
   const now = new Date().toLocaleString('ar-EG');
@@ -5852,13 +5844,13 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
   const rowHTML = (g) => `
       <div class="row">
         <span class="num">${escapeHTML(g.number)}</span>
-        <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
+        <span class="blank${g.status === 'out' ? ' hatch' : ''}"></span>
       </div>`;
 
   const baseRowHTML = (g) => `
       <div class="row">
         <span class="num base-num">${escapeHTML(g.name || '')}</span>
-        <span class="blank">${g.status === 'out' ? hatchSVG() : ''}</span>
+        <span class="blank${g.status === 'out' ? ' hatch' : ''}"></span>
       </div>`;
 
   // جسم المجموعة الواحدة: شبكة الأرقام، وتحتها شبكة أسماء الأساسية.
@@ -5930,11 +5922,14 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
           overflow: hidden;
         }
         /* الخطوط بتغطي خانة الكتابة بس — رقم الدرجة بيفضل نضيف وواضح
-           تمامًا، عشان تقدر تقراه بسرعة وانت ماشي على الرف. */
-        .hatch {
-          position: absolute;
-          top: 0; left: 0; width: 100%; height: 100%;
-          display: block;
+           تمامًا، عشان تقدر تقراه بسرعة وانت ماشي على الرف.
+           ⚠️ نمط CSS متكرر بدل SVG لكل خانة على حدة — نفس الشكل بصريًا،
+           لكن معرَّف مرة واحدة هنا مش مكرر آلاف المرات في الورقة (كان
+           بيضخّم حجم الورقة لدرجة عدّي حد رسالة QZ لأسباب تافهة). */
+        .blank.hatch {
+          background-image: repeating-linear-gradient(
+            -45deg, #000 0, #000 2.2px, transparent 2.2px, transparent 7px
+          );
         }
         @media print {
           body { padding: 1mm; }
