@@ -5844,13 +5844,13 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
   const rowHTML = (g) => `
       <div class="row">
         <span class="num">${escapeHTML(g.number)}</span>
-        <span class="blank">${g.status === 'out' ? hatchCell() : ''}</span>
+        <span class="blank${g.status === 'out' ? ' hatch' : ''}"></span>
       </div>`;
 
   const baseRowHTML = (g) => `
       <div class="row">
         <span class="num base-num">${escapeHTML(g.name || '')}</span>
-        <span class="blank">${g.status === 'out' ? hatchCell() : ''}</span>
+        <span class="blank${g.status === 'out' ? ' hatch' : ''}"></span>
       </div>`;
 
   // جسم المجموعة الواحدة: شبكة الأرقام، وتحتها شبكة أسماء الأساسية.
