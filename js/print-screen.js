@@ -366,9 +366,11 @@ function attachPrintScreenEvents() {
 // بترجّع { html, image } — والصورة بتتستخدم في المعاينة وفي وظيفة الطباعة.
 async function buildCartItemLabel(item, sizeOptions) {
   if (item.custom) {
-    const png = renderGradeLabelPNG(item.custom.line1, item.custom.line2 || '', sizeOptions);
-    if (png) return { html: wrapImageLabelHTML(png, sizeOptions, 1), image: png };
-    return { html: buildGradeLabelHTML(item.custom.line1, item.custom.line2 || '', sizeOptions, 1), image: null };
+    // ⚠️ لازم تعدّي من buildTextLabel زي باقي الشاشات. النسخة القديمة كانت
+    // بترسم صورة **على طول** من غير ما تبصّ على مفتاح "ابعت الملصق كنص" —
+    // فنفس المسمّى كان يطلع نضيف من شاشة الفئات ومنغمش من هنا.
+    const b = buildTextLabel(item.custom.line1, item.custom.line2 || '', sizeOptions, 1);
+    return { html: b.jobHTML, image: b.image };
   }
 
   const source = productAsLabelSource(item.product);

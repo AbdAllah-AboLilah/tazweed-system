@@ -1,7 +1,15 @@
 import re, os
-FILES = ['js/local-store.js','js/permissions.js','js/qz-signing.js','js/barcode-scan.js',
-         'js/import-export.js','js/products.js','js/print-screen.js','js/user-admin.js',
-         'js/dashboard.js','js/app.js','js/update-prompt.js','firebase-config.js']
+# ⚠️ نفس درس audit.py: القايمة المكتوبة بالإيد بتبوظ أول ما ملف يتقسم.
+# لما اتقسم app.js، الفحص قال إن مكتبة الباركود "مش مستخدمة" — وهي
+# مستخدمة، بس في ملف مش في القايمة. بتتقرا من index.html دلوقتي.
+def _loaded_files():
+    html = open('index.html', encoding='utf-8').read()
+    found = re.findall(r'<script src="\./((?:js/)?[^"]+\.js)"', html)
+    # مكتبات الطرف التالت (js/vendor) بتتفحص كاستخدام مش كمصدر
+    return [f for f in found if os.path.exists(f) and '/vendor/' not in f]
+
+FILES = _loaded_files()
+assert len(FILES) >= 10, f'قرايت {len(FILES)} ملف بس من index.html — فيه حاجة غلط'
 raw={f:open(f,encoding='utf-8').read() for f in FILES}
 allraw=' '.join(raw.values())
 

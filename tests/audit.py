@@ -1,8 +1,18 @@
 import re, os, json, collections
 
-FILES = ['js/app-info.js','js/local-store.js','js/permissions.js','js/qz-signing.js',
-         'js/barcode-scan.js','js/import-export.js','js/products.js','js/print-screen.js',
-         'js/user-admin.js','js/dashboard.js','js/app.js','js/update-prompt.js','firebase-config.js']
+# ⚠️ القايمة دي كانت **مكتوبة بالإيد**، وده غلّطها: أول ما اتقسم app.js
+# لملفات جديدة، الفحص فضل بيقرا القدام بس — فطلّع دوال شغّالة على إنها
+# "كود ميت" لمجرد إن اللي بينده عليها في ملف مش في القايمة.
+#
+# دلوقتي بتتقرا من index.html نفسه: أي ملف بيتحمّل في النظام بيتفحص
+# تلقائيًا، ومفيش قايمة تانية محتاجة تتحدّث.
+def _loaded_files():
+    html = open('index.html', encoding='utf-8').read()
+    found = re.findall(r'<script src="\./((?:js/)?[^"]+\.js)"', html)
+    return [f for f in found if os.path.exists(f)]
+
+FILES = _loaded_files()
+assert len(FILES) >= 10, f'قرايت {len(FILES)} ملف بس من index.html — فيه حاجة غلط'
 
 def strip_comments_strings(src):
     out=[]; i=0; n=len(src)
