@@ -194,6 +194,10 @@ function subscribeOverview() {
         };
       });
       recomputeOverview();
+      // ⭐ نفس اللقطة دي هي اللي بتعرف إن فيه طلب تزويد جديد. مافيش
+      // اشتراك تاني ولا قراءة زيادة — الخبر كان واصل أصلًا وكنا بس
+      // مابنعملش بيه حاجة. (الشرح في js/notify.js)
+      if (typeof onGradesSnapshotForNotify === 'function') onGradesSnapshotForNotify(snap);
     },
     (err) => reportOverviewError('درجات كل الفئات', err)
   );

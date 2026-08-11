@@ -1061,6 +1061,7 @@ function dashboardHTML() {
             ${can(state.profile, 'excelTools') ? `<button class="btn" id="export-btn">📤 تصدير نسخة احتياطية</button>` : ''}
             ${canManageUsers(state.profile) ? `<button class="btn" id="users-btn">👥 الحسابات</button>` : ''}
             ${state.canInstallApp ? `<button class="btn" id="install-app-btn">⬇️ تثبيت التطبيق</button>` : ''}
+            ${restockNotifyButtonHTML()}
             ${can(state.profile, 'viewActivity') ? `<button class="btn" id="activity-log-btn">${state.screen === 'activity' ? '📋 رجوع' : '📋 سجل العمليات'}</button>` : ''}
             <button class="btn" id="logout-btn">🚪 تسجيل خروج</button>
           </div>
@@ -2419,6 +2420,8 @@ function attachDashboardEvents() {
     subscribeUsers();
   });
   wire('install-app-btn', () => promptAppInstall());
+  // ⚠️ لازم من ضغطة المستخدم — المتصفح بيرفض طلب إذن الإشعارات لو اتنادى لوحده
+  wire('restock-notify-btn', () => safeAsync(() => toggleRestockNotifications(), 'إشعارات التزويد'));
   wire('export-btn', async (e) => {
     const btn = document.getElementById('export-btn');
     btn.disabled = true;
@@ -4653,6 +4656,10 @@ function init() {
     if (unsubPrintStations) { unsubPrintStations(); unsubPrintStations = null; }
     stopOverview();
     stopStationHeartbeat();
+    // ⚠️ لازم تتصفّر مع تغيير الحساب: العدّاد وأسماء الدرجات بتاعت
+    // الإشعار بتخص الشخص اللي كان داخل. من غير ده، اللي يدخل بعده يلاقي
+    // إشعار باسم درجات مالوش دعوة بيها.
+    resetRestockNotifyState();
 
     if (!user) {
       state.printStations = [];
