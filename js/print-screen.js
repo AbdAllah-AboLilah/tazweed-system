@@ -377,10 +377,11 @@ async function buildCartItemLabel(item, sizeOptions) {
   const opts = { ...sizeOptions, noPrice: !!item.noPrice };
 
   if (item.mode === 'quarter') {
-    const png = renderQuarterLabelPNG(source, opts);
-    // لو الرسم فشل (متصفح قديم من غير canvas) بنرجع للملصق العادي بدل
-    // ما نطبع ورق فاضي.
-    if (png) return { html: wrapImageLabelHTML(png, opts, 1), image: png };
+    // ⭐ بيعدّي من buildQuarterLabel اللي بيحترم مفتاح "ابعت كنص" زي باقي
+    // الملصقات — قبل كده كان **صورة دايمًا**، وده اللي كان بيخلّيه الوحيد
+    // اللي بيطلع منغمش على الورق.
+    const q = await buildQuarterLabel(source, opts, 1);
+    if (q) return { html: q.jobHTML, image: q.image };
   }
 
   const built = await buildItemLabel(source, opts, item.qty);
