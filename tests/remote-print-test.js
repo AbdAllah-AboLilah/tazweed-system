@@ -188,7 +188,54 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
   check('⭐ ومطفي افتراضيًا (محتاج تجربة على ورق)',
     await p.evaluate(() => { localStorage.removeItem('tazweed_qz_tweak_fastCopies'); return !getPrintTweak('fastCopies'); }));
 
+  // ============================================================
+  // 7) ⭐⭐ الإيقاع: النظام بيمشي على سرعة الماكينة
+  // ============================================================
+  // ⚠️ ده اللي كان بيضيّع الطبعات الكبيرة **من غير أي رسالة**: الطابعة
+  // بتطبع الملصق في ~نص ثانية، وإحنا كنا بنرمي 25 وظيفة في ثانية —
+  // فذاكرتها بتتملى والباقي بيتنطّ. وqz.print بترجّع بنجاح أول ما الأمر
+  // يوصل لطابور الويندوز، مش لما الورق يخرج — فمفيش فشل يتبلّغ.
+  const pace = await p.evaluate(async (job) => {
+    // ⚠️ بنرجّع كل المحاكيات لأصلها هنا. الفحوصات اللي فوق بتفشّل QZ
+    // عمدًا، ولو سابناها هيبقى فيه إعادة اتصال ومحاولة تانية في النص —
+    // والقياس بالوقت هيطلع مضلّل تمامًا (وده حصل فعلًا أول محاولة).
+    const reset = () => {
+      window.qz = {
+        configs: { create: (n, o) => ({ printer: n, opts: o }) },
+        print: () => Promise.resolve(),
+        websocket: { connect: () => Promise.resolve(), isActive: () => true },
+        security: { setCertificatePromise() {}, setSignatureAlgorithm() {}, setSignaturePromise() {} },
+      };
+      window.isQZAvailable = () => true;
+      window.ensureQZConnected = () => Promise.resolve(true);
+      localStorage.setItem('tazweed_qz_label_printer', 'X');
+      localStorage.setItem('tazweed_qz_tweak_fastCopies', '0');
+    };
+    const run = async (ms) => {
+      reset();
+      localStorage.setItem('tazweed_print_pace_ms', String(ms));
+      const t0 = Date.now();
+      await tryPrintViaQZ('label', job.jobs, job.sizeOptions);
+      return Date.now() - t0;
+    };
+    const none = await run(0);     // من غير انتظار
+    const paced = await run(60);   // 60مث للملصق × 40 ملصق ≈ 2.3 ثانية
+    localStorage.setItem('tazweed_print_pace_ms', '0');
+    return { none, paced, setting: getPrintPaceMs() };
+  }, await makeJob(40));
+  // ⚠️ بنقيس **الوقت الحقيقي** مش وجود الكود. لو حد شال الانتظار، الفحص
+  // هيوقع لأن الاتنين هيبقوا متساويين.
+  check('⭐⭐ الطبعة بتمشي على سرعة الماكينة مش أسرع منها',
+    pace.paced > pace.none + 500, pace);
+  check('⭐ وصفر = من غير انتظار (السلوك القديم لو حد عايزه)',
+    pace.none < 1000, pace);
+  check('⭐ والإعداد بيتحفظ ويترجع',
+    await p.evaluate(() => { setPrintPaceMs(250); const v = getPrintPaceMs(); setPrintPaceMs(0); return v === 250; }));
+  check('⭐ والافتراضي مش صفر (وإلا العطل بيرجع)',
+    await p.evaluate(() => { localStorage.removeItem('tazweed_print_pace_ms'); return getPrintPaceMs() > 0; }));
+
   console.log('\nالسرعة (40 ملصق):', JSON.stringify(fast));
+  console.log('الإيقاع (40 ملصق):', JSON.stringify(pace));
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();
 

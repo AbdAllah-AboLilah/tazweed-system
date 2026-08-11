@@ -1448,12 +1448,19 @@ function gradeTableHTML() {
       ? `<button class="btn btn-primary" id="toggle-grade-select-btn">✔️ تم</button>`
       : '';
 
-  // الزرار بيظهر لو **المجموعة اللي إنت فاتح عليها** مالهاش درجات أساسية.
-  // قبل كده كان بيختفي أول ما أي مجموعة تاخدهم، فمكانش فيه طريقة تضيفهم
-  // لمجموعة تانية.
+  // ⚠️⚠️ الزرار ده كان بيختفي أول ما المجموعة تاخد درجاتها الأساسية —
+  // والمنطق ده كان صح لما الشاشة كانت بتعمل حاجة واحدة بس: تضيف التلاتة
+  // الجاهزين (أبيض/أسود/أوف وايت). خلاص ضفتهم؟ يبقى مالهاش لازمة.
+  //
+  // بس من v0.43.0 الشاشة بقت بتعمل حاجة تانية كمان: **إضافة درجة أساسية
+  // باسم من عندك**. والحاجة دي مالهاش آخر — ممكن تضيف "أوف وايت غامق"
+  // النهاردة و"بيج فاتح" بكرة.
+  //
+  // فالإخفاء بقى بيقفل الباب على الخاصية الجديدة بالظبط في الفئات اللي
+  // **أكتر حاجة محتاجاها** (اللي عندها أساسية خلاص). الزرار بقى ظاهر
+  // دايمًا، والشاشة نفسها بتقول لو التلاتة الجاهزين موجودين.
   const baseScope = openGroupScope() ?? '';
-  const missingBase =
-    canAddGrades && !state.grades.some((g) => g.isBase && (g.group || '') === baseScope);
+  const hasBaseHere = state.grades.some((g) => g.isBase && (g.group || '') === baseScope);
 
   // ------------------------------------------------------------
   // ⭐ الزراير اتجمّعت في قايمتين بدل 8 زراير متناثرة
@@ -1469,7 +1476,7 @@ function gradeTableHTML() {
   const addMenuItems = [
     canAddGrades ? `<button class="btn menu-item" id="add-grade-btn">➕ درجة واحدة</button>` : '',
     canAddGrades ? `<button class="btn menu-item" id="add-grade-range-btn">➕ درجات دفعة</button>` : '',
-    missingBase ? `<button class="btn menu-item" id="add-base-grades-btn">⚪ الدرجات الأساسية</button>` : '',
+    canAddGrades ? `<button class="btn menu-item" id="add-base-grades-btn">⚪ الدرجات الأساسية</button>` : '',
   ].filter(Boolean);
 
   const catMenuItems = [
@@ -3068,11 +3075,13 @@ async function addGrade(categoryId, data) {
 // الرقم ده **عمره ما بيتعرض** — gradeDisplayName بتستخدم الاسم للأساسية.
 function nextCustomBaseNumber(grades) {
   const used = (grades || [])
-    .filter((g) => g && g.isBase && Number(g.number) > -1)
+    .filter((g) => g && g.isBase && Number(g.number) > -1 && Number(g.number) < 1)
     .map((g) => Number(g.number));
-  const min = used.length ? Math.min(...used) : -1;
-  // خطوة صغيرة لتحت — بتفضل بين -1 و1 مهما ضفت
-  return Math.max(-0.999999, min - 0.001);
+  // ⚠️ بنزوّد **لفوق** مش لتحت: الدرجة الجديدة لازم تيجي **بعد** اللي
+  // قبلها في الترتيب. أول نسخة كانت بتنقّص وبتقف عند الحد الأدنى، فكل
+  // الدرجات المخصّصة كانت بتاخد **نفس الرقم** — والفحص مسك ده.
+  const max = used.length ? Math.max(...used) : -1;
+  return Math.min(0.999, max + 0.001);
 }
 
 async function addCustomBaseGrade(categoryId, name, criticalQty, group) {
@@ -3727,6 +3736,9 @@ function openBulkBranchQtyDialog(categoryId) {
 }
 
 async function openBaseGradesDialog(categoryId) {
+  // ⚠️ محسوبة هنا مش جاية من الشاشة — الشاشة ممكن تتفتح من أي مكان
+  const baseScopeNow = openGroupScope() ?? '';
+  const hasBaseHere = state.grades.some((g) => g.isBase && (g.group || '') === baseScopeNow);
   const overlay = document.createElement('div');
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
@@ -3775,7 +3787,9 @@ async function openBaseGradesDialog(categoryId) {
         </div>
       </div>
 
-      <div id="base-status" style="font-size:12px; color:var(--text-secondary); margin-bottom:10px;"></div>
+      <div id="base-status" style="font-size:12px; color:var(--text-secondary); margin-bottom:10px;">${
+        hasBaseHere ? 'المجموعة دي عندها درجات أساسية خلاص — تقدر تضيف واحدة باسم من عندك من فوق.' : ''
+      }</div>
       <div style="display:flex; flex-direction:column; gap:8px;">
         <button class="btn btn-primary" id="base-this">ضيف التلاتة الجاهزين للمجموعة دي</button>
         <button class="btn" id="base-all">ضيفهم لكل الفئات من غير مجموعة (${state.categories.length})</button>

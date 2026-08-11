@@ -204,6 +204,53 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
   check('⭐ المسمّى المحفوظ بالشكل القديم لسه بيطلع صح', legacy.same, legacy);
   check('⭐ ومابيتشالش من السلة', legacy.kept === 1, legacy);
 
+  // ============================================================
+  // 7) ⭐⭐ زرار "الدرجات الأساسية" لازم يفضل ظاهر
+  // ============================================================
+  // ⚠️ كان بيختفي أول ما المجموعة تاخد أساسياتها. وده كان صح لما الشاشة
+  // كانت بتعمل حاجة واحدة (تضيف التلاتة الجاهزين). بس بقت بتضيف كمان
+  // **درجة باسم من عندك** — والحاجة دي مالهاش آخر.
+  // فالإخفاء كان بيقفل الباب على الخاصية الجديدة في الفئات اللي أكتر حاجة
+  // محتاجاها: اللي عندها أساسية خلاص.
+  const baseBtn = await p.evaluate(async () => {
+    const open = async () => {
+      state.showAddGradeForm = false;
+      render();
+      await new Promise((r) => setTimeout(r, 40));
+      const btn = document.getElementById('tool-add-btn');
+      if (btn) btn.click();
+      await new Promise((r) => setTimeout(r, 40));
+      return !!document.getElementById('add-base-grades-btn');
+    };
+    // (أ) الفئة مالهاش أساسية → الزرار ظاهر (السلوك القديم)
+    state.grades = [{ id: 'g1', number: 1, group: '', branchQty: 1, mainQty: 5, status: 'normal' }];
+    const without = await open();
+    // (ب) ⭐ الفئة **عندها** أساسية → لازم يفضل ظاهر برضه
+    state.grades.push({ id: 'b1', name: 'أبيض', isBase: true, group: '', branchQty: 1, mainQty: 2, status: 'normal' });
+    const withBase = await open();
+    return { without, withBase };
+  });
+  check('زرار الأساسية ظاهر لما الفئة مالهاش أساسية', baseBtn.without, baseBtn);
+  check('⭐⭐ وفاضل ظاهر لما الفئة عندها أساسية خلاص', baseBtn.withBase, baseBtn);
+
+  // ⭐ والدرجة المخصّصة بتتحط بين الأساسية والأرقام العادية
+  const baseNum = await p.evaluate(async () => {
+    const grades = [
+      { isBase: true, number: -3, name: 'أبيض' },
+      { isBase: true, number: -2, name: 'أسود' },
+      { isBase: true, number: -1, name: 'أوف وايت' },
+    ];
+    const first = nextCustomBaseNumber(grades);
+    const second = nextCustomBaseNumber(grades.concat([{ isBase: true, number: first, name: 'غامق' }]));
+    return { first, second };
+  });
+  // ⚠️ لازم يبقى **بين -1 و1**: أكبر من الأساسية الجاهزة (فبيجي بعدهم)
+  // وأصغر من 1 (فمايتخبطش مع درجة حقيقية).
+  check('⭐ الدرجة المخصّصة بتيجي بعد الأساسية الجاهزة',
+    baseNum.first > -1 && baseNum.first < 0, baseNum);
+  check('⭐ وقبل الرقم 1 (مايتخبطش مع درجة حقيقية)', baseNum.first < 1, baseNum);
+  check('⭐ والتانية بتيجي بعد الأولى (مش نفس الرقم)', baseNum.second > baseNum.first, baseNum);
+
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();
 
