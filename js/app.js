@@ -5815,12 +5815,51 @@ function showRollPreview(html, sizeOptions) {
   });
 }
 
-// خطوط التظليل بترسم كـ SVG **محتوى** مش خلفية CSS.
-// السبب الجذري: QZ Tray مش بيستخدم Chrome في الطباعة — بيستخدم محرك عرض
-// داخلي بتاع Java (JavaFX WebView) قديم، ومش بيدعم repeating-linear-gradient
-// ولا -webkit-text-stroke. فإصلاح print-color-adjust القديم (v0.8.3) كان
-// صح لكن مالوش لازمة في مسار QZ. الخطوط دي "رسم" مش "خلفية"، فأي محرك
-// بيرسمها إجباري ومفيش إعداد طباعة يقدر يشيلها.
+// ============================================================
+// ⭐⭐ تظليل "الدرجة خلصت" — لازم يفضل SVG، ولازم يفضل صغير
+// ============================================================
+// ⚠️⚠️ الجزء ده اتكسر مرتين. اقرا الاتنين قبل ما تلمسه.
+//
+// --- الشرط الأول: لازم يبقى **رسم** (SVG)، مش خلفية CSS ---
+// QZ Tray مش بيستخدم كروم في الطباعة — بيستخدم محرك عرض داخلي بتاع Java
+// (WebView)، وده **مش بيدعم repeating-linear-gradient**. وورقة التزويد
+// بتتبعت لـQZ كـ`format: 'html'`، يعني بترتسم بالمحرك ده بالظبط.
+//
+// فأي تظليل مبني على تدرّج CSS بيبان تمام في المعاينة (دي كروم) و**يختفي
+// خالص من الورق** — وده بالظبط اللي حصل: الورقة طلعت من غير أي تظليل.
+// الخطوط لازم تبقى "رسم" عشان أي محرك يرسمها إجباري.
+//
+// --- الشرط التاني: لازم يبقى معرَّف **مرة واحدة** ---
+// النسخة الأصلية كانت بتولّد 25 عنصر <line> من الصفر **جوه كل خانة على
+// حدة** ≈ 2 كيلوبايت للخانة. فئة فيها 80 درجة "خلصت" = 160 كيلو من
+// التظليل لوحده — أضعاف حد رسالة QZ (48 كيلو)، والورقة كانت بتتضاع في
+// صمت أو تتقسّم من غير داعي.
+//
+// --- الحل اللي بيحقق الشرطين مع بعض ---
+// نمط SVG (<pattern>) متعرّف **مرة واحدة** فوق الورقة، وكل خانة بتشاور
+// عليه بمستطيل واحد ≈ 70 بايت بدل 2000. رسم حقيقي، وحجم صغير.
+// حد التقسيم التلقائي لورقة التزويد. أقل شوية من حد رسالة QZ الحقيقي
+// (QZ_MAX_MESSAGE_BYTES = 48 كيلو) عشان يبقى فيه هامش.
+//
+// ⚠️ برّه الدالة عن قصد: الفحص بيقيس ورقة فئة حقيقية (245 درجة) ويتأكد
+// إنها **تحت الحد ده**، يعني بتطبع ورقة واحدة من غير تقسيم. لو كان رقم
+// محبوس جوه الدالة، الفحص كان هيقارن بنسخة تانية من الرقم — ولو اتغيّر
+// واحد فيهم من غير التاني مش هنعرف.
+const RESTOCK_SAFE_BYTES = 44 * 1024;
+
+const HATCH_ID = 'hx';
+
+// بيتحط مرة واحدة في أول <body>. عرضه وطوله صفر فمش بياخد أي مكان.
+const HATCH_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>` +
+  `<pattern id="${HATCH_ID}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">` +
+  `<rect width="2.2" height="7" fill="#000"></rect>` +
+  `</pattern></defs></svg>`;
+
+// وده اللي بيتحط جوه الخانة اللي "خلصت".
+// ⚠️ مافيش viewBox عن قصد — من غيره الـ<rect> بـ100% بياخد مقاس الخانة
+// نفسها، فمش محتاجين preserveAspectRatio ولا أرقام. أقصر وأضمن.
+const HATCH_CELL = `<svg class="hatch"><rect width="100%" height="100%" fill="url(#${HATCH_ID})"/></svg>`;
+
 // groupName: اسم مجموعة ألوان واحدة عشان تتطبع لوحدها، أو '' للورقة كلها.
 function buildRestockHTML(cat, grades, groupName, withBase) {
   const now = new Date().toLocaleString('ar-EG');
@@ -5841,17 +5880,17 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
   //
   // ١٥ "أبيض" ورا بعض من غير أي طريقة تعرف كل واحد بتاع مجموعة مين —
   // ورقة مالهاش أي فايدة على الرف.
-  const rowHTML = (g) => `
-      <div class="row">
-        <span class="num">${escapeHTML(g.number)}</span>
-        <span class="blank${g.status === 'out' ? ' hatch' : ''}"></span>
-      </div>`;
+  // ⚠️ الصفوف مكتوبة **من غير مسافات ولا أسطر جديدة** عن قصد.
+  // الورقة بتتبعت لـQZ كنص، والمسافات دي بتتحسب في حجم الرسالة زي أي
+  // حرف تاني. الشكل المنسّق كان بيزوّد ~40 بايت على الصف — يعني 10 كيلو
+  // في فئة 245 درجة، من فراغات مالهاش أي أثر على الطباعة.
+  const rowHTML = (g) =>
+    `<div class="row"><span class="num">${escapeHTML(g.number)}</span>` +
+    `<span class="blank">${g.status === 'out' ? HATCH_CELL : ''}</span></div>`;
 
-  const baseRowHTML = (g) => `
-      <div class="row">
-        <span class="num base-num">${escapeHTML(g.name || '')}</span>
-        <span class="blank${g.status === 'out' ? ' hatch' : ''}"></span>
-      </div>`;
+  const baseRowHTML = (g) =>
+    `<div class="row"><span class="num base-num">${escapeHTML(g.name || '')}</span>` +
+    `<span class="blank">${g.status === 'out' ? HATCH_CELL : ''}</span></div>`;
 
   // جسم المجموعة الواحدة: شبكة الأرقام، وتحتها شبكة أسماء الأساسية.
   const bodyOfSection = (list) => {
@@ -5923,13 +5962,13 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
         }
         /* الخطوط بتغطي خانة الكتابة بس — رقم الدرجة بيفضل نضيف وواضح
            تمامًا، عشان تقدر تقراه بسرعة وانت ماشي على الرف.
-           ⚠️ نمط CSS متكرر بدل SVG لكل خانة على حدة — نفس الشكل بصريًا،
-           لكن معرَّف مرة واحدة هنا مش مكرر آلاف المرات في الورقة (كان
-           بيضخّم حجم الورقة لدرجة عدّي حد رسالة QZ لأسباب تافهة). */
-        .blank.hatch {
-          background-image: repeating-linear-gradient(
-            -45deg, #000 0, #000 2.2px, transparent 2.2px, transparent 7px
-          );
+           ⚠️⚠️ ماتحوّلش دي لـbackground-image ولا تدرّج CSS. محرك الطباعة
+           بتاع QZ مش بيدعمهم والتظليل بيختفي من الورق (بيبان في المعاينة
+           بس، لأن المعاينة كروم). شوف الشرح الكامل فوق عند HATCH_DEFS. */
+        .hatch {
+          position: absolute;
+          top: 0; left: 0; width: 100%; height: 100%;
+          display: block;
         }
         @media print {
           body { padding: 1mm; }
@@ -5937,6 +5976,7 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
       </style>
     </head>
     <body>
+      ${HATCH_DEFS}
       <div class="header">
         <div class="tab-name">${escapeHTML(sheetTitle)}</div>
         ${cat.itemName ? `<div class="item-name">${escapeHTML(cat.itemName)}</div>` : ''}
@@ -6160,7 +6200,6 @@ async function printRestockPaper(cat, grades) {
   // الحل: لو الورقة كبيرة، نقسّمها **قبل** ما توصل لـQZ لنفس شكل خيار
   // "كل مجموعة في ورقة لوحدها" (بضغطة واحدة، رول متواصل، من غير ما
   // نلمس نافذة المتصفح أو إعدادات الطابعة خالص).
-  const RESTOCK_SAFE_BYTES = 44 * 1024; // قريب من حد QZ الحقيقي (48 كيلو) — التقسيم بس للفئات الضخمة فعلًا
   const estByteSize = new TextEncoder().encode(html).length;
 
   if (estByteSize > RESTOCK_SAFE_BYTES && !groupName) {
@@ -7106,13 +7145,27 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     const tooBig = pages.find((pg) => sizeOf(pg) > QZ_MAX_MESSAGE_BYTES);
     if (tooBig) {
       if (progress) progress.close();
-      // ⚠️ صفحة واحدة (زي ورقة تزويد فئة كبيرة) أكبر من حد رسالة QZ.
-      // قبل كده كنا بنرجّع true هنا وده كان بيوهم deliverPrint إن الطباعة
-      // "اتظبطت" فيمنعه يرجع لنافذة طباعة المتصفح — يعني الورقة مابتطبعش
-      // خالص من غير أي بديل. دلوقتي بنرجّع false عشان يرجع تلقائيًا
-      // لنافذة المتصفح، اللي مالهاش حد أقصى لحجم الصفحة أصلًا.
-      console.warn('صفحة أكبر من حد رسالة QZ — راجع لنافذة طباعة المتصفح:', sizeOf(tooBig));
-      return false;
+      console.warn('صفحة أكبر من حد رسالة QZ:', sizeOf(tooBig), 'نوع:', type);
+      // ------------------------------------------------------------
+      // ⚠️ النوعين بيتعاملوا مختلف عن قصد
+      // ------------------------------------------------------------
+      // **ورقة التزويد**: طولها مفتوح وبتكبر مع عدد الدرجات، فالوصول
+      // للحد ده احتمال حقيقي. الأنفع إنها تكمّل على نافذة طباعة المتصفح
+      // (اللي مالهاش حد أصلًا) بدل ما تقف. بنرجّع false عشان deliverPrint
+      // يرجع للبديل لوحده.
+      //
+      // **الملصق**: مقاسه ثابت (~8 كيلو والحد 48). لو وصل للحد ده يبقى
+      // فيه عطل في التصميم — والسكوت عليه معناه إن المستخدم يقف مستني
+      // ملصقات مش هتيجي. لازم يعرف.
+      //
+      // ⚠️ التنبيه ده اتشال بالغلط مرة (v0.36.x) لما اتصلحت ورقة التزويد،
+      // فبقت الملصقات بتفشل في صمت. النوع لازم يفرق.
+      if (type === 'restock') return false;
+      alert(
+        '⚠️ الطباعة ماتمّتش — الملصق تقيل أوي على الطابعة.\n\n' +
+          'ده عيب في التصميم مش في الطابعة. بلّغ عنه.'
+      );
+      return true;
     }
 
     let done = 0;
