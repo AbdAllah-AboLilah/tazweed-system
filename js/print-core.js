@@ -79,20 +79,44 @@ async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML
       : `⚠️ انت مش متصل بالإنترنت دلوقتي.\nالطلب اتسجّل، وهيتبعت لـ"${deviceLabel}" أول ما النت يرجع.`
   );
 
-  // بنتابع الطلب شوية عشان نأكّد للي بعته إنه اتطبع فعلًا (أو فشل)، بدل
-  // ما يفضل مستني من غير ما يعرف حصل إيه.
+  // ============================================================
+  // ⭐ بنتابع الطلب: شريط تقدم حقيقي، وسبب الفشل بالنص
+  // ============================================================
+  // قبل كده كان اللي بعت بيستنى في الفراغ لحد ما تيجي رسالة واحدة في
+  // الآخر — والرسالة دي كانت **بتقول "اتطبع" حتى لو فشلت** (شوف
+  // executePrintJob). دلوقتي:
+  //   • الجهاز اللي بيطبع بيكتب تقدمه، وإحنا بنرسم نفس الشريط هنا
+  //   • ولو فشل، بيكتب **السبب** وإحنا بنعرضه زي ما هو
+  let bar = null;
+  const closeBar = () => { if (bar) { bar.close(); bar = null; } };
+
   const stop = ref.onSnapshot((snap) => {
     const data = snap.data();
     if (!data) return;
+
+    // التقدم بيوصل من الجهاز التاني وهو بيطبع
+    if (data.status === 'pending' && data.progressTotal > 0) {
+      if (!bar) bar = showPrintProgress(data.progressTotal);
+      bar.update(data.progressDone || 0);
+      return;
+    }
+
     if (data.status === 'printed') {
       stop();
+      closeBar();
       alert(`✅ اتطبع على "${deviceLabel}"${data.printedByName ? ` (${data.printedByName})` : ''}.`);
     } else if (data.status === 'failed') {
       stop();
-      alert(`⚠️ "${deviceLabel}" استلم الطلب لكن الطباعة فشلت عنده. اتأكد إن QZ Tray شغال والطابعة متوصلة.`);
+      closeBar();
+      alert(
+        `⚠️ الطباعة فشلت على "${deviceLabel}".\n\n` +
+          (data.failReason ? `السبب: ${data.failReason}\n\n` : '') +
+          'اتأكد إن QZ Tray شغّال والطابعة متوصلة وفيها ورق.'
+      );
     }
   });
-  setTimeout(stop, 180000);
+  // ⚠️ بنقفل الشريط كمان لو المتابعة وقفت من غير رد — بدل ما يفضل معلّق
+  setTimeout(() => { stop(); closeBar(); }, 180000);
 }
 
 // ============================================================
@@ -137,23 +161,68 @@ async function executePrintJob(jobId, job) {
     return;
   }
 
+  const ref = db.collection('printJobs').doc(jobId);
+
+  // ============================================================
+  // ⭐ التقدم بيتبعت للي بعت الطلب وهو بيحصل
+  // ============================================================
+  // ⚠️ **مش** كل ملصق. طبعة 200 ملصق كانت هتبقى 200 كتابة في السحابة.
+  // بنكتب كل 5% أو كل ثانيتين — أيهما أبعد — عشان الشريط عند اللي باعت
+  // يمشي بسلاسة من غير ما نغرق السحابة.
+  let lastWrite = 0;
+  let lastDone = -1;
+  const onProgress = (done, total) => {
+    const now = Date.now();
+    const step = Math.max(1, Math.floor(total / 20));
+    const worth = done >= total || done - lastDone >= step;
+    if (!worth || now - lastWrite < 2000) return;
+    lastWrite = now;
+    lastDone = done;
+    ref.update({ progressDone: done, progressTotal: total }).catch(() => {});
+  };
+
   // نجرب QZ Tray الأول (طباعة صامتة فعليًا 100%، من غير أي نافذة أو ضغطة
   // خالص)، ولو مش متاح على الجهاز ده، نرجع لطريقة الـiframe المخفي القديمة
   // (اللي لسه محتاجة ضغطة "طباعة" أخيرة جوه نافذة المتصفح).
-  const printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions);
+  const printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions, onProgress);
+  const outcome = lastPrintOutcome;
   if (!printedViaQZ) {
     printHTMLSilently(job.browserHTML || list[0].html);
   }
 
-  db.collection('printJobs')
-    .doc(jobId)
-    .update({
-      status: 'printed',
-      printedByUid: state.user.uid,
-      printedByName: state.profile.name || '',
-      printedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    })
-    .catch((err) => console.warn('تعذّر تعليم طلب الطباعة كمنفّذ:', err));
+  // ============================================================
+  // ⭐ "اتطبع" معناها اتطبع فعلًا
+  // ============================================================
+  // ⚠️ الكود القديم كان بيكتب status:'printed' **دايمًا**، مهما حصل.
+  // فلو QZ مش شغّال، أو الورق خلص والطابعة وقفت في النص، الجهاز ده كان
+  // بيطلّع تحذير على شاشته (ومافيش حد واقف يشوفه) — واللي بعت من الموبايل
+  // بيوصله "✅ اتطبع".
+  //
+  // ⚠️ ومانقدرش نعتمد على القيمة المرجّعة لوحدها: tryPrintViaQZ بترجّع
+  // true بمعنى "اتعاملت مع الموضوع" — والطابعة اللي وقفت في النص بترجّع
+  // true كمان. فبنقرا lastPrintOutcome اللي فيه التفصيل الحقيقي.
+  //
+  // الرجوع لنافذة المتصفح (printHTMLSilently) بيتحسب **مش** نجاح: النافذة
+  // دي محتاجة حد يدوس "طباعة"، ولو مافيش حد عند الجهاز مش هيحصل حاجة.
+  const ok = printedViaQZ && outcome.ok;
+  ref
+    .update(
+      ok
+        ? {
+            status: 'printed',
+            printedByUid: state.user.uid,
+            printedByName: state.profile.name || '',
+            printedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }
+        : {
+            status: 'failed',
+            failReason: outcome.reason || 'الطباعة ماتمّتش على الجهاز المستقبِل.',
+            printedByUid: state.user.uid,
+            printedByName: state.profile.name || '',
+            printedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }
+    )
+    .catch((err) => console.warn('تعذّر تعليم طلب الطباعة:', err));
 }
 
 // hideCopies: بنخفي خانة "عدد اللاصقات" في وضع ملصقات الدرجات، لأن العدد
@@ -496,7 +565,47 @@ const QZ_MAX_MESSAGE_BYTES = 48 * 1024;
 
 // عدد الصفحات في وظيفة الطباعة الواحدة. الشرح الكامل عند مكان الاستخدام —
 // باختصار: الوظيفة الكبيرة بتقف في صمت، والصغيرة بتعدّي.
-const QZ_PAGES_PER_JOB = 5;
+// ⚠️ الرقم ده **نادرًا** بيبقى هو الحاكم. القياس الحقيقي:
+//
+//   الملصق النصّي  → 9.8 كيلو للصفحة → 4 صفحات = 39 كيلو (الحجم وقف قبل العدد)
+//   المقسوم ٤      → 13.1 كيلو للصفحة → 3 صفحات = 39 كيلو (الحجم كمان)
+//
+// يعني رفع الرقم ده لوحده **مش هيسرّع حاجة** — الحد بالبايت بيقفل الرسالة
+// قبل ما نوصله أصلًا. سيبناه كسقف أمان بس.
+const QZ_PAGES_PER_JOB = 8;
+
+// تنبيه **مش موقّف** بيظهر تحت ويختفي لوحده بعد شوية.
+//
+// ⚠️ ده البديل الآمن لـalert()/confirm() في مسار الطباعة. أي رسالة موقّفة
+// هناك بتجمّد الجهاز اللي بيطبع — وده بيقفل الطباعة عن بُعد بالكامل
+// (شوف الشرح المطوّل في tryPrintViaQZ).
+function showPrintHint(count) {
+  const el = document.createElement('div');
+  el.style.cssText =
+    'position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:3200;' +
+    'background:#263238; color:#fff; padding:10px 16px; border-radius:8px; max-width:88vw;' +
+    'font-size:12.5px; line-height:1.8; box-shadow:0 4px 18px rgba(0,0,0,.3); text-align:center;';
+  el.textContent = `🖨️ اتبعت ${count} ملصق للطابعة. لو مفيش حاجة خرجت: شوف الورق والغطا واللمبة.`;
+  document.body.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 7000);
+}
+
+// ============================================================
+// نتيجة آخر طباعة — عشان اللي بعت الطلب يعرف حصل إيه
+// ============================================================
+// ⚠️ tryPrintViaQZ بترجّع true بمعنى **"اتعاملت مع الموضوع"** مش
+// **"اتطبعت"**. الفرق ده كان بيخلّي الجهاز الباعت يوصله "✅ اتطبع" حتى
+// لما الطابعة تقف في النص — لأن الحالة دي بترجّع true كمان (اتعاملنا
+// معاها بتنبيه محلي).
+//
+// تغيير القيمة المرجّعة كان هيكسر كل اللي بينده عليها، فبدل كده الدالة
+// بتسجّل **إيه اللي حصل بالظبط** هنا، واللي محتاج التفصيل بيقراه.
+let lastPrintOutcome = { ok: false, reason: '', done: 0, total: 0 };
+
+function setPrintOutcome(ok, reason, done, total) {
+  lastPrintOutcome = { ok, reason: reason || '', done: done || 0, total: total || 0 };
+  return lastPrintOutcome;
+}
 
 // شريط تقدّم بسيط للطبعات الكبيرة.
 function showPrintProgress(total) {
@@ -653,6 +762,19 @@ const PRINT_TWEAKS = [
     label: 'حوّل لصورة قبل الإرسال',
     hint: 'بيرسم الملصق كصورة جاهزة بدل ما التعريف يتصرّف فيه',
     apply: (cfg) => (cfg.rasterize = true),
+  },
+  {
+    // ⚡ المسار السريع — الشرح الكامل عند useCopies في tryPrintViaQZ.
+    // مطفي افتراضيًا عن قصد: محتاج تجربة على ورق حقيقي قبل ما يبقى أساسي.
+    key: 'fastCopies',
+    label: '⚡ اطبع العدد كـ"نسخ" (أسرع بكتير — جرّبها على ورق)',
+    hint:
+      'دلوقتي الملصق بيتبعت للطابعة **مكرّر** بعدد اللي طلبته: 40 ملصق = ' +
+      'نفس الملصق 40 مرة على الشبكة. المفتاح ده بيبعته **مرة واحدة** ويقول ' +
+      'للطابعة اطبعه 20 مرة — أخف بحوالي 20 ضعف وأسرع بكتير. ' +
+      'مطفي افتراضيًا لأن الطريقة دي فشلت على طابعتنا قبل كده (بشكل تاني)، ' +
+      'فجرّبها على 20 ملصق الأول: لو خرجوا كلهم صح، سيبها مفتوحة.',
+    apply: () => {},
   },
   {
     // ⭐ مفتوح افتراضيًا من v0.36 بعد تجربة على ورق حقيقي.
@@ -1178,9 +1300,13 @@ function normalizePrintJobs(input) {
 
 // بيرجع true لو نجحت الطباعة عبر QZ Tray، false لو محتاج نرجع للطريقة
 // العادية (نافذة المتصفح / iframe).
-async function tryPrintViaQZ(type, jobs, sizeOptions) {
+async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
+  setPrintOutcome(false, 'الطباعة ماوصلتش لآخرها.');
   const printerName = getSavedPrinter(type);
-  if (!printerName) return false;
+  if (!printerName) {
+    setPrintOutcome(false, 'الجهاز ده مش مظبوط على طابعة.');
+    return false;
+  }
 
   const ok = await ensureQZConnected();
   if (!ok) {
@@ -1192,6 +1318,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
         'شغّله من قايمة "ابدأ" وحاول تاني.\n\n' +
         '(لو قفلت الرسالة، هتتفتح نافذة طباعة عادية بدل الطابعة المباشرة.)'
     );
+    setPrintOutcome(false, 'برنامج QZ Tray مش شغّال على الجهاز اللي بيطبع.');
     return false;
   }
 
@@ -1208,6 +1335,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     if (!list.length) {
       console.error('محتوى الطباعة غير صالح — مش هيتبعت لـQZ:', jobs);
       alert('⚠️ حصلت مشكلة في تجهيز الملصق، فالطباعة ماتمّتش.\n\nحدّث الصفحة وحاول تاني.');
+      setPrintOutcome(false, 'محتوى الملصق وصل بايظ.');
       return true; // اتعامل معاها هنا — مش هنفتح نافذة متصفح بمحتوى بايظ
     }
 
@@ -1272,7 +1400,10 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     // لو حد حابب يجرّب خيار جديد: المفاتيح المتقدمة في شاشة إعدادات
     // الطابعة موجودة عشان كده بالظبط — تتفتح واحد واحد **على ورق حقيقي**،
     // مش تتحط هنا افتراضيًا.
-    const config = qz.configs.create(printerName, applyPrintTweaks(size ? { size, units: 'mm' } : {}));
+    // بنمسك الخيارات في متغيّر عشان المسار السريع يقدر يبني نفس الضبط
+    // بالظبط + عدد النسخ، من غير ما يعيد بناء الخيارات (ويسهى عن مفتاح).
+    const configOpts = applyPrintTweaks(size ? { size, units: 'mm' } : {});
+    const config = qz.configs.create(printerName, configOpts);
 
     // ------------------------------------------------------------
     // ⭐ كل اللاصقات في **أمر طباعة واحد** مش أمر لكل لاصقة
@@ -1317,6 +1448,12 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     //
     // ولو الملصقات مختلفة (سلة فيها أصناف)، كل صنف بياخد وظيفته بعدد نسخه.
     const progress = totalLabels > 10 ? showPrintProgress(totalLabels) : null;
+    // ⭐ نفس التقدم بيتبعت للجهاز اللي بعت الطلب (لو الطباعة عن بُعد)،
+    // عشان اللي على الموبايل يشوف نفس الشريط بدل ما يستنى في الفراغ.
+    const report = (done, total) => {
+      if (progress) progress.update(done);
+      if (typeof onProgress === 'function') onProgress(done, total);
+    };
 
     const pages = [];
     for (const job of list) {
@@ -1370,7 +1507,52 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     //
     // 📌 القاعدة دلوقتي: نقيس البايتات ونقفل الرسالة قبل ما تعدّي الحد.
     // وأي تصميم ملصق جديد بيتعامل معاه لوحده من غير ما حد يفتكر يعدّل رقم.
+    // ============================================================
+    // ⭐ المسار السريع: الملصق يتبعت **مرة واحدة** بعدد نسخ
+    // ============================================================
+    // 40 ملصق من نفس الصنف = **نفس الـ9.8 كيلو مكرّرة 40 مرة** = 393 كيلو
+    // على الشبكة، مقسّمة على 10 رسايل. وده سبب البطء اللي بتشوفه.
+    //
+    // البديل: نبعت الصفحة مرة واحدة ونقول للطابعة "اطبعها 20 مرة"
+    // (خيار copies في QZ). 40 ملصق يبقوا رسالتين × 9.8 كيلو بدل
+    // 10 رسايل × 39 كيلو — **أخف 20 مرة**.
+    //
+    // ⚠️⚠️ ليه مطفي افتراضيًا؟ لأن "النسخ" اتجرّبت قبل كده **وفشلت** على
+    // الطابعة اللي في المحل (متسجّل في تاريخ الملف ده). بس اللي اتجرّب
+    // وقتها كان نسخة واحدة بـ100 — مش مقسّمة. المقسّمة دي حاجة تانية
+    // ولازم تتجرّب على ورق حقيقي قبل ما تبقى الافتراضي.
+    //
+    // 📌 لو اشتغلت عندك، نخليها الافتراضي. لو لأ، تقفلها ومافيش خسارة.
+    const useCopies = getPrintTweak('fastCopies');
+    const COPIES_PER_JOB = 20;
     const sizeOf = (pg) => (pg && pg.data ? pg.data.length : 0) + 64; // 64 = حِمل الغلاف
+
+    if (useCopies && list.length === 1 && list[0].copies > 1) {
+      const page = pageOf(list[0]);
+      const total = list[0].copies;
+      if (sizeOf(page) <= QZ_MAX_MESSAGE_BYTES) {
+        let sent = 0;
+        try {
+          while (sent < total) {
+            const n = Math.min(COPIES_PER_JOB, total - sent);
+            const cfg = qz.configs.create(printerName, { ...configOpts, copies: n });
+            await qz.print(cfg, [page]);
+            sent += n;
+            report(sent, total);
+          }
+          if (progress) progress.close();
+          if (progress) showPrintHint(total);
+          setPrintOutcome(true, '', total, total);
+          return true;
+        } catch (errCopies) {
+          // ⚠️ مانرجعش false — الطابعة يمكن تكون طبعت جزء. بنكمّل بالطريقة
+          // المضمونة من اللي فاضل بدل ما نعيد اللي اتطبع.
+          console.warn('مسار النسخ السريع فشل — بنكمّل بالطريقة العادية:', errCopies);
+          pages.splice(0, sent);
+        }
+      }
+    }
+
     const perMessage = [];
     let chunk = [];
     let bytes = 0;
@@ -1410,6 +1592,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
       //
       // ⚠️ التنبيه ده اتشال بالغلط مرة (v0.36.x) لما اتصلحت ورقة التزويد،
       // فبقت الملصقات بتفشل في صمت. النوع لازم يفرق.
+      setPrintOutcome(false, 'الملصق أتقل من حد رسالة الطابعة.');
       if (type === 'restock') return false;
       alert(
         '⚠️ الطباعة ماتمّتش — الملصق تقيل أوي على الطابعة.\n\n' +
@@ -1423,7 +1606,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
       for (const chunk of perMessage) {
         await qz.print(config, chunk);
         done += chunk.length;
-        if (progress) progress.update(done);
+        report(done, pages.length);
       }
     } catch (errBatch) {
       // لو نسخة QZ أو الطابعة مابتقبلش أكتر من صفحة في الأمر الواحد،
@@ -1433,7 +1616,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
       try {
         for (let i = done; i < pages.length; i++) {
           await qz.print(config, [pages[i]]);
-          if (progress) progress.update(i + 1);
+          report(i + 1, pages.length);
         }
       } catch (errOne) {
         if (progress) progress.close();
@@ -1448,6 +1631,9 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
             'ظبّطها واطبع الباقي.' +
             (errOne && errOne.message ? `\n\n(${errOne.message})` : '')
         );
+        // ⚠️ بترجّع true (اتعاملنا معاها) بس دي **مش** نجاح — واللي بعت
+        // الطلب من جهاز تاني لازم يعرف إنها وقفت، مش يوصله "اتطبع".
+        setPrintOutcome(false, `الطابعة وقفت في النص — اتطبع ${done} من ${pages.length}.`, done, pages.length);
         return true;
       }
     }
@@ -1464,35 +1650,31 @@ async function tryPrintViaQZ(type, jobs, sizeOptions) {
     // مافيش طريقة نعرفها من المتصفح. الحل الأمين إن النظام **يسأل** بدل
     // ما يفترض النجاح — والمستخدم واقف عند الماكينة وشايف بعينه.
     //
-    // بيظهر للطبعات الكبيرة بس (اللي فيها شريط تقدم)، عشان مايبقاش دوشة
-    // في الملصق الواحد.
-    // ⚠️ استثناء: ورقة التزويد (restock) ممكن تتقسم لأكتر من صفحة داخليًا
-    // حتى لو المستخدم مطبعش إلا "ورقة واحدة" منطقيًا (شوف printRestockPaper)،
-    // وده ممكن يحصل وهي بتتطبع عن بعد من غير حد واقف عند الطابعة أصلًا —
-    // فسؤالها "خرجوا فعلًا؟" هيوقف الطباعة معلّقة لحد ما حد يوصل الجهاز.
-    // فبالنسبالها بس، منسألش ونعتبر إن الأمر اتسلّم يكفي.
-    if (progress && type !== 'restock') {
-      const okOut = confirm(
-        `اتبعت ${pages.length} ملصق للطابعة.\n\n` +
-          'خرجوا من الماكينة فعلًا؟\n\n' +
-          'اضغط "موافق" لو خرجوا.\n' +
-          'اضغط "إلغاء" لو مفيش حاجة خرجت — هقولك تعمل إيه.'
-      );
-      if (!okOut) {
-        alert(
-          '⚠️ الطابعة استلمت الأمر بس ماطبعتش.\n\n' +
-            'اتأكد من:\n' +
-            '• الورق مش خالص ولا محشور\n' +
-            '• الغطا مقفول كويس\n' +
-            '• اللمبة مش حمرا\n' +
-            '• الطابعة المختارة هي الصح (⚙️ إعدادات الطابعة)\n\n' +
-            'ظبّطها واطبع تاني.'
-        );
-      }
-    }
+    // ------------------------------------------------------------
+    // ⚠️⚠️ ماتحطش هنا confirm() ولا alert() — دي بتجمّد الجهاز
+    // ------------------------------------------------------------
+    // كان هنا سؤال: "اتبعت 40 ملصق — خرجوا من الماكينة فعلًا؟" بـconfirm().
+    // النية كانت سليمة (مافيش طريقة نعرف بيها إن الورق خرج فعلًا)، لكن
+    // النتيجة كانت **عطل أسوأ من اللي بنحاول نكشفه**:
+    //
+    // confirm() بتوقف خيط الجافاسكريبت **كله**، مش الطباعة بس. وطول ما هي
+    // مفتوحة على جهاز مافيهوش حد واقف:
+    //   • الاتصال بـQZ واقف
+    //   • النظام مش بيسمع طلبات الطباعة الجاية من السحابة
+    //   • الطلب الحالي عمره ما بيتعلّم "خلص" → اللي باعت بيفضل مستني
+    //   • وأي طلب تاني يتبعت **مش هيتنفّذ خالص**
+    //
+    // والجهاز اللي بيستقبل الطباعة عن بُعد **بطبيعته مافيش حد واقف عنده**.
+    // فالسؤال ده كان بيقفل الطباعة عن بُعد كل ما تطبع طبعة كبيرة.
+    //
+    // البديل: تنبيه **مش موقّف** بيظهر ويختفي لوحده. المستخدم اللي واقف
+    // عند الماكينة بيشوفه، واللي مش واقف مايتأثرش.
+    if (progress) showPrintHint(pages.length);
+    setPrintOutcome(true, '', pages.length, pages.length);
     return true;
   } catch (err) {
     console.error('فشلت الطباعة عبر QZ Tray:', err);
+    setPrintOutcome(false, 'خطأ في الاتصال بالطابعة' + (err && err.message ? `: ${err.message}` : '.'));
     return false;
   }
 }

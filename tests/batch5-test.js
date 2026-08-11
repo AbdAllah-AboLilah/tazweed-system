@@ -686,20 +686,15 @@ function decodeCell(dataUrl, quiet) {
     await tryPrintViaQZ('label', [{ html: '<html></html>', image: null, copies: 40 }], size);
     out.midFail = said.join(' | ');
 
-    // (د) الطبعة الكبيرة عدّت — النظام بيسأل خرجوا ولا لأ
+    // (د) الطبعة الكبيرة عدّت — تنبيه **مش موقّف** بس
     said.length = 0; asked.length = 0;
     window.qz = { ...base };
     await tryPrintViaQZ('label', [{ html: '<html></html>', image: null, copies: 40 }], size);
     out.askedAfterBig = asked.join(' | ');
     out.quietWhenOk = said.length === 0;
+    out.hintAfterBig = (document.body.textContent.match(/اتبعت \d+ ملصق للطابعة/) || [''])[0];
 
-    // (هـ) ولو قال "مطلعش" بيوجّهه
-    said.length = 0; asked.length = 0;
-    window.confirm = (m) => { asked.push(String(m)); return false; };
-    await tryPrintViaQZ('label', [{ html: '<html></html>', image: null, copies: 40 }], size);
-    out.guidedWhenNotOut = said.join(' | ');
-
-    // (و) الملصق الواحد مابيسألش
+    // (هـ) الملصق الواحد مافيهوش أي تنبيه
     said.length = 0; asked.length = 0;
     await tryPrintViaQZ('label', jobs, size);
     out.singleQuiet = asked.length === 0 && said.length === 0;
@@ -710,12 +705,24 @@ function decodeCell(dataUrl, quiet) {
   check('⭐ QZ مش شغّال: بيقولك شغّله', /QZ Tray مش شغّال/.test(alerts.noQZ), alerts.noQZ);
   check('⭐ وقفت في النص: بيقول اتطبع كام وفاضل كام',
     /وقفت في النص/.test(alerts.midFail) && /فاضل/.test(alerts.midFail), alerts.midFail);
-  check('⭐ الطبعة الكبيرة: بيسأل خرجوا فعلًا ولا لأ',
-    /خرجوا من الماكينة/.test(alerts.askedAfterBig), alerts.askedAfterBig);
-  check('ولو قال خرجوا: مابيدوّشش', alerts.quietWhenOk, alerts);
-  check('⭐ ولو قال مطلعش: بيوجّهه للورق والغطا',
-    /ماطبعتش/.test(alerts.guidedWhenNotOut) && /الورق/.test(alerts.guidedWhenNotOut), alerts.guidedWhenNotOut);
-  check('الملصق الواحد مابيسألش أصلًا', alerts.singleQuiet, alerts);
+  // ============================================================
+  // ⚠️⚠️ الفحصين دول اتقلبوا في v0.40.0 — والسبب مهم
+  // ============================================================
+  // كان النظام بيسأل بـconfirm(): "اتبعت 40 ملصق — خرجوا فعلًا؟"
+  // النية سليمة، بس confirm() **بتجمّد خيط الجافاسكريبت كله**. والجهاز
+  // اللي بيستقبل الطباعة عن بُعد مافيش حد واقف عنده يرد — فكان بيقف:
+  // مايسمعش طلبات جديدة، ومايكمّلش الطلب الحالي، واللي باعت يستنى للأبد.
+  //
+  // فبقى الشرط معكوس: **مفيش أي سؤال موقّف**، والتنبيه بيظهر ويختفي لوحده.
+  check('⭐⭐ الطبعة الكبيرة مابتسألش سؤال موقّف (بتجمّد الجهاز)',
+    alerts.askedAfterBig === '', alerts.askedAfterBig);
+  // ⚠️ العدد مش مثبّت في الشرط: التنبيه بيفضل ظاهر 7 ثواني، فممكن يكون
+  // اللي على الشاشة جاي من طبعة قبلها في نفس الفحص. اللي يهم إن فيه
+  // تنبيه **مش موقّف** ظهر أصلًا.
+  check('⭐ لكن بيظهر تنبيه مش موقّف',
+    /اتبعت \d+ ملصق للطابعة/.test(alerts.hintAfterBig), alerts.hintAfterBig);
+  check('ومفيش رسالة موقّفة في الطبعة الناجحة', alerts.quietWhenOk, alerts);
+  check('الملصق الواحد مافيهوش أي تنبيه', alerts.singleQuiet, alerts);
 
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
 

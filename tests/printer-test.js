@@ -75,7 +75,10 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       size: { width: 38, height: 25 }, units: 'mm',
       scaleContent: false, interpolation: 'nearest-neighbor',
     }), tweaks.off);
-  check('5 مفاتيح', tweaks.count === 5, tweaks.keys);
+  // ⚠️ كان مكتوب "5 مفاتيح" برقم ثابت — ووقع أول ما اتضاف مفتاح جديد،
+  // من غير ما يكون فيه أي عطل. الشرط اللي يهم مش العدد، هو إن **كل**
+  // مفتاح موجود في القايمة ليه اسم ووصف وبيتحفظ صح.
+  check('كل مفتاح ليه اسم ووصف', tweaks.keys.length === tweaks.count && tweaks.count >= 5, tweaks);
   check('كله مفتوح = الأربعة اتطبقوا',
     tweaks.allOn.scaleContent === false && tweaks.allOn.colorType === 'blackwhite'
     && tweaks.allOn.interpolation === 'nearest-neighbor' && tweaks.allOn.rasterize === true, tweaks.allOn);
@@ -135,7 +138,12 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     document.getElementById('qz-settings-close').click();
     return out;
   });
-  check('الخمس مفاتيح ظاهرين في الشاشة', ui.tweakBoxes.length === 5, ui);
+  // ⚠️ نفس الدرس: **كل** مفتاح في القايمة لازم يبان في الشاشة — مش عدد
+  // ثابت. كده لو حد ضاف مفتاح ونسي يعرضه، الفحص يمسكه.
+  const allKeys = await p.evaluate(() => PRINT_TWEAKS.map((t) => t.key));
+  check('⭐ كل مفتاح في القايمة ظاهر في الشاشة',
+    allKeys.every((k) => ui.tweakBoxes.includes(k)) && ui.tweakBoxes.length === allKeys.length,
+    { الشاشة: ui.tweakBoxes, القايمة: allKeys });
   check('كلهم مقفولين افتراضيًا', ui.allUnchecked, ui);
   check('زرار المعايرة وبيانات الطابعات موجودين', ui.hasCalBtn && ui.hasDetails, ui);
   check('المقاسات الافتراضية 38×25 وفراغ 2', ui.defaults.w === '38' && ui.defaults.h === '25' && ui.defaults.gap === '2', ui.defaults);
