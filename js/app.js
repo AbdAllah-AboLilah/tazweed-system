@@ -3052,6 +3052,59 @@ async function addGrade(categoryId, data) {
 // المفتاح بقى **الاسم + المجموعة**. والدرجات القديمة (اللي مالهاش
 // مجموعة) بتفضل زي ما هي وبتتحسب في خانة "من غير مجموعة" — يعني لو ضفت
 // الأساسية لمجموعة جديدة، القديمة مابتتلمسش ومابتتكررش.
+// ============================================================
+// ⭐ درجة أساسية **باسم من عندك**
+// ============================================================
+// التلاتة الجاهزين (أبيض/أسود/أوف وايت) مش كفاية دايمًا — فيه "أوف وايت
+// غامق" و"بيج فاتح" وغيرهم. الدرجة اللي بتتضاف هنا **درجة أساسية كاملة**:
+// بتتعامل نفس المعاملة بالظبط (بتظهر مع الأساسية، وبتاخد حد حرج، وبتطلع
+// في ورقة التزويد تحت اسم مجموعتها) — الفرق بس إن اسمها من عندك.
+//
+// ⚠️ الرقم: الأساسية بتاخد أرقام سالبة عشان تترتب **فوق** الأرقام العادية
+// (أبيض -3، أسود -2، أوف وايت -1). الدرجة المخصّصة بتتحط **بعدهم وقبل
+// الرقم 1** برقم كسري (-0.999, -0.998 ...). ليه كسري؟ لأن مافيش عدد صحيح
+// بين -1 و1، وأي رقم موجب هيتخبط مع درجات حقيقية.
+//
+// الرقم ده **عمره ما بيتعرض** — gradeDisplayName بتستخدم الاسم للأساسية.
+function nextCustomBaseNumber(grades) {
+  const used = (grades || [])
+    .filter((g) => g && g.isBase && Number(g.number) > -1)
+    .map((g) => Number(g.number));
+  const min = used.length ? Math.min(...used) : -1;
+  // خطوة صغيرة لتحت — بتفضل بين -1 و1 مهما ضفت
+  return Math.max(-0.999999, min - 0.001);
+}
+
+async function addCustomBaseGrade(categoryId, name, criticalQty, group) {
+  const clean = String(name || '').trim().replace(/\s+/g, ' ');
+  if (!clean) return { added: 0, reason: 'اكتب اسم الدرجة الأول.' };
+
+  const target = String(group || '');
+  const snap = await db.collection('categories').doc(categoryId).collection('grades').get();
+  const rows = snap.docs.map((d) => d.data());
+
+  // ⚠️ التكرار بيتحسب **جوه المجموعة** بس — زي الأساسية الجاهزة بالظبط:
+  // "أوف وايت غامق" في كيوي مايمنعش نفس الاسم في نصار.
+  const clash = rows.some(
+    (d) => d.isBase && String(d.name || '').trim() === clean && String(d.group || '') === target
+  );
+  if (clash) return { added: 0, reason: `"${clean}" موجودة خلاص${target ? ` في "${target}"` : ''}.` };
+
+  const ref = db.collection('categories').doc(categoryId).collection('grades').doc();
+  const payload = {
+    number: nextCustomBaseNumber(rows),
+    name: clean,
+    isBase: true,
+    criticalQty: Number(criticalQty) || DEFAULT_BASE_CRITICAL_QTY,
+    branchQty: DEFAULT_RESTOCK_QTY,
+    mainQty: 0,
+    status: 'normal',
+  };
+  if (target) payload.group = target;
+  await ref.set(payload);
+  return { added: 1, reason: '' };
+}
+
 async function addBaseGradesToCategory(categoryId, criticalQty, group) {
   const snap = await db.collection('categories').doc(categoryId).collection('grades').get();
   const target = String(group || '');
@@ -3706,9 +3759,25 @@ async function openBaseGradesDialog(categoryId) {
         <label>الحد الحرج (تنبيه لما تنزل عنه)</label>
         <input class="input" type="number" id="base-critical" min="0" value="${DEFAULT_BASE_CRITICAL_QTY}" />
       </div>
+
+      <!-- ⭐ درجة أساسية باسم من عندك. التلاتة الجاهزين مش كفاية دايمًا —
+           فيه "أوف وايت غامق" و"بيج فاتح". اللي بتضيفه هنا **درجة أساسية
+           كاملة**: بتتعامل نفس المعاملة بالظبط، الفرق بس إن اسمها من عندك. -->
+      <div class="field" style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
+        <label>أو ضيف درجة أساسية باسم من عندك</label>
+        <div style="display:flex; gap:8px;">
+          <input class="input" id="base-custom-name" maxlength="40" style="flex:1;"
+                 placeholder="مثلًا: أوف وايت غامق" />
+          <button class="btn btn-primary" id="base-custom-add" type="button">إضافة</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:4px; line-height:1.7;">
+          بتتحط مع الأساسية وبتاخد نفس الحد الحرج والمجموعة اللي فوق.
+        </div>
+      </div>
+
       <div id="base-status" style="font-size:12px; color:var(--text-secondary); margin-bottom:10px;"></div>
       <div style="display:flex; flex-direction:column; gap:8px;">
-        <button class="btn btn-primary" id="base-this">ضيفهم للمجموعة دي</button>
+        <button class="btn btn-primary" id="base-this">ضيف التلاتة الجاهزين للمجموعة دي</button>
         <button class="btn" id="base-all">ضيفهم لكل الفئات من غير مجموعة (${state.categories.length})</button>
         <button class="btn" id="base-cancel">إلغاء</button>
       </div>
@@ -3722,6 +3791,29 @@ async function openBaseGradesDialog(categoryId) {
   const statusEl = document.getElementById('base-status');
   const critical = () => Number(document.getElementById('base-critical').value) || DEFAULT_BASE_CRITICAL_QTY;
   const chosenGroup = () => document.getElementById('base-group').value || '';
+
+  document.getElementById('base-custom-add').addEventListener('click', () =>
+    safeAsync(async () => {
+      const nameEl = document.getElementById('base-custom-name');
+      const res = await addCustomBaseGrade(categoryId, nameEl.value, critical(), chosenGroup());
+      if (!res.added) {
+        statusEl.style.color = 'var(--danger-text)';
+        statusEl.textContent = '⚠️ ' + res.reason;
+        return;
+      }
+      logActivity({
+        action: 'add_base_grades',
+        categoryId,
+        categoryName: state.categories.find((c) => c.id === categoryId)?.name || '',
+        newValue: nameEl.value.trim(),
+      });
+      statusEl.style.color = '#2e7d32';
+      statusEl.textContent = `✅ اتضافت "${nameEl.value.trim()}" مع الدرجات الأساسية.`;
+      // ⚠️ الشاشة بتفضل مفتوحة والخانة بتتفضّى — الناس بتضيف كذا واحدة ورا بعض
+      nameEl.value = '';
+      nameEl.focus();
+    }, 'إضافة درجة أساسية')
+  );
 
   document.getElementById('base-this').addEventListener('click', async () => {
     statusEl.textContent = 'جارٍ الإضافة...';

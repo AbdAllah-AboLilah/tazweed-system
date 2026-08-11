@@ -437,7 +437,20 @@ async function printCartLabels(sizeOptions) {
   });
   const browserHTML = jobs[0].html.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
-  const delivered = await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML);
+  // ⭐ وصفة لكل صنف في السلة — الجهاز اللي هيطبع بيعيد بناءهم بخطوطه هو
+  const spec = {
+    kind: 'many',
+    items: cart.map((it) =>
+      it.custom
+        ? { kind: 'text', text: customText(it.custom), copies: it.qty }
+        : {
+            kind: it.mode === 'quarter' ? 'quarter' : 'item',
+            cat: { ...productAsLabelSource(it.product), __noPrice: !!it.noPrice },
+            copies: it.qty,
+          }
+    ),
+  };
+  const delivered = await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML, spec);
 
   // السلة بتتفضّى **بس** لو الطباعة اتبعتت فعلًا. لو المستخدم ألغى اختيار
   // الجهاز، أو فشل التجهيز، السلة بتفضل زي ما هي — عشان مايخسرش 20 صنف
