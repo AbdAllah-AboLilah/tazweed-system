@@ -102,33 +102,77 @@ function unlockNotifyAudio() {
   }
 }
 
-// طرقة واحدة: دفعة ضوضاء قصيرة بتخفت بسرعة، مفلترة عشان تبقى "خشبية"
-// مش "شششش".
+// ------------------------------------------------------------
+// ليه الطرقة **متبنية بالحساب ومتخزّنة**، مش متعملة كل مرة
+// ------------------------------------------------------------
+// ⚠️ النسخة الأولى كانت بتعمل الطرقة بـ`BiquadFilter` و`GainNode` وقت
+// التشغيل، وكانت **هادية جدًا** (الصوت الفعلي ذروته 0.37 من 1). ولما
+// جرّبت أزوّد الكسب، لقيت المشكلة الحقيقية بالقياس:
+//
+//   **ذروة الضوضاء عشوائية.** نفس الإعداد بالظبط، 8 تشغيلات:
+//
+//     كسب 2.2 → أقصى ذروة 1.07  (قص بسيط)
+//     كسب 2.6 → أقصى ذروة 1.43  (27 عيّنة مقصوصة)
+//     كسب 3.0 → أقصى ذروة 1.90  (89 عيّنة مقصوصة)
+//
+//   يعني مافيش رقم كسب "آمن" — الصوت إما هادي وإما بيفرقع أحيانًا.
+//   وحتى `DynamicsCompressor` ماحلّهاش (بطيء على هجوم 4 مللي ثانية).
+//
+// الحل: نبني الطرقة **مرة واحدة** بالحساب اليدوي، ونطبّعها لذروة معروفة
+// بالظبط. النتيجة:
+//   • الصوت **ثابت** كل مرة، ومفيش فرقعة أبدًا
+//   • أعلى بـ3 أضعاف من غير أي قص
+//   • وكل الطرقات **نفس العيّنات حرفيًا** (نفس الـbuffer) — فضمان
+//     "مافيش لحن" بقى في التصميم نفسه مش في الالتزام
+const KNOCK_DUR = 0.09; // طول الطرقة الواحدة بالثانية
+const KNOCK_GAP = 0.15; // المسافة بين طرقة والتانية
+const KNOCK_COUNT = 4; // ⭐ اتزوّدت من 2 لـ4: النغمة كانت بتعدّي من غير ما حد ياخد باله
+const KNOCK_PEAK = 0.92; // الذروة بعد التطبيع — قريبة من الأقصى من غير قص
+let knockBuffer = null;
+
+function buildKnockBuffer(ctx) {
+  const SR = ctx.sampleRate;
+  const n = Math.max(1, Math.floor(SR * KNOCK_DUR));
+  const buf = ctx.createBuffer(1, n, SR);
+  const d = buf.getChannelData(0);
+
+  // مرشّح تمرير نطاق بسيط بالحساب (تقريبًا 900–2600 هرتز). النطاق ده
+  // مقصود: سماعة الموبايل ضعيفة تحت 500 هرتز، فالصوت الواطي بيضيع خالص.
+  const aLP = 1 - Math.exp((-2 * Math.PI * 2600) / SR);
+  const rc = 1 / (2 * Math.PI * 900);
+  const aHP = rc / (rc + 1 / SR);
+
+  let lp = 0, hp = 0, prev = 0;
+  for (let i = 0; i < n; i++) {
+    const white = Math.random() * 2 - 1;
+    lp += aLP * (white - lp);
+    hp = aHP * (hp + lp - prev);
+    prev = lp;
+    // خفوت أسّي سريع = طرقة. الخفوت البطيء هو اللي بيخلي الصوت "نغمة".
+    const decay = Math.exp(-i / (SR * 0.018));
+    // هجوم قصير جدًا (1 مللي) — من غيره بيطلع "تك" رقمي وحش
+    const attack = Math.min(1, i / (SR * 0.001));
+    d[i] = hp * decay * attack;
+  }
+
+  // ⭐ التطبيع: ده اللي بيخلي الصوت **عالي وثابت** في نفس الوقت
+  let peak = 0;
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
+  if (peak > 0) {
+    const k = KNOCK_PEAK / peak;
+    for (let i = 0; i < n; i++) d[i] *= k;
+  }
+  return buf;
+}
+
+// طرقة واحدة في وقت محدد. ⚠️ مافيش أي معامل للدرجة أو التردد هنا **عن
+// قصد**: الدالة مابتعرفش تعمل غير صوت واحد، فمستحيل طرقتين يطلعوا مختلفين.
 function knockAt(ctx, when) {
-  const DUR = 0.055;
-  const frames = Math.max(1, Math.floor(ctx.sampleRate * DUR));
-  const buf = ctx.createBuffer(1, frames, ctx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
-
+  if (!knockBuffer || knockBuffer.sampleRate !== ctx.sampleRate) knockBuffer = buildKnockBuffer(ctx);
   const src = ctx.createBufferSource();
-  src.buffer = buf;
-
-  // الفلتر بيحدد "خامة" الطرقة. ثابت للطرقتين — فمافيش فرق درجة بينهم.
-  const band = ctx.createBiquadFilter();
-  band.type = 'bandpass';
-  band.frequency.value = 1500;
-  band.Q.value = 1.2;
-
-  // خفوت سريع = طرقة. الخفوت البطيء هو اللي بيخلي الصوت "نغمة".
-  const gain = ctx.createGain();
-  gain.gain.setValueAtTime(0.0001, when);
-  gain.gain.exponentialRampToValueAtTime(0.9, when + 0.004);
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + DUR);
-
-  src.connect(band).connect(gain).connect(ctx.destination);
+  src.buffer = knockBuffer;
+  src.connect(ctx.destination);
   src.start(when);
-  src.stop(when + DUR);
 }
 
 function playNotifySound() {
@@ -136,8 +180,9 @@ function playNotifySound() {
     unlockNotifyAudio();
     if (!notifyAudioCtx || notifyAudioCtx.state !== 'running') return;
     const t = notifyAudioCtx.currentTime + 0.01;
-    knockAt(notifyAudioCtx, t);
-    knockAt(notifyAudioCtx, t + 0.13); // نفس الطرقة بالظبط — مش درجة تانية
+    // طرقات متساوية تمامًا وعلى مسافات متساوية — لا فرق درجة (لحن) ولا
+    // نمط إيقاعي.
+    for (let k = 0; k < KNOCK_COUNT; k++) knockAt(notifyAudioCtx, t + k * KNOCK_GAP);
   } catch (err) {
     /* الصوت مش لازم عشان الإشعار يوصل */
   }
