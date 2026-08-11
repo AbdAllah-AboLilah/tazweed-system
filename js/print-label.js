@@ -707,11 +707,31 @@ function buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const priceSize = showPrice ? Math.min(cap, fitWrappedFontSizeMm(priceText, textW, 1, true)) : 0;
 
   // اللي فاضل للاسم بعد ما الرقم والسعر خدوا حقهم
-  const nameBudget = contentH - (codeSize + priceSize) * LINE;
+  // ============================================================
+  // ⭐ الرقم والسعر بيتقرّبوا من بعض عشان الاسم ياخد مساحة
+  // ============================================================
+  // ⚠️ القياس اللي أدّى للتعديل ده: الاسم في الخلية **مش محدود
+  // بالارتفاع** — هو محدود **بعرض العمود** (7.5مم بس، لأن الباركود واخد
+  // 7.9 من الـ19). المساحة الرأسية المتاحة كانت 1.96مم والاسم واخد 1.31.
+  //
+  // يعني تقريب السطور **لوحده مايعملش حاجة**. اللي بيفرق هو التقريب
+  // **مع** السماح بسطر تالت: "Hejap / Kuwaiti / 120" أطول سطر فيه 7
+  // حروف بدل 11 — فالخط بيكبر.
+  //
+  //   Hejap Kuwaiti 120  →  1.31 مم  تبقى  1.46  (+11%)
+  //   Leather Watch 120  →  1.47 مم  زي ما هي (واخدة أقصى عرض أصلًا)
+  //
+  // ⚠️ المخاطرة: الرقم والسعر بيقربوا من بعض، والحبر على الحرارية بينتشر
+  // شوية. عشان كده التقريب **بسيط** (1.15 → 1.05 مش 1.0)، وفيه مفتاح
+  // بيرجّع الشكل القديم بالظبط من غير أي تحديث.
+  const tight = getPrintTweak('tightQuarter');
+  const ROW_LINE = tight ? 1.05 : LINE;
+  const MAX_NAME_LINES = tight ? 3 : 2;
+  const nameBudget = contentH - (codeSize + priceSize) * ROW_LINE;
   // سطر ولا سطرين؟ اللي بيطلّع خط أكبر — بالظبط زي الملصق العادي.
   let nameSize = 0;
   let nameLines = 1;
-  for (let L = 1; L <= 2; L++) {
+  for (let L = 1; L <= MAX_NAME_LINES; L++) {
     const size = Math.min(nameBudget / (L * LINE), fitWrappedFontSizeMm(name, textW, L, true), cap);
     if (size > nameSize) { nameSize = size; nameLines = L; }
   }
@@ -763,15 +783,15 @@ function buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
           font-size: ${nameSize.toFixed(2)}mm; font-weight: bold;
           overflow: hidden; overflow-wrap: anywhere; word-break: break-word;
           display: -webkit-box; -webkit-box-orient: vertical;
-          -webkit-line-clamp: ${nameLines};
+          -webkit-line-clamp: ${Math.min(nameLines, MAX_NAME_LINES)};
           max-height: ${(nameLines * LINE * nameSize).toFixed(2)}mm;
         }
         /* ⚠️ مفيش letter-spacing هنا عن قصد. العمود ضيق جدًا (7.5مم)،
            وقياس الخط مابيعرفش عن التباعد ده حاجة — فكان بيحسب إن الرقم
            داخل وهو بيتقص فعليًا على الشاشة. (الملصق العادي عمود أوسع
            فالتباعد فيه مايضرش.) */
-        .c { font-size: ${codeSize.toFixed(2)}mm; font-weight: bold; white-space: nowrap; }
-        .p { font-size: ${priceSize.toFixed(2)}mm; font-weight: bold; white-space: nowrap; }
+        .c { font-size: ${codeSize.toFixed(2)}mm; font-weight: bold; white-space: nowrap; line-height: ${ROW_LINE}; }
+        .p { font-size: ${priceSize.toFixed(2)}mm; font-weight: bold; white-space: nowrap; line-height: ${ROW_LINE}; }
         /* خط القص في النص — مابيلمسش حرف الورقة، بيبدأ وينتهي عند الهامش */
         .cut {
           position: absolute; top: ${pad}mm; bottom: ${pad}mm;
