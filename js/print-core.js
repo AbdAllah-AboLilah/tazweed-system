@@ -81,21 +81,64 @@ async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML
   //   • jobs      → القايمة الجديدة بالنسخ (النسخ القديمة بتتجاهلها)
   // كده حتى لو الجهاز التاني ما اتحدّثش، هيطبع ملصق صح مش نص خام.
   const jobs = normalizePrintJobs(html);
+
+  // ============================================================
+  // ⭐⭐ الطلب لازم يفضل **صغير** — وإلا السحابة بترفضه في صمت
+  // ============================================================
+  // ⚠️⚠️ العطل اللي اتبلّغ: "من الكمبيوتر بيطبع 100 ملصق عادي، ومن
+  // الموبايل الأمر مايروحش ولا بييجي رد أصلًا".
+  //
+  // السبب: طلب الطباعة بيتخزّن كمستند في السحابة، وحد المستند الواحد في
+  // Firestore هو **1 ميجا**. وإحنا كنا بنبعت `fallbackHTML` — وده الملصق
+  // **مكرر بعدد النسخ** — **ومرتين** (في `html` وفي `browserHTML`):
+  //
+  //   40 ملصق  →  561 كيلو  ✅ بيعدّي
+  //   100 ملصق → 1377 كيلو  ❌ بيترفض
+  //
+  // وده بالظبط سبب إن الـ40 كانوا بيشتغلوا والـ100 لأ.
+  //
+  // وأسوأ حاجة إن مفيش رسالة: Firestore بيقبل الكتابة **محليًا** ويرفضها
+  // على السيرفر بعدين. فالتطبيق بيقول "اتبعت الطلب" وهو عمره ما وصل.
+  //
+  // الحل: بنبعت **ملصق واحد + العدد** بدل الملصق مكرر. الجهاز المستقبِل
+  // بيكرّره هو (وأصلًا بقى بيعيد بناءه من الوصفة).
+  //
+  // ⚠️ متحطّش هنا أي نص بيكبر مع عدد النسخ. لو محتاج حاجة كده، ابعت
+  // الوصفة وسيب الجهاز التاني يبنيها.
+  const oneLabelHTML = jobs.length ? jobs[0].html : '';
   const payload = {
     type,
     targetDeviceId,
-    html: browserHTML || (jobs.length ? jobs[0].html : ''),
+    html: oneLabelHTML,
     jobs,
     // وصفة إعادة البناء — الجهاز المستقبِل بيفضّلها على الـHTML الجاهز
     spec: spec || null,
     senderVersion: typeof APP_VERSION === 'string' ? APP_VERSION : '',
-    browserHTML: browserHTML || null,
+    // ⚠️ **مش** browserHTML: هو الملصق مكرر بعدد النسخ، وهو اللي كان
+    // بيفجّر حجم المستند. الجهاز المستقبِل بيكرّره بنفسه.
+    browserHTML: null,
     sizeOptions: sizeOptions || null,
     status: 'pending',
     requestedByUid: state.user.uid,
     requestedByName: state.profile.name || '',
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
   };
+
+  // ============================================================
+  // ⚠️ حارس الحجم — أحسن من رفض صامت
+  // ============================================================
+  // لو الطلب لسه كبير لأي سبب (سلة فيها 50 صنف مختلف مثلًا)، بنقولها
+  // للمستخدم دلوقتي بدل ما السحابة ترفضه وهو فاكر إنه اتبعت.
+  const FIRESTORE_DOC_LIMIT = 1048576; // 1 ميجا — حد Firestore الثابت
+  const SAFE_DOC_BYTES = Math.floor(FIRESTORE_DOC_LIMIT * 0.85);
+  const docBytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+  if (docBytes > SAFE_DOC_BYTES) {
+    alert(
+      `⚠️ الطلب تقيل أوي على الإرسال (${Math.round(docBytes / 1024)} كيلو).\n\n` +
+        'قسّمه على مرتين، أو اطبع من الجهاز اللي عليه الطابعة مباشرة.'
+    );
+    return;
+  }
 
   const ref = db.collection('printJobs').doc();
   fireWrite(ref.set(payload), 'طلب طباعة');
@@ -181,6 +224,18 @@ function subscribePrintJobs() {
 //
 // ⚠️ أي شكل ملصق جديد لازم يتضاف هنا **وفي اللي بيبعت**، وإلا الطباعة عن
 // بُعد هتفضل على القياس الغلط بتاع الجهاز الباعت من غير ما حد ياخد باله.
+// بتكرّر كل ملصق بعدد نسخه في مستند واحد — لنافذة طباعة المتصفح، اللي
+// مافيهاش مفهوم "عدد نسخ" زي أمر QZ.
+function expandCopies(list) {
+  if (!list || !list.length) return '';
+  const bodies = [];
+  for (const j of list) {
+    const body = typeof extractLabelBody === 'function' ? extractLabelBody(j.html) : j.html;
+    for (let i = 0; i < Math.max(1, j.copies || 1); i++) bodies.push(body);
+  }
+  return list[0].html.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
+}
+
 async function rebuildFromSpec(spec, sizeOptions) {
   if (!spec || !spec.kind || !sizeOptions) return null;
   const n = Math.max(1, parseInt(spec.copies, 10) || 1);
@@ -259,7 +314,9 @@ async function executePrintJob(jobId, job) {
   const printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions, onProgress);
   const outcome = lastPrintOutcome;
   if (!printedViaQZ) {
-    printHTMLSilently(job.browserHTML || list[0].html);
+    // ⚠️ الطلب مابقاش بيحمل النسخة المكررة (كانت بتفجّر حجم المستند)،
+    // فبنكرّرها هنا — نافذة المتصفح بتتعامل مع مستند واحد بس.
+    printHTMLSilently(job.browserHTML || expandCopies(list));
   }
 
   // ============================================================
