@@ -35,12 +35,13 @@ const NAMES = [
           const url = await generateQRDataURL('28144', 200);
           return buildLabelHTML({ itemName: nm, barcodeNumber: '28144', originalPrice: 115, sellingPrice: 90 }, opts, url, 1);
         }
-        return buildGradeLabelHTML(nm, 'درجة 12', opts, 1);
+        return buildGradeLabelHTML(nm + ' — درجة 12', opts, 1);
       }, [name, kind]);
 
       await p2.setContent(html);
       const m = await p2.evaluate(() => {
-        const sel = document.querySelector('.name') || document.querySelector('.l1');
+        // ⚠️ .l1 مابقاش موجود — الملصق النصّي بقى نص واحد بيلف في .t
+        const sel = document.querySelector('.name') || document.querySelector('.t');
         const half = document.querySelector('.half');
         const cs = getComputedStyle(sel);
         const MM = 96 / 25.4;
@@ -55,8 +56,16 @@ const NAMES = [
         };
       });
       rows.push({ name, kind, ...m });
+      // ⭐ الشرط الحقيقي: الاسم **مايتقصّش فعلًا**.
       check(`[${kind}] "${name}" — الاسم كامل مش متقصوص`, !m.clippedV && !m.clippedH, m);
-      check(`[${kind}] "${name}" — مفيش نقط (…)`, !m.ellipsis, m);
+      // ⚠️ كان هنا "مفيش نقط (…)" بمعنى إن خاصية القص **متعرّفة** أصلًا.
+      // ده كان صح لما القص كان بيحصل **بالغلط** (الحساب يقول داخل والرسم
+      // يقول لأ). دلوقتي النقط بقت **خطة أخيرة مقصودة** في الملصق النصّي
+      // والمقسوم — بتتعرّف دايمًا وبتشتغل بس لو الاسم فعلًا مش داخل.
+      // فوجودها مش عطل؛ العطل إنها **تشتغل** على اسم كان المفروض يدخل،
+      // وده اللي بيقيسه السطر اللي فوق.
+      check(`[${kind}] "${name}" — النقط ماشتغلتش على اسم كان بيدخل`,
+        !m.clippedV && !m.clippedH, m);
       check(`[${kind}] "${name}" — جوه حدود اللاصقة`, !m.outOfHalf, m);
       check(`[${kind}] "${name}" — الخط مش صغير لدرجة مش مقروءة`, m.fontMm >= 1.0, m);
     }

@@ -86,11 +86,9 @@ function printScreenHTML() {
       <div class="cart-item">
         <div class="home-row" style="border:0; padding-bottom:4px;">
           <div style="flex:1; min-width:0;">
-            <div class="home-row-title">${escapeHTML(it.custom ? it.custom.line1 : it.product.name)}</div>
+            <div class="home-row-title">${escapeHTML(it.custom ? customText(it.custom) : it.product.name)}</div>
             <div class="home-row-sub">${
-              it.custom
-                ? `✍️ مسمّى${it.custom.line2 ? ' — ' + escapeHTML(it.custom.line2) : ''}`
-                : escapeHTML(it.product.barcode || it.product.code || '—')
+              it.custom ? '✍️ مسمّى' : escapeHTML(it.product.barcode || it.product.code || '—')
             }</div>
           </div>
           <div class="qty-cell">
@@ -146,14 +144,30 @@ function printScreenHTML() {
 // القاعدة: العنصر لازم يكون يا صنف (product) يا مسمّى (custom). أي حاجة
 // تانية بتتشال في صمت — أحسن من إن الشاشة كلها تبوظ.
 function sanitizePrintCart(list) {
-  return (Array.isArray(list) ? list : []).filter((it) => it && (it.product || (it.custom && it.custom.line1)));
+  // ⚠️ بنقبل الشكلين: الجديد (text) والقديم (line1) — السلات المحفوظة
+  // على أجهزة الناس بالشكل القديم مالهاش ذنب.
+  return (Array.isArray(list) ? list : []).filter(
+    (it) => it && (it.product || (it.custom && (it.custom.text || it.custom.line1)))
+  );
 }
 
-function addCustomLabelToCart(line1, line2, qty) {
+// ============================================================
+// ⚠️ نص المسمّى — بيقرا الشكل الجديد **والقديم**
+// ============================================================
+// من v0.42.0 المسمّى بقى نص واحد (`text`). قبلها كان سطرين
+// (`line1`/`line2`)، وفيه سلات محفوظة على أجهزة الناس بالشكل القديم —
+// لو قرأناها غلط، الملصق هيطلع فاضي من غير أي رسالة خطأ.
+function customText(c) {
+  if (!c) return '';
+  if (c.text) return String(c.text);
+  return [c.line1, c.line2].map((x) => String(x || '').trim()).filter(Boolean).join(' — ');
+}
+
+function addCustomLabelToCart(text, qty) {
   state.printCart = state.printCart || [];
   state.printCart.push({
     key: 'custom:' + Date.now() + ':' + Math.random().toString(36).slice(2, 7),
-    custom: { line1, line2 },
+    custom: { text: String(text || '').trim() },
     qty: Math.max(1, Math.min(MAX_LABEL_COPIES, Number(qty) || 1)),
   });
   saveWorkState();
@@ -369,7 +383,7 @@ async function buildCartItemLabel(item, sizeOptions) {
     // ⚠️ لازم تعدّي من buildTextLabel زي باقي الشاشات. النسخة القديمة كانت
     // بترسم صورة **على طول** من غير ما تبصّ على مفتاح "ابعت الملصق كنص" —
     // فنفس المسمّى كان يطلع نضيف من شاشة الفئات ومنغمش من هنا.
-    const b = buildTextLabel(item.custom.line1, item.custom.line2 || '', sizeOptions, 1);
+    const b = buildTextLabel(customText(item.custom), sizeOptions, 1);
     return { html: b.jobHTML, image: b.image };
   }
 

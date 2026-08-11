@@ -25,6 +25,7 @@ const state = {
   categoryFilter: 'all', // all | pending | out | low — فلترة قايمة الفئات
   gradeFilter: 'all', // all | pending | out | low | base — فلترة الدرجات جوه الفئة
   gradeGroupFilter: '', // فلترة بمجموعة الألوان ('' = الكل)
+  requestQtyGradeId: null, // الدرجة اللي خانة "اطلب بكمية" مفتوحة عليها
   categoryOrderMode: false, // وضع ترتيب الفئات في القايمة الجانبية
   gradeSelectMode: false, // وضع تحديد درجات للحذف الجماعي
   gradeSelected: {}, // { gradeId: true } — الدرجات المحددة للحذف
@@ -1200,8 +1201,16 @@ function nextStatusFromQuantities(data, field, newValue) {
 // الوضعين دول كانوا بيبلعوها خالص، فكنت بتعلّم على درجات من غير ما تعرف
 // إنت بتحذف/بتطلب إيه. والدرجة اللي "خلصت نهائيًا" مالهاش مربّع تعليم
 // أصلًا — من غير البادج مكانش فيه أي حاجة تقول ليه.
+// ⭐ الطلب بكمية أكتر من واحد **لازم يبان مختلف**. من غير ده، أمين
+// الرئيسي بيشوف "معلّق" ويزوّد واحدة زي أي طلب — والطلب يتقفل ناقص.
+// فالشارة بتقول العدد، وبتاخد شكل مميز (× والعدد) عشان تلفت النظر.
 function statusBadgeHTML(g) {
-  return `<span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}</span>`;
+  const n = Number(g && g.requestedQty) || 0;
+  const extra =
+    g.status === 'pending' && n > 1
+      ? `<span class="badge-qty" title="مطلوب ${escapeHTML(n)} قطعة">×${escapeHTML(n)}</span>`
+      : '';
+  return `<span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}${extra}</span>`;
 }
 
 // 🖨️ رمز طباعة مسمّى الدرجة — جنب "طلب تزويد" بالظبط.
@@ -1228,10 +1237,28 @@ function statusContentHTML(g, canEditBranch, canEditMain) {
   const smallBtn = 'padding:4px 10px; font-size:12px; margin-inline-start:6px;';
 
   if (g.status === 'normal') {
-    const btn = canEditBranch
-      ? `<button class="btn" style="${smallBtn}" data-request-shortage-id="${escapeHTML(g.id)}">طلب تزويد</button>`
-      : '';
-    return `${badge}${btn}`;
+    if (!canEditBranch) return badge;
+    // ⭐ خانة الكمية بتفتح جوه الصف بضغطة "بكمية" — زي رمز الطباعة بالظبط.
+    // الطلب العادي (واحد) فاضل ضغطة واحدة زي ما هو، عشان الحالة الغالبة
+    // ماتاخدش خطوة زيادة.
+    if (state.requestQtyGradeId === g.id) {
+      const limit = restockRequestLimit(g);
+      return `${badge}
+        <form class="req-form" data-req-form-id="${escapeHTML(g.id)}" style="display:inline-flex; gap:4px; align-items:center; flex-wrap:wrap; margin-inline-start:6px;">
+          <input class="input" type="number" min="1" max="${escapeHTML(limit)}" value="2"
+                 style="width:58px; padding:4px;" id="req-qty-${escapeHTML(g.id)}" inputmode="numeric" required />
+          <span style="font-size:11px; color:var(--text-muted);">الرئيسي: ${escapeHTML(limit)}</span>
+          <button class="btn btn-primary" type="submit" style="padding:4px 8px; font-size:12px;">اطلب</button>
+          <button class="btn" type="button" data-cancel-req-id="${escapeHTML(g.id)}" style="padding:4px 8px; font-size:12px;">رجوع</button>
+        </form>`;
+    }
+    const canAsk = restockRequestLimit(g) > 0;
+    let btns = `<button class="btn" style="${smallBtn}" data-request-shortage-id="${escapeHTML(g.id)}">طلب تزويد</button>`;
+    // "بكمية" بتظهر بس لو الرئيسي فيه أكتر من واحد — وإلا مالهاش أي معنى
+    if (canAsk && restockRequestLimit(g) > 1) {
+      btns += `<button class="btn" style="${smallBtn}" data-request-qty-id="${escapeHTML(g.id)}">بكمية</button>`;
+    }
+    return `${badge}${btns}`;
   }
 
   if (g.status === 'pending') {
@@ -1260,8 +1287,11 @@ function statusContentHTML(g, canEditBranch, canEditMain) {
       // الزرار الأساسي بقى ضغطة واحدة: بينقل الكمية الافتراضية من الرئيسي
       // للفرع ويقفل الطلب — من غير ما تكتب رقم في كل درجة. الكمية بكام
       // لسه موجودة كخيار تاني للحالات الاستثنائية.
-      const n = defaultRestockQty();
-      extra += `<button class="btn btn-primary" style="${smallBtn}" data-quick-fulfill-id="${escapeHTML(g.id)}">✅ زوّد ${escapeHTML(n)}</button>`;
+      // ⭐ الزرار بياخد **الكمية اللي اتطلبت فعلًا**، مش الافتراضي.
+      // ومحدود بالموجود في الرئيسي: مينفعش يزوّد 3 وهو عنده 2.
+      const asked = Number(g.requestedQty) || 0;
+      const n = Math.max(1, Math.min(asked > 1 ? asked : defaultRestockQty(), restockRequestLimit(g) || 1));
+      extra += `<button class="btn btn-primary" style="${smallBtn}" data-quick-fulfill-id="${escapeHTML(g.id)}" data-quick-fulfill-qty="${escapeHTML(n)}">✅ زوّد ${escapeHTML(n)}</button>`;
       extra += `<button class="btn" style="${smallBtn}" data-open-fulfill-id="${escapeHTML(g.id)}">بكمية تانية</button>`;
 
       // "مفيش خالص" بقت مش محتاجة ضغطة أصلًا: أول ما كمية الرئيسي تنزل
@@ -2654,11 +2684,36 @@ function attachDashboardEvents() {
 
   // -------- نظام النواقص --------
   document.querySelectorAll('[data-request-shortage-id]').forEach((btn) => {
-    btn.addEventListener('click', () => requestShortage(btn.dataset.requestShortageId));
+    btn.addEventListener('click', () => requestShortage(btn.dataset.requestShortageId, 1));
   });
 
   document.querySelectorAll('[data-cancel-shortage-id]').forEach((btn) => {
     btn.addEventListener('click', () => cancelShortage(btn.dataset.cancelShortageId));
+  });
+
+  // ---- ⭐ طلب تزويد بكمية أكتر من واحد ----
+  document.querySelectorAll('[data-request-qty-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.requestQtyGradeId = btn.dataset.requestQtyId;
+      render();
+      const el = document.getElementById('req-qty-' + btn.dataset.requestQtyId);
+      if (el) { el.focus(); el.select(); }
+    });
+  });
+  document.querySelectorAll('[data-cancel-req-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.requestQtyGradeId = null;
+      render();
+    });
+  });
+  document.querySelectorAll('[data-req-form-id]').forEach((form) => {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const id = form.dataset.reqFormId;
+      const raw = parseInt((document.getElementById('req-qty-' + id) || {}).value, 10);
+      state.requestQtyGradeId = null;
+      safeAsync(() => requestShortage(id, raw), 'طلب تزويد بكمية');
+    });
   });
 
   // ---- 🖨️ طباعة مسمّى درجة واحدة من جوه الصف ----
@@ -2694,7 +2749,10 @@ function attachDashboardEvents() {
   document.querySelectorAll('[data-quick-fulfill-id]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
-      await fulfillShortage(btn.dataset.quickFulfillId, defaultRestockQty()).catch((err) => {
+      // ⚠️ الكمية جاية من الزرار نفسه (اللي اتطلبت)، مش من الافتراضي —
+      // وإلا الطلب بكمية 3 كان هيتقفل بواحدة.
+      const wantQty = parseInt(btn.dataset.quickFulfillQty, 10) || defaultRestockQty();
+      await fulfillShortage(btn.dataset.quickFulfillId, wantQty).catch((err) => {
         btn.disabled = false;
         console.error('فشل التزويد السريع:', err);
         alert('حصلت مشكلة أثناء التزويد. جرّب تاني.');
@@ -4106,19 +4164,60 @@ function gradeRefOf(categoryId, gradeId) {
 // ============================================================
 // نظام النواقص: طلب تزويد → رد أمين المخزن الرئيسي
 // ============================================================
-async function requestShortage(gradeId) {
+// ============================================================
+// ⭐ الكمية المطلوبة — الافتراضي 1، وممكن أكتر
+// ============================================================
+// الطلب كان **مالوش كمية** خالص: الحالة بتبقى "معلّق" وخلاص، وأمين
+// الرئيسي بيزوّد الكمية الافتراضية. ده كافي في 95% من الحالات، بس مكانش
+// فيه طريقة تقول "أنا محتاج 3 مش 1".
+//
+// دلوقتي الكمية بتتخزّن مع الطلب (`requestedQty`) — بس **بس لو أكتر من
+// واحد**. الطلب العادي بيفضل بنفس شكله في السحابة بالظبط، فالبيانات
+// القديمة والأجهزة اللي لسه على نسخة قديمة مايتأثروش.
+//
+// ⚠️ حدّين لازم يتحققوا **قبل** ما الطلب يتسجّل:
+//   • الدرجة "خلصت" (out) مافيش منها حاجة في الرئيسي أصلًا
+//   • ومستحيل تطلب 3 والرئيسي فيه 1 — الرقم ده مش هيتنفّذ
+// من غيرهم بتبقى طلبات معلّقة عمرها ما هتتقفل، وأمين الرئيسي بيدوّر على
+// بضاعة مش موجودة.
+function restockRequestLimit(g) {
+  return Math.max(0, Number(g && g.mainQty) || 0);
+}
+
+// بترجّع رسالة الخطأ، أو '' لو الطلب سليم.
+function restockRequestError(g, qty) {
+  if (!g) return 'الدرجة مش موجودة.';
+  if (g.status === 'out') return 'الدرجة دي خلصت من المخزن الرئيسي — مفيش منها حاجة تتطلب.';
+  const limit = restockRequestLimit(g);
+  if (limit <= 0) return 'مفيش كمية في المخزن الرئيسي.';
+  if (qty > limit) return `الرئيسي فيه ${limit} بس، مينفعش تطلب ${qty}.`;
+  return '';
+}
+
+async function requestShortage(gradeId, qty) {
   const categoryId = state.activeCategoryId;
   const data = await readGrade(categoryId, gradeId);
   if (!data) return;
+
+  const want = Math.max(1, parseInt(qty, 10) || 1);
+  const err = restockRequestError(data, want);
+  if (err) {
+    alert('⚠️ ' + err);
+    return;
+  }
+
   const gradeRef = gradeRefOf(categoryId, gradeId);
-  fireWrite(gradeRef.update({ status: 'pending' }), 'طلب تزويد');
+  // ⚠️ الطلب العادي (واحد) **مابيكتبش الحقل خالص** — عشان شكل البيانات
+  // يفضل زي ما هو بالظبط في الحالة الغالبة.
+  const patch = want > 1 ? { status: 'pending', requestedQty: want } : { status: 'pending', requestedQty: null };
+  fireWrite(gradeRef.update(patch), 'طلب تزويد');
   pushUndo({
-    label: `${gradeDisplayName(data)} — طلب تزويد`,
+    label: `${gradeDisplayName(data)} — طلب تزويد${want > 1 ? ` (${want})` : ''}`,
     categoryId,
     gradeId,
     gradeLabel: gradeDisplayName(data),
-    before: { status: data.status || 'normal' },
-    after: { status: 'pending' },
+    before: { status: data.status || 'normal', requestedQty: data.requestedQty || null },
+    after: patch,
   });
   const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({
@@ -4127,6 +4226,7 @@ async function requestShortage(gradeId) {
     categoryName,
     gradeId,
     gradeNumber: data.number,
+    requestedQty: want,
   });
 }
 
@@ -4135,14 +4235,15 @@ async function cancelShortage(gradeId) {
   const data = await readGrade(categoryId, gradeId);
   if (!data) return;
   const gradeRef = gradeRefOf(categoryId, gradeId);
-  fireWrite(gradeRef.update({ status: 'normal' }), 'إلغاء طلب تزويد');
+  // الكمية المطلوبة بتتشال مع الإلغاء — الطلب اتلغى يعني مفيش كمية مطلوبة
+  fireWrite(gradeRef.update({ status: 'normal', requestedQty: null }), 'إلغاء طلب تزويد');
   pushUndo({
     label: `${gradeDisplayName(data)} — إلغاء طلب التزويد`,
     categoryId,
     gradeId,
     gradeLabel: gradeDisplayName(data),
-    before: { status: data.status || 'pending' },
-    after: { status: 'normal' },
+    before: { status: data.status || 'pending', requestedQty: data.requestedQty || null },
+    after: { status: 'normal', requestedQty: null },
   });
   const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
   logActivity({
@@ -4162,7 +4263,12 @@ async function fulfillShortage(gradeId, qty) {
   const transferQty = Math.min(qty, data.mainQty || 0);
   const newMainQty = Math.max(0, (data.mainQty || 0) - transferQty);
   const newBranchQty = (data.branchQty || 0) + transferQty;
-  fireWrite(gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty }), 'تزويد');
+  // ⚠️ الكمية المطلوبة بتتصفّر مع قفل الطلب — وإلا الطلب الجاي هيرث رقم
+  // قديم ويظهر "×3" وهو أصلًا طلب عادي.
+  fireWrite(
+    gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty, requestedQty: null }),
+    'تزويد'
+  );
   pushUndo({
     label: `${gradeDisplayName(data)} — تزويد بكمية ${transferQty}`,
     categoryId,

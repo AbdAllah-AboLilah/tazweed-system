@@ -160,7 +160,7 @@ const NAMES = ['Chanvie Leen 58047','طباقيه كويتى كباسين','Qian
     const out = { pngs: [], complete: [] };
     const c = document.createElement('canvas').getContext('2d');
     for (const name of NAMES.slice(0, 6)) {
-      const png = renderGradeLabelPNG(name, 'درجة 12', { pageWidthMm:38, pageHeightMm:25, halves:2 });
+      const png = renderGradeLabelPNG(name + ' — درجة 12', { pageWidthMm:38, pageHeightMm:25, halves:2 });
       out.pngs.push(png.slice(0, 15));
       const availW = 304 - Math.round(mmToDots(0.8)) * 2;
       let best = null;

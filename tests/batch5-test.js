@@ -342,7 +342,7 @@ function decodeCell(dataUrl, quiet) {
     state.printCart = [
       { key: 'a', product: window.productsCache[0], qty: 1, mode: 'normal' },
       { key: 'b', product: window.productsCache[1], qty: 2, mode: 'quarter', noPrice: true },
-      { key: 'c', custom: { line1: 'بضاعة مرتجعة', line2: 'مورّد نصار' }, qty: 3 },
+      { key: 'c', custom: { text: 'بضاعة مرتجعة — مورّد نصار' }, qty: 3 },
     ];
     await printCartLabels({ pageWidthMm: 38, pageHeightMm: 25, halves: 2 });
     window.renderQuarterLabelPNG = origQ;
@@ -368,8 +368,7 @@ function decodeCell(dataUrl, quiet) {
     document.getElementById('print-screen-custom-btn').click();
     await new Promise(r => setTimeout(r, 60));
     const out = { btnLabel: document.querySelector('#custom-label-form button[type=submit]').textContent };
-    document.getElementById('custom-line1').value = 'بضاعة مرتجعة';
-    document.getElementById('custom-line2').value = 'مورّد نصار';
+    document.getElementById('custom-text').value = 'بضاعة مرتجعة — مورّد نصار';
     document.getElementById('custom-copies').value = '5';
     document.getElementById('custom-label-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await new Promise(r => setTimeout(r, 150));
@@ -448,7 +447,7 @@ function decodeCell(dataUrl, quiet) {
   const persist = await p.evaluate(() => {
     state.printCart = [
       { key: 'a', product: { name: 'كريب', barcode: '28144' }, qty: 2, mode: 'quarter', noPrice: true },
-      { key: 'c', custom: { line1: 'بضاعة مرتجعة', line2: 'نصار' }, qty: 3 },
+      { key: 'c', custom: { text: 'بضاعة مرتجعة — نصار' }, qty: 3 },
     ];
     saveWorkState();
     const saved = restoreWorkState(state.user.uid);
@@ -456,7 +455,7 @@ function decodeCell(dataUrl, quiet) {
     return {
       count: back.length,
       keptShape: back[0] && back[0].mode === 'quarter' && back[0].noPrice === true,
-      keptCustom: !!(back[1] && back[1].custom && back[1].custom.line1 === 'بضاعة مرتجعة'),
+      keptCustom: !!(back[1] && back[1].custom && back[1].custom.text === 'بضاعة مرتجعة — نصار'),
     };
   });
   check('⭐ شكل الملصق بيتحفظ مع السلة', persist.count === 2 && persist.keptShape, persist);
@@ -468,7 +467,7 @@ function decodeCell(dataUrl, quiet) {
       { key: 'x', product: { name: 'كريب', barcode: '28144' }, qty: 1 },
       { key: 'y', qty: 3 },                       // مسمّى ضاعت بياناته
       null,
-      { key: 'z', custom: { line1: 'ملاحظة' }, qty: 2 },
+      { key: 'z', custom: { text: 'ملاحظة' }, qty: 2 },
     ];
     const clean = sanitizePrintCart(bad);
     const errs = [];
@@ -562,7 +561,7 @@ function decodeCell(dataUrl, quiet) {
     });
     return Promise.all([
       lost(renderLabelPNG(cat, { ...size }), 1.5),
-      lost(renderGradeLabelPNG('كريب سادة لوكس', 'كيوي درجة 9999', { ...size }), 1.5),
+      lost(renderGradeLabelPNG('كريب سادة لوكس — كيوي درجة 9999', { ...size }), 1.5),
       lost(renderQuarterLabelPNG(cat, { ...size }), 1.5),
     ]).then(([item, grade, quarter]) => ({ item, grade, quarter }));
   });
@@ -643,11 +642,13 @@ function decodeCell(dataUrl, quiet) {
     for (const s of seen) if (!uniq.some((u) => u[0] === s[0] && u[1] === s[1])) uniq.push(s);
     return uniq;
   });
-  check('⭐ الدرجة اللي في مجموعة: الملصق فيه اسم المجموعة',
-    rowGroup[0] && rowGroup[0][0] === 'كريب سادة لوكس' && rowGroup[0][1] === 'كيوي درجة 9999', rowGroup);
-  check('⭐ وحتى لو المفتاح المشترك مقفول', rowGroup[0] && /كيوي/.test(rowGroup[0][1]), rowGroup);
+  // ⚠️ من v0.42.0 اسم الفئة والدرجة بقوا **نص واحد بيلف** بدل سطرين
+  // مفروضين، فاللي بيوصل لدالة الرسم بقى نص واحد.
+  check('⭐ الدرجة اللي في مجموعة: الملصق فيه اسم الفئة واسم المجموعة',
+    rowGroup[0] && rowGroup[0][0] === 'كريب سادة لوكس — كيوي درجة 9999', rowGroup);
+  check('⭐ وحتى لو المفتاح المشترك مقفول', rowGroup[0] && /كيوي/.test(rowGroup[0][0]), rowGroup);
   check('والدرجة اللي مالهاش مجموعة مابتتغيّرش',
-    rowGroup[1] && rowGroup[1][1] === 'درجة 5', rowGroup);
+    rowGroup[1] && rowGroup[1][0] === 'كريب سادة لوكس — درجة 5', rowGroup);
 
   // ============================================================
   // 12) تنبيهات فشل الطباعة

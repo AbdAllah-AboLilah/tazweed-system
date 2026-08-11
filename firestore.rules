@@ -116,11 +116,27 @@ service cloud.firestore {
     function newBranchQty() { return request.resource.data.branchQty; }
     function newMainQty() { return request.resource.data.mainQty; }
 
+    // ⭐ الكمية المطلوبة مع الطلب. أمين الفرع بيكتبها وهو بيطلب، وبتترجّع
+    // لـnull لما الطلب يتلغي أو يتقفل — عشان الطلب الجاي مايرثش رقم قديم.
+    //
+    // ⚠️ من غير الحقل ده في القوايم تحت، **كل** طلب بكمية كان هيترفض من
+    // السحابة في صمت — الحالة تفضل زي ما هي والمستخدم مش فاهم ليه.
+    function requestedQtyOK() {
+      return !('requestedQty' in request.resource.data)
+        || request.resource.data.requestedQty == null
+        || (request.resource.data.requestedQty is int
+            && request.resource.data.requestedQty >= 1
+            && request.resource.data.requestedQty <= resource.data.get('mainQty', 0));
+    }
+
     function branchAction() {
-      return isBranchKeeper() && (
+      return isBranchKeeper() && requestedQtyOK() && (
         onlyChangedKeys(['branchQty'])
         || (onlyChangedKeys(['status']) && oldStatus() == 'normal' && newStatus() == 'pending')
         || (onlyChangedKeys(['status']) && oldStatus() == 'pending' && newStatus() == 'normal')
+        // الطلب بكمية: الحالة والكمية المطلوبة مع بعض في كتابة واحدة
+        || (onlyChangedKeys(['status', 'requestedQty']) && oldStatus() == 'normal' && newStatus() == 'pending')
+        || (onlyChangedKeys(['status', 'requestedQty']) && oldStatus() == 'pending' && newStatus() == 'normal')
         // التغيير التلقائي: الكمية والحالة بيتغيّروا مع بعض في كتابة واحدة،
         // بشرط إن الحالة الجديدة مطابقة للأرقام.
         || (
@@ -136,6 +152,10 @@ service cloud.firestore {
       return isMainKeeper() && (
         onlyChangedKeys(['mainQty'])
         || (onlyChangedKeys(['status', 'mainQty', 'branchQty']) && oldStatus() == 'pending' && newStatus() == 'normal')
+        // ولمّا يقفل الطلب، الكمية المطلوبة بتتصفّر معاه
+        || (onlyChangedKeys(['status', 'mainQty', 'branchQty', 'requestedQty'])
+            && oldStatus() == 'pending' && newStatus() == 'normal'
+            && request.resource.data.requestedQty == null)
         || (onlyChangedKeys(['status']) && oldStatus() == 'pending' && newStatus() == 'out')
         || (onlyChangedKeys(['status']) && oldStatus() == 'out' && newStatus() == 'normal')
         // التغيير التلقائي من ناحية الرئيسي: نزّل الكمية لصفر فالدرجة
