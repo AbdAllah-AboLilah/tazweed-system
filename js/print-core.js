@@ -767,6 +767,50 @@ function isQZAvailable() {
 // إن المستخدم يفتكر إن النظام واقف.
 const QZ_PRINT_TIMEOUT_MS = 30000;
 
+// ============================================================
+// ⭐⭐ ليه الـ100 ملصق بتضيع من غير ولا رسالة خطأ
+// ============================================================
+// التقسيم كان موجود خلاص (100 ملصق = 25 رسالة)، والمهلة اتحطت، وبرضه
+// الطبعة الكبيرة بتختفي **ومفيش رسالة فشل**. السبب مش في التقسيم — هو في
+// **السرعة**.
+//
+// الطابعة الحرارية بتطبع ملصق 25مم في حوالي **نص ثانية**. يعني 100 ملصق
+// = 50 ثانية شغل حقيقي. وإحنا كنا بنرمي الـ25 وظيفة كلها في **ثانية أو
+// اتنين** — أسرع 30 مرة من قدرة الماكينة.
+//
+// وذاكرة الطابعة صغيرة (كام مئة كيلو). فاللي بيحصل: أول شوية وظايف
+// بيدخلوا، والباقي **بيتزنق في طابور الويندوز أو بيتنطّ من الطابعة**.
+//
+// وأسوأ حاجة: `qz.print()` بترجّع بنجاح أول ما الأمر يوصل لطابور الويندوز
+// — **مش لما الملصق يخرج**. فمن ناحية الكود كل حاجة نجحت:
+//   • مفيش خطأ يترمى
+//   • والمهلة عمرها ما بتوصل (الوعد اتحل بسرعة)
+//   • فمفيش رسالة فشل تتبعت
+// وإنت واقف قدام الماكينة مش شايف حاجة بتخرج.
+//
+// **الحل**: نمشي على سرعة الماكينة. بعد كل دفعة بنستنى الوقت اللي
+// الطابعة محتاجاه فعلًا تطبعها، قبل ما نبعت اللي بعدها. الطبعة بتاخد
+// وقتها الطبيعي (وده وقت الطباعة نفسه، مش تأخير زيادة) — بس **بتخرج
+// كاملة**.
+//
+// ⚠️ الرقم ده مقاس بالتقريب على الماكينة اللي في المحل. لو الطابعة أسرع
+// أو أبطأ، المفتاح في إعدادات الطابعة بيظبّطه.
+const PRINT_PACE_MS_PER_LABEL = 420;
+
+const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// بتستنى الطابعة تلحق الدفعة اللي لسه اتبعتت.
+// ⚠️ مش تأخير مصطنع — ده الوقت اللي الماكينة بتاخده أصلًا. من غيره
+// إحنا بنبعت أسرع منها 30 مرة والباقي بيضيع.
+async function paceForPrinter(labelCount) {
+  // ⚠️ `getPrintPaceMs() || DEFAULT` **غلط** هنا: صفر قيمة صحيحة معناها
+  // "من غير انتظار"، و`||` بتبلعها وترجّع الافتراضي. الفحص مسك ده لما
+  // قاس الوقت الحقيقي ولقى إن "صفر" بتاخد 15 ثانية زي الافتراضي بالظبط.
+  const per = getPrintPaceMs();
+  if (!(per > 0)) return;
+  await sleepMs(Math.min(20000, labelCount * per));
+}
+
 // بتلفّ أي وعد بمهلة. لو عدّت المهلة بترمي خطأ واضح بدل ما تفضل مستنية.
 function withTimeout(promise, ms, what) {
   let timer;
@@ -1388,6 +1432,29 @@ async function printTSPLFontSample(printerName, widthMm, heightMm, sampleText, s
 //
 // ⚠️ الأوامر دي بتروح **للطابعة نفسها** وبتتخزّن في ذاكرتها — زي المعايرة
 // بالظبط. مش إعداد ويندوز ولا حاجة في النظام.
+// سرعة الطابعة بالملّي ثانية للملصق — قابلة للضبط لأن كل ماكينة ليها
+// سرعتها. صفر = من غير انتظار (السلوك القديم اللي كان بيضيّع الطبعات).
+const PRINT_PACE_KEY = 'tazweed_print_pace_ms';
+
+function getPrintPaceMs() {
+  try {
+    const v = localStorage.getItem(PRINT_PACE_KEY);
+    if (v === null || v === '') return PRINT_PACE_MS_PER_LABEL;
+    const n = Number(v);
+    return isFinite(n) && n >= 0 ? Math.min(3000, n) : PRINT_PACE_MS_PER_LABEL;
+  } catch (err) {
+    return PRINT_PACE_MS_PER_LABEL;
+  }
+}
+
+function setPrintPaceMs(ms) {
+  try {
+    localStorage.setItem(PRINT_PACE_KEY, String(Math.max(0, Math.min(3000, Number(ms) || 0))));
+  } catch (err) {
+    /* لا شيء */
+  }
+}
+
 const PRINT_SPEED_DEFAULT = 3;    // بوصة/ثانية
 
 const PRINT_DENSITY_DEFAULT = 8;  // من 0 لـ15
@@ -1707,6 +1774,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
             await qzPrintWithTimeout(cfg, [page], `نسخ ${sent + 1}-${sent + n}`);
             sent += n;
             report(sent, total);
+            if (sent < total) await paceForPrinter(n);
           }
           if (progress) progress.close();
           if (progress) showPrintHint(total);
@@ -1775,6 +1843,8 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
         await qzPrintWithTimeout(config, chunk, `الملصقات ${done + 1}-${done + chunk.length}`);
         done += chunk.length;
         report(done, pages.length);
+        // ⭐ نستنى الماكينة تلحق قبل الدفعة اللي بعدها (شوف paceForPrinter)
+        if (done < pages.length) await paceForPrinter(chunk.length);
       }
     } catch (errBatch) {
       // لو نسخة QZ أو الطابعة مابتقبلش أكتر من صفحة في الأمر الواحد،
@@ -1785,6 +1855,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
         for (let i = done; i < pages.length; i++) {
           await qzPrintWithTimeout(config, [pages[i]], `الملصق ${i + 1}`);
           report(i + 1, pages.length);
+          if (i + 1 < pages.length) await paceForPrinter(1);
         }
       } catch (errOne) {
         if (progress) progress.close();
@@ -1927,6 +1998,26 @@ async function openPrinterSettings() {
               ولو <strong>باهت</strong>: السرعة <strong>2</strong> والحرارة <strong>10</strong>.
             </div>
             <div id="pq-status" style="font-size:12px; min-height:16px;"></div>
+
+            <!-- ⭐⭐ ده اللي بيخلّي الطبعات الكبيرة تخرج كاملة -->
+            <div style="border-top:1px dashed var(--border); margin-top:10px; padding-top:10px;">
+              <div style="font-size:12px; font-weight:500; margin-bottom:4px;">⏱️ إيقاع الطبعات الكبيرة</div>
+              <div style="font-size:11px; color:var(--text-muted); line-height:1.8; margin-bottom:8px;">
+                الطابعة بتطبع الملصق في حوالي <strong>نص ثانية</strong>. لو بعتنا 100 ملصق
+                في ثانية واحدة، ذاكرتها بتتملى و<strong>الباقي بيضيع من غير أي رسالة</strong> —
+                لأن الويندوز بيقول "استلمت" حتى لو الورق مخرجش.
+                <br>الرقم ده بيخلّي النظام يمشي على سرعة ماكينتك.
+                <br><strong>صفر = من غير انتظار</strong> (السلوك القديم اللي كان بيضيّع الطبعات).
+              </div>
+              <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap;">
+                <div class="field" style="width:150px; margin-bottom:0;">
+                  <label style="font-size:11px;">مللي ثانية لكل ملصق</label>
+                  <input class="input" type="number" id="pq-pace" min="0" max="3000" step="20" style="padding:6px;" />
+                </div>
+                <button class="btn" id="pq-pace-save">حفظ</button>
+                <span id="pq-pace-status" style="font-size:11px; color:var(--text-muted);"></span>
+              </div>
+            </div>
           </div>
 
           <div style="border-top:1px dashed var(--border); margin-top:12px; padding-top:10px;">
@@ -2123,6 +2214,19 @@ async function openPrinterSettings() {
   );
 
   // ---- جودة الطباعة ----
+  const pqPace = overlay.querySelector('#pq-pace');
+  if (pqPace) {
+    pqPace.value = getPrintPaceMs();
+    overlay.querySelector('#pq-pace-save').addEventListener('click', () => {
+      setPrintPaceMs(pqPace.value);
+      pqPace.value = getPrintPaceMs();
+      const st = overlay.querySelector('#pq-pace-status');
+      st.textContent = getPrintPaceMs() > 0
+        ? `✅ اتحفظ — الطبعة الكبيرة هتمشي على ${getPrintPaceMs()}مث للملصق.`
+        : '✅ اتحفظ — من غير انتظار.';
+    });
+  }
+
   const pqSpeed = overlay.querySelector('#pq-speed');
   const pqDensity = overlay.querySelector('#pq-density');
   const pqStatus = overlay.querySelector('#pq-status');
