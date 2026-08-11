@@ -16,12 +16,12 @@
 // بترجّع true لو الطباعة اتبعتت فعلًا (لطابعة هنا أو لجهاز تاني)، وfalse
 // لو المستخدم ألغى أو حصلت مشكلة — الشاشات بتستخدم ده عشان تعرف تفضّي
 // السلة ولا لأ.
-async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML) {
+async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, spec) {
   const target = await choosePrintTarget();
   if (target === null) return false;
 
   if (target !== 'local') {
-    await sendPrintJob(type, target, html, sizeOptions, browserHTML);
+    await sendPrintJob(type, target, html, sizeOptions, browserHTML, spec);
     return true;
   }
 
@@ -44,9 +44,34 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML) {
   return true;
 }
 
-// بنبعت الـHTML جاهز بالكامل (بما فيه صورة الـQR) بدل ما الجهاز المستقبِل
-// يعيد بناءه — كده اللي بيتطبع هناك هو **بالظبط** اللي شوفته في المعاينة.
-async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML) {
+// ============================================================
+// ⭐⭐ الملصق بيتبنى على **الجهاز اللي هيطبع**، مش اللي بعت
+// ============================================================
+// ⚠️⚠️ كان مكتوب هنا: "بنبعت الـHTML جاهز بالكامل بدل ما الجهاز المستقبِل
+// يعيد بناءه — كده اللي بيتطبع هناك هو بالظبط اللي شوفته في المعاينة."
+//
+// الكلام ده **طلع غلط على ورق حقيقي**، والصورة أثبتته: نفس الدرجة
+// بالظبط، من الكمبيوتر بتطلع "بونيه حجاب — بندانه سوري مفتوح درجة 4"،
+// ومن الموبايل بتطلع "بونيه حجاب — بندانه سوري" بخط أكبر — **ناقصة
+// "مفتوح درجة 4"**.
+//
+// **السبب**: مقاس الخط بيتحسب بالقياس على الجهاز اللي بيبعت. الموبايل
+// مافيهوش Tahoma ولا Arial — أندرويد بيبدّلهم بخط تاني (Noto) مقاساته
+// **أضيق للعربي**. فالموبايل بيقيس ويقول "الكلام ده يدخل سطرين بمقاس
+// 4 مم"، وبيحط الرقم ده في الـCSS ويبعته.
+//
+// والكمبيوتر بيرسم نفس الـCSS بخطوطه **هو** — اللي أعرض — فالكلام
+// مابيدخلش، و`-webkit-line-clamp` بتقص السطر الزيادة **في صمت**. مفيش
+// خطأ، ومفيش نقط حتى — الكلام بيختفي وخلاص.
+//
+// والمعاينة على الموبايل بتبان سليمة لأنها بترسم بخطوط الموبايل نفسه.
+//
+// **الحل**: بنبعت **وصفة** الملصق (النص والعدد والمقاس) جنب الـHTML.
+// الجهاز اللي هيطبع بيعيد بناءه بخطوطه هو، فالقياس بيبقى صح.
+//
+// ⚠️ الـHTML الجاهز فاضل مبعوت كمان — عشان الأجهزة اللي لسه على نسخة
+// قديمة مش عارفة الوصفة تفضل تطبع حاجة صح بدل ما تقف.
+async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML, spec) {
   const station = (state.printStations || []).find((s) => s.id === targetDeviceId);
 
   // ⚠️ درس مهم: الجهاز المستقبِل ممكن يكون لسه شغّال على **نسخة أقدم** من
@@ -61,6 +86,8 @@ async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML
     targetDeviceId,
     html: browserHTML || (jobs.length ? jobs[0].html : ''),
     jobs,
+    // وصفة إعادة البناء — الجهاز المستقبِل بيفضّلها على الـHTML الجاهز
+    spec: spec || null,
     senderVersion: typeof APP_VERSION === 'string' ? APP_VERSION : '',
     browserHTML: browserHTML || null,
     sizeOptions: sizeOptions || null,
@@ -146,12 +173,57 @@ function subscribePrintJobs() {
     );
 }
 
+// ============================================================
+// إعادة بناء الملصق من وصفته على الجهاز اللي هيطبع
+// ============================================================
+// بترجّع قايمة وظايف، أو null لو مفيش وصفة (أو وصفة مش مفهومة) —
+// وساعتها بيتستخدم الـHTML الجاهز اللي جه مع الطلب.
+//
+// ⚠️ أي شكل ملصق جديد لازم يتضاف هنا **وفي اللي بيبعت**، وإلا الطباعة عن
+// بُعد هتفضل على القياس الغلط بتاع الجهاز الباعت من غير ما حد ياخد باله.
+async function rebuildFromSpec(spec, sizeOptions) {
+  if (!spec || !spec.kind || !sizeOptions) return null;
+  const n = Math.max(1, parseInt(spec.copies, 10) || 1);
+  try {
+    if (spec.kind === 'text' && typeof buildTextLabel === 'function') {
+      const b = buildTextLabel(spec.text, sizeOptions, n);
+      return [{ html: b.jobHTML, image: b.image, copies: n }];
+    }
+    // ⚠️ "من غير سعر" بيتنقل مع الصنف مش مع المقاس، عشان كل صنف في السلة
+    // ليه مفتاحه هو — فبنرجّعه لمكانه هنا.
+    const opts = spec.cat && spec.cat.__noPrice ? { ...sizeOptions, noPrice: true } : sizeOptions;
+    if (spec.kind === 'item' && typeof buildItemLabel === 'function') {
+      const b = await buildItemLabel(spec.cat, opts, n);
+      return [{ html: b.jobHTML, image: b.image, copies: n }];
+    }
+    if (spec.kind === 'quarter' && typeof buildQuarterLabel === 'function') {
+      const b = await buildQuarterLabel(spec.cat, opts, n);
+      return [{ html: b.jobHTML, image: b.image, copies: n }];
+    }
+    if (spec.kind === 'many' && Array.isArray(spec.items)) {
+      const out = [];
+      for (const it of spec.items) {
+        const one = await rebuildFromSpec({ ...it, copies: it.copies || 1 }, sizeOptions);
+        if (!one) return null; // واحد مش مفهوم = نرجع للـHTML الجاهز كله
+        out.push({ ...one[0], copies: Math.max(1, parseInt(it.copies, 10) || 1) });
+      }
+      return out.length ? out : null;
+    }
+  } catch (err) {
+    console.warn('تعذّرت إعادة بناء الملصق من وصفته — هنستخدم الجاهز:', err);
+  }
+  return null;
+}
+
 async function executePrintJob(jobId, job) {
   // الـHTML بيوصل جاهز من الجهاز الباعت (بما فيه صورة الـQR)، فاللي بيتطبع
   // هنا هو بالظبط اللي هو شافه في المعاينة عنده.
   // jobs هو الشكل الجديد؛ html هو الشكل المتوافق مع النسخ القديمة. لو
   // الطلب جاي من نسخة أقدم، normalizePrintJobs بتفهم أشكالها كلها.
-  const list = normalizePrintJobs(job.jobs && job.jobs.length ? job.jobs : job.html);
+  // ⭐ الوصفة الأول: بنعيد بناء الملصق **هنا** بخطوط الجهاز ده، عشان
+  // القياس يبقى صح. (شوف الشرح المطوّل في sendPrintJob)
+  const rebuilt = await rebuildFromSpec(job.spec, job.sizeOptions);
+  const list = rebuilt || normalizePrintJobs(job.jobs && job.jobs.length ? job.jobs : job.html);
   if (!list.length) {
     console.error('طلب طباعة محتواه غير صالح — اتلغى:', jobId);
     db.collection('printJobs')
@@ -658,9 +730,105 @@ function isQZAvailable() {
   return typeof qz !== 'undefined';
 }
 
+// ============================================================
+// ⭐⭐ الأمر مايوصلش للطابعة ومفيش رسالة فشل — السبب هنا
+// ============================================================
+// الشكوى: "لما اجي اطبع 100 ملصق الأمر مايروحش للطباعة ولا بتيجي رسالة
+// إن الأمر فشل". و40 ملصق بيشتغلوا عادي.
+//
+// سببين بيكمّلوا بعض:
+//
+// **1) الاتصال بيتفتح مرة واحدة وعمره ما بيتراجع.**
+// `qzConnected` كانت بتتحط true وخلاص. لو السوكيت مات بعد كده — القفل
+// اتقفل والجهاز نام، أو النت قطع لحظة، أو QZ Tray اتقفل واتفتح — العَلَم
+// بيفضل true. فـensureQZConnected بترجّع true من غير ما تسأل، وكل أمر
+// طباعة بعدها بيتبعت على **سوكيت ميت**.
+//
+// **2) `qz.print()` مالهاش مهلة.**
+// هي وعد بيستنى رد من QZ على السوكيت. لو السوكيت ميت، الرد عمره ما هييجي
+// — والوعد **عمره ما بيتحل ولا بيترفض**. يعني:
+//   • مفيش خطأ (محدش رمى حاجة)
+//   • ومفيش نجاح (الانتظار مخلصش)
+//   • والشريط بيقف مكانه، والصفحة مستنية للأبد
+//
+// **وليه 100 وليه مش 40؟** الـ100 ملصق بيتقسّموا **25 رسالة** ورا بعض،
+// والـ40 بيبقوا 10. كل رسالة دي رحلة رايح جاي على السوكيت — يعني 25 فرصة
+// للتعليق بدل 10، ووقت أطول بمرتين ونص يزيد احتمال إن السوكيت يقع في
+// النص.
+//
+// الحل: مهلة على كل أمر (لو عدّت = محاولة تانية، وبعدها فشل **بصوت**)،
+// والعَلَم بيترجّع لـfalse أول ما السوكيت يقفل.
+//
+// ⚠️ متشيلش الاتنين. المهلة لوحدها بتكشف التعليق بس بتفضل تتكرر، ورجوع
+// العَلَم لوحده مابيحلّش تعليق حصل فعلًا.
+
+// مهلة أمر الطباعة الواحد. الرسالة ~39 كيلو والطابعة الحرارية بتخلّص
+// 4 ملصقات في تانيتين تلاتة — فـ30 ثانية مساحة أكتر من كفاية، وأقل من
+// إن المستخدم يفتكر إن النظام واقف.
+const QZ_PRINT_TIMEOUT_MS = 30000;
+
+// بتلفّ أي وعد بمهلة. لو عدّت المهلة بترمي خطأ واضح بدل ما تفضل مستنية.
+function withTimeout(promise, ms, what) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} — عدّى ${Math.round(ms / 1000)} ثانية من غير رد`)), ms);
+    }),
+  ]);
+}
+
+// أمر طباعة واحد بمهلة ومحاولة تانية.
+//
+// ⚠️ المحاولة التانية بتعيد الاتصال الأول. السبب إن أشهر سبب للتعليق هو
+// سوكيت ميت — وإعادة الإرسال على نفس السوكيت الميت هتعلّق تاني.
+async function qzPrintWithTimeout(config, pages, label) {
+  try {
+    return await withTimeout(qz.print(config, pages), QZ_PRINT_TIMEOUT_MS, label);
+  } catch (err) {
+    console.warn('أمر الطباعة معلّق أو فشل — بنعيد الاتصال ونجرّب تاني:', err);
+    qzConnected = false;
+    qzConnecting = null;
+    const ok = await ensureQZConnected();
+    if (!ok) throw new Error('الاتصال بـ QZ Tray اتقطع ومارجعش.');
+    return withTimeout(qz.print(config, pages), QZ_PRINT_TIMEOUT_MS, label + ' (المحاولة التانية)');
+  }
+}
+
+// بتسجّل نفسها مرة واحدة: أول ما السوكيت يقفل، العَلَم يرجع false.
+let qzClosedHooked = false;
+function hookQZClosed() {
+  if (qzClosedHooked) return;
+  if (!isQZAvailable() || !qz.websocket || typeof qz.websocket.setClosedCallbacks !== 'function') return;
+  qzClosedHooked = true;
+  try {
+    qz.websocket.setClosedCallbacks(() => {
+      console.warn('اتصال QZ Tray اتقفل — هنعيد الاتصال في أول طباعة جاية.');
+      qzConnected = false;
+      qzConnecting = null;
+    });
+    if (typeof qz.websocket.setErrorCallbacks === 'function') {
+      qz.websocket.setErrorCallbacks(() => {
+        qzConnected = false;
+        qzConnecting = null;
+      });
+    }
+  } catch (err) {
+    console.warn('تعذّر تسجيل مراقبة اتصال QZ:', err);
+  }
+}
+
 async function ensureQZConnected() {
   if (!isQZAvailable()) return false;
-  if (qzConnected) return true;
+  hookQZClosed();
+  // ⚠️ مانكتفيش بالعَلَم: بنسأل المكتبة نفسها. لو السوكيت مات من غير ما
+  // ينده على callback (بيحصل لما الجهاز ينام)، العَلَم بيبقى بيكدب.
+  if (qzConnected) {
+    if (typeof qz.websocket.isActive !== 'function' || qz.websocket.isActive()) return true;
+    console.warn('العَلَم بيقول متصل والسوكيت مقفول — بنعيد الاتصال.');
+    qzConnected = false;
+    qzConnecting = null;
+  }
   if (qzConnecting) return qzConnecting;
 
   // ⚠️ qz.websocket.connect() ساعات بترمي خطأ **فوري** بدل ما ترجّع وعد
@@ -1536,7 +1704,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
           while (sent < total) {
             const n = Math.min(COPIES_PER_JOB, total - sent);
             const cfg = qz.configs.create(printerName, { ...configOpts, copies: n });
-            await qz.print(cfg, [page]);
+            await qzPrintWithTimeout(cfg, [page], `نسخ ${sent + 1}-${sent + n}`);
             sent += n;
             report(sent, total);
           }
@@ -1604,7 +1772,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     let done = 0;
     try {
       for (const chunk of perMessage) {
-        await qz.print(config, chunk);
+        await qzPrintWithTimeout(config, chunk, `الملصقات ${done + 1}-${done + chunk.length}`);
         done += chunk.length;
         report(done, pages.length);
       }
@@ -1615,7 +1783,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
       console.warn('الطباعة المجمّعة مانفعتش — بنرجع لواحدة واحدة:', errBatch);
       try {
         for (let i = done; i < pages.length; i++) {
-          await qz.print(config, [pages[i]]);
+          await qzPrintWithTimeout(config, [pages[i]], `الملصق ${i + 1}`);
           report(i + 1, pages.length);
         }
       } catch (errOne) {

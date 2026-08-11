@@ -1228,7 +1228,9 @@ async function printLabel(cat, sizeOptions) {
   // لكل نسخة صفحة مستقلة (مصفوفة) عشان QZ ما يحشرهمش في لاصقة واحدة،
   // ومستند واحد بفواصل صفحات للطريقة العادية (نافذة المتصفح).
   const jobs = [{ html: built.jobHTML, image: built.image, copies }];
-  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', built.fallbackHTML);
+  // ⭐ الوصفة: الجهاز اللي هيطبع بيعيد البناء بخطوطه هو (شوف sendPrintJob)
+  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', built.fallbackHTML,
+    { kind: 'item', cat, copies });
 }
 
 // ------------------------------------------------------------
@@ -1481,7 +1483,9 @@ async function printGradeLabels(cat, sizeOptions) {
   });
   const browserHTML = built[0].html.replace(/<body>[\s\S]*<\/body>/, `<body>${bodies.join('')}</body>`);
 
-  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML);
+  // كل درجة وصفة لوحدها بعددها
+  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', browserHTML,
+    { kind: 'many', items: picks.map((x) => ({ kind: 'text', text: joinLabelText(cat.name, nameOf(x.grade)), copies: x.qty })) });
 }
 
 // ------------------------------------------------------------
@@ -1563,7 +1567,8 @@ async function printTextLabel(text, sizeOptions) {
   if (!approved) return;
 
   const jobs = [{ html: built.jobHTML, image: built.image, copies }];
-  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', built.fallbackHTML);
+  await deliverPrint('label', jobs, sizeOptions, 'width=420,height=320', built.fallbackHTML,
+    { kind: 'text', text, copies });
 }
 
 // ------------------------------------------------------------
