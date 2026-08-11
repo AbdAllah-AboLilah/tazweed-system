@@ -13,11 +13,13 @@
 // القاعدة المتفق عليها: الرقم والسعر ثابتين، والاسم بياخد اللي فاضل
 // (سطر → سطرين → نقط).
 const { chromium } = require('playwright');
+const { PNG } = require('pngjs');
 const pass = [], fail = [];
 const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? ` → ${JSON.stringify(x).slice(0, 300)}` : ''));
 
 const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
 const MM = 96 / 25.4;
+const DPI = 203; // دقة الطابعة الحرارية — البكسل الواحد = نقطة طابعة واحدة
 
 const SHORT = 'كريب';
 const LONG = 'Biotherm whitening Cream senstive';
@@ -183,6 +185,112 @@ const HUGE = 'حجاب كريب سادة لوكس بيجات درجة ممتاز
     console.log(t.slice(0, 34).padEnd(36) + `${r.nameMm}  ${r.codeMm}  ${r.priceMm}   ${r.lines}`);
   }
   console.log('─'.repeat(64));
+
+  // ============================================================
+  // 6) ⭐ مفتاح "كبّر اسم الصنف" — والرجوع منه
+  // ============================================================
+  // ⚠️ القياس اللي أدّى للتعديل: الاسم في الخلية **مش محدود بالارتفاع**
+  // — محدود **بعرض العمود**. فتقريب السطور لوحده مايعملش حاجة؛ اللي
+  // بيفرق هو التقريب **مع** السماح بسطر تالت.
+  const tight = await p.evaluate(async (SIZE) => {
+    const run = async (nm, on) => {
+      localStorage.setItem('tazweed_qz_tweak_tightQuarter', on ? '1' : '0');
+      const url = await generateQRDataURL('10632103', 200);
+      const h = buildQuarterLabelHTML({ itemName: nm, barcodeNumber: '10632103', sellingPrice: 120 }, SIZE, url, 1);
+      return {
+        name: +(h.match(/\.n \{\s*font-size: ([\d.]+)mm/) || [])[1],
+        clamp: +(h.match(/-webkit-line-clamp: (\d+)/) || [])[1],
+        html: h,
+      };
+    };
+    const out = {
+      badOff: await run('Hejap Kuwaiti 120', false),
+      badOn: await run('Hejap Kuwaiti 120', true),
+      goodOff: await run('Leather Watch 120', false),
+      goodOn: await run('Leather Watch 120', true),
+    };
+    localStorage.removeItem('tazweed_qz_tweak_tightQuarter');
+    out.defaultOn = getPrintTweak('tightQuarter');
+    return out;
+  }, SIZE);
+
+  check('⭐ المفتاح بيكبّر الاسم اللي بيتقسم وحش',
+    tight.badOn.name > tight.badOff.name, { قبل: tight.badOff.name, بعد: tight.badOn.name });
+  // ⚠️ والاسم اللي واخد أقصى عرض أصلًا مايتغيّرش — ده متوقع مش عطل
+  check('⭐ والاسم اللي واخد أقصى عرض مايتغيّرش (متوقع)',
+    tight.goodOn.name === tight.goodOff.name, { قبل: tight.goodOff.name, بعد: tight.goodOn.name });
+  check('⭐ والسطر التالت بيتفتح مع المفتاح بس',
+    tight.badOff.clamp <= 2 && tight.badOn.clamp <= 3, tight);
+  check('⭐ ومفتوح افتراضيًا', tight.defaultOn === true, tight);
+
+  // ⭐⭐ الرجوع: قفل المفتاح = الملصق زي ما كان **بايت ببايت**
+  const revert = await p.evaluate(async (SIZE) => {
+    localStorage.setItem('tazweed_qz_tweak_tightQuarter', '0');
+    const url = await generateQRDataURL('10632103', 200);
+    const a = buildQuarterLabelHTML({ itemName: 'Hejap Kuwaiti 120', barcodeNumber: '10632103', sellingPrice: 120 }, SIZE, url, 1);
+    const b2 = buildQuarterLabelHTML({ itemName: 'Hejap Kuwaiti 120', barcodeNumber: '10632103', sellingPrice: 120 }, SIZE, url, 1);
+    localStorage.removeItem('tazweed_qz_tweak_tightQuarter');
+    return { same: a === b2, hasOldLine: /line-height: 1\.15/.test(a) };
+  }, SIZE);
+  check('⭐⭐ قفل المفتاح بيرجّع التباعد القديم', revert.hasOldLine, revert);
+
+  // ============================================================
+  // 7) ⭐⭐ المخاطرة: سطور النص مايلتحموش على الورق
+  // ============================================================
+  // ⚠️ أول نسخة من الفحص ده كانت **بتقيس الحاجة الغلط**: كانت بتاخد
+  // `getBoundingClientRect()` وتطرح `.p.top - .c.bottom`. الناتج صفر
+  // دايمًا — مش لأن في مشكلة، لكن لأن `.t` فيها
+  // `justify-content: space-between` والصناديق **ملزوقة ببعض بالتصميم**.
+  // صندوق ملزوق ≠ حبر ملزوق: جوّه الصندوق في leading فوق وتحت الحرف،
+  // والحروف نفسها مابتملاش الصندوق (الأرقام مالهاش نزول تحت السطر).
+  //
+  // الفحص الصح: **نرسم** عمود النص بدقة الطابعة (203 نقطة/بوصة، يعني
+  // كل بكسل = نقطة طابعة واحدة) وندوّر على السطور **الفاضية من الحبر**
+  // بين كل سطرين. ده اللي هيحصل فعلًا على الورق.
+  const inkBands = async (html) => {
+    const pg = await b.newPage({ deviceScaleFactor: DPI / 96 });
+    await pg.setContent(html);
+    const box = await pg.evaluate(() => {
+      const r = document.querySelector('.t').getBoundingClientRect();
+      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    });
+    const buf = await pg.screenshot({ clip: box });
+    await pg.close();
+    const png = PNG.sync.read(buf);
+    // سطر "فيه حبر" = فيه بكسل غامق واحد على الأقل
+    const inky = [];
+    for (let y = 0; y < png.height; y++) {
+      let has = false;
+      for (let x = 0; x < png.width && !has; x++) {
+        const i = (y * png.width + x) * 4;
+        if (png.data[i + 3] > 32 && (png.data[i] + png.data[i + 1] + png.data[i + 2]) / 3 < 160) has = true;
+      }
+      inky.push(has);
+    }
+    // نجمّع السطور المتلاصقة في "شرائط حبر" — كل شريط = سطر مكتوب
+    const bands = [];
+    for (let y = 0; y < inky.length; y++) {
+      if (!inky[y]) continue;
+      const start = y;
+      while (y + 1 < inky.length && inky[y + 1]) y++;
+      bands.push([start, y]);
+    }
+    const gaps = [];
+    for (let i = 1; i < bands.length; i++) gaps.push(bands[i][0] - bands[i - 1][1] - 1);
+    return { bands: bands.length, gapsDots: gaps, minGapDots: gaps.length ? Math.min(...gaps) : -1 };
+  };
+
+  const inkOn = await inkBands(tight.badOn.html);
+  const inkOff = await inkBands(tight.badOff.html);
+  // كل شريط حبر = سطر مكتوب. لو اتنين التحموا الشرائط بتقل عن المتوقع.
+  check('⭐⭐ كل سطر لسه شريط حبر لوحده (مفيش التحام)',
+    inkOn.bands === tight.badOn.clamp + (2), { المتوقع: tight.badOn.clamp + 2, الفعلي: inkOn });
+  // ⚠️ نقطة طابعة واحدة فاضية = أقل حاجة تخلي السطرين ينفصلوا على الورق
+  check('⭐⭐ وبينهم نقطة طابعة فاضية على الأقل', inkOn.minGapDots >= 1, inkOn);
+  check('⭐ وقفل المفتاح لسه سليم بردو', inkOff.minGapDots >= 1, inkOff);
+  console.log(`\nالفراغ الحقيقي بين السطور (نقط طابعة، النقطة = ${(25.4 / DPI).toFixed(3)}مم):`);
+  console.log(`   المفتاح مفتوح: ${inkOn.bands} سطور، أقل فراغ ${inkOn.minGapDots} نقطة  → ${JSON.stringify(inkOn.gapsDots)}`);
+  console.log(`   المفتاح مقفول: ${inkOff.bands} سطور، أقل فراغ ${inkOff.minGapDots} نقطة  → ${JSON.stringify(inkOff.gapsDots)}`);
 
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();
