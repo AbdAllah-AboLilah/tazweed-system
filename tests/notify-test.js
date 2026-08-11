@@ -249,30 +249,76 @@ const snap = (docs) => ({ docs });
     !/createOscillator|OscillatorNode/.test(src), (src.match(/.*[Oo]scillator.*/g) || []).slice(0, 3));
   check('⭐⭐ مصدر الصوت ضوضاء عشوائية (مالهاش درجة موسيقية)',
     /Math\.random\(\) \* 2 - 1/.test(src) && /createBuffer\(/.test(src), null);
-  check('⭐⭐ الطرقتين نسخة واحدة بالظبط (مافيش فرق درجة = مافيش لحن)',
-    /knockAt\(notifyAudioCtx, t\);[\s\S]{0,200}knockAt\(notifyAudioCtx, t \+ 0\.13\)/.test(src), null);
+  // ⭐⭐ أقوى ضمان ضد اللحن: **الدالة مش قادرة** تعمل درجتين مختلفتين.
+  // مافيش معامل تردد ولا درجة، وكل الطرقات بتتشغّل من **نفس الـbuffer**.
+  const knockSig = (src.match(/function knockAt\(([^)]*)\)/) || [])[1] || '';
+  check('⭐⭐ knockAt مالهاش أي معامل تردد أو درجة — فمستحيل طرقتين يختلفوا',
+    knockSig.replace(/\s/g, '') === 'ctx,when', knockSig);
+  check('⭐⭐ وكل الطرقات من نفس العيّنات حرفيًا (buffer واحد مخزّن)',
+    /src\.buffer = knockBuffer;/.test(src) && /knockBuffer = buildKnockBuffer\(ctx\)/.test(src), null);
+  check('⭐ والمسافات بين الطرقات متساوية (مافيش نمط إيقاعي)',
+    /for \(let k = 0; k < KNOCK_COUNT; k\+\+\) knockAt\(notifyAudioCtx, t \+ k \* KNOCK_GAP\)/.test(src), null);
   check('⭐ والخفوت سريع (طرقة مش نغمة مستمرة)',
-    /const DUR = 0\.0\d\d;/.test(src), (src.match(/const DUR = .*/) || [])[0]);
+    /const KNOCK_DUR = 0\.0\d+;/.test(src), (src.match(/const KNOCK_DUR = .*/) || [])[0]);
 
-  // النغمة بتشتغل فعلًا لما نشغّلها بجد (مش بس مافيهاش موسيقى)
-  const realSound = await p.evaluate(async () => {
-    const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    const ctx = new Ctx(1, 44100, 44100);
-    knockAt(ctx, 0);
-    knockAt(ctx, 0.13);
-    const buf = await ctx.startRendering();
-    const d = buf.getChannelData(0);
-    let peak = 0, first = 0, second = 0;
-    for (let i = 0; i < d.length; i++) {
-      const v = Math.abs(d[i]);
-      if (v > peak) peak = v;
-      if (i < 0.09 * 44100) first = Math.max(first, v);
-      else second = Math.max(second, v);
+  // ============================================================
+  // 10ب) ⭐⭐ النغمة مسموعة فعلًا — بالقياس مش بالأذن
+  // ============================================================
+  // ⚠️ الشكوى اللي أدّت للفحص ده: "حاسس إن محدش هيشعر بيها". والقياس
+  // أثبت إنها كانت **هادية فعلًا** (طاقة 0.018 من 1) و**قصيرة** (160
+  // مللي). وأسوأ من كده: كانت **متغيّرة** — ذروة الضوضاء عشوائية، فنفس
+  // الكود كان بيطلّع صوت مختلف كل مرة وأحيانًا بيفرقع (قص).
+  //
+  // الفحص بيشغّل النغمة 6 مرات ويقيس التلاتة: علوّ، ثبات، وطول.
+  const loud = await p.evaluate(async () => {
+    const runs = [];
+    for (let t = 0; t < 6; t++) {
+      knockBuffer = null; // نبني من الأول عشان نشوف تأثير عشوائية الضوضاء
+      const ctx = new OfflineAudioContext(1, 44100, 44100);
+      for (let k = 0; k < KNOCK_COUNT; k++) knockAt(ctx, 0.01 + k * KNOCK_GAP);
+      const d = (await ctx.startRendering()).getChannelData(0);
+      let peak = 0, sum = 0, clip = 0, last = 0;
+      for (let i = 0; i < d.length; i++) {
+        const v = Math.abs(d[i]);
+        if (v > peak) peak = v;
+        if (v >= 0.999) clip++;
+        sum += d[i] * d[i];
+        if (v > 0.02) last = i;
+      }
+      // ⚠️ عدّ الطرقات **لازم يبقى على الغلاف مش على العيّنة**: الضوضاء
+      // بتعدّي الصفر مئات المرات جوّه الطرقة الواحدة، فالعدّ المباشر
+      // طلّع 624 طرقة بدل 4. بنقسّم لمقاطع 5 مللي وناخد أعلى قيمة فيها.
+      const BLK = Math.round(44100 * 0.005);
+      const env = [];
+      for (let i = 0; i < d.length; i += BLK) {
+        let m = 0;
+        for (let j = i; j < Math.min(i + BLK, d.length); j++) m = Math.max(m, Math.abs(d[j]));
+        env.push(m > 0.02);
+      }
+      let knocks = 0;
+      for (let i = 0; i < env.length; i++) if (env[i] && !env[i - 1]) knocks++;
+      runs.push({ peak, rms: Math.sqrt(sum / d.length), clip, ms: Math.round(last / 44.1), knocks });
     }
-    return { peak: +peak.toFixed(3), first: +first.toFixed(3), second: +second.toFixed(3) };
+    return {
+      peakMin: +Math.min(...runs.map((r) => r.peak)).toFixed(3),
+      peakMax: +Math.max(...runs.map((r) => r.peak)).toFixed(3),
+      rmsMin: +Math.min(...runs.map((r) => r.rms)).toFixed(4),
+      clip: runs.reduce((a, r) => a + r.clip, 0),
+      ms: runs[0].ms,
+      knocks: runs[0].knocks,
+    };
   });
-  check('⭐ النغمة بتطلع صوت مسموع فعلًا', realSound.peak > 0.2, realSound);
-  check('⭐ وطرقتين مش واحدة', realSound.first > 0.2 && realSound.second > 0.2, realSound);
+  // ⚠️ الأرقام دي مقارنة بالنسخة القديمة اللي المستخدم اشتكى منها:
+  //   طاقة 0.0176 → دلوقتي فوق 0.05 (تلات أضعاف على الأقل)
+  //   مدة 161 مللي → دلوقتي فوق 400
+  check('⭐⭐ النغمة عالية فعلًا (طاقة أعلى 3 أضعاف من اللي اتشتكى منها)',
+    loud.rmsMin > 0.05, loud);
+  check('⭐⭐ ومدتها بقت نص ثانية تقريبًا مش لمحة', loud.ms > 400, loud);
+  check('⭐⭐ ومفيش أي قص (فرقعة) — الذروة متطبّعة مش متروكة للعشوائية',
+    loud.clip === 0 && loud.peakMax <= 0.95, loud);
+  check('⭐⭐ والصوت **ثابت** كل مرة — نفس الذروة بالظبط',
+    loud.peakMin === loud.peakMax, loud);
+  check('⭐ وعدد الطرقات المسموعة صح', loud.knocks === 4, loud);
 
   // ============================================================
   // 11) ⭐ إعدادات الإشعار نفسه
