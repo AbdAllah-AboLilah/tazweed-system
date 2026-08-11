@@ -227,9 +227,23 @@ service cloud.firestore {
     match /printJobs/{jobId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && canSendPrintJob() && request.resource.data.requestedByUid == request.auth.uid;
+
+      // ------------------------------------------------------------
+      // تحديثان مختلفان تمامًا، وكل واحد له شروطه
+      // ------------------------------------------------------------
+      // 1) **التقدم** وهي لسه بتتطبع: الجهاز اللي بيطبع بيكتب "وصلت لكام
+      //    من كام" عشان اللي بعت الطلب يشوف الشريط عنده. الحالة بتفضل
+      //    pending، ومفيش أي حقل تاني بيتغيّر.
+      //    ⚠️ من غير الاستثناء ده، أي كتابة تقدم بترفض — لأن الشرط القديم
+      //    كان بيطلب إن الحالة **تتغيّر** لـprinted/failed.
+      // 2) **النتيجة النهائية**: printed أو failed، ومعاها سبب الفشل.
       allow update: if isSignedIn()
-        && onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt', 'error'])
-        && oldStatus() == 'pending' && newStatus() in ['printed', 'failed'];
+        && oldStatus() == 'pending'
+        && (
+          (onlyChangedKeys(['progressDone', 'progressTotal']) && newStatus() == 'pending')
+          || (onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt', 'error', 'failReason', 'progressDone', 'progressTotal'])
+              && newStatus() in ['printed', 'failed'])
+        );
       allow delete: if can('manageCategories');
     }
 

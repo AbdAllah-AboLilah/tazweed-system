@@ -93,20 +93,25 @@ const NAMES = ['Chanvie Leen 58047','طباقيه كويتى كباسين','Qian
     sent.messages >= Math.ceil(sent.pages / 5) && sent.maxBytes <= sent.limit, sent);
   check('⭐ مفيش رسالة عدّت الحد', sent.maxBytes <= sent.limit, sent);
 
-  // ---------- الرجوع لصفحة لكل ملصق ----------
-  const noCopies = await p.evaluate(async () => {
+  // ---------- صفحة لكل ملصق (السلوك الافتراضي) ----------
+  // ⚠️ كان هنا فحص لمفتاح اسمه noCopies — **المفتاح ده مابقاش موجود**.
+  // والفحص كان بيعدّي دايمًا: الصفحات بتتكرّر بعدد النسخ في الحالة
+  // الافتراضية أصلًا، فالشرط كان صح حتى والمفتاح متشال من الكود خالص.
+  // درس: أي فحص لمفتاح لازم يثبت إن **قفله بيغيّر حاجة** — وإلا هو
+  // بيطمّنك على حاجة مش موجودة. (المسار السريع الجديد متفحوص في
+  // tests/remote-print-test.js بمقارنة قبل/بعد فعلية.)
+  const perPage = await p.evaluate(async () => {
     const msgs = [];
     window.qz.print = (cfg, data) => { msgs.push(data); return Promise.resolve(); };
-    localStorage.setItem('tazweed_qz_tweak_noCopies', '1');
+    localStorage.setItem('tazweed_qz_tweak_fastCopies', '0');
     const built = await buildItemLabel({ itemName:'كريب', barcodeNumber:'12133', sellingPrice:85 },
                                        { pageWidthMm:38, pageHeightMm:25, halves:2 }, 60);
     await tryPrintViaQZ('label', [{ html: built.jobHTML, image: built.image, copies: 60 }],
                         { pageWidthMm:38, pageHeightMm:25 });
-    localStorage.removeItem('tazweed_qz_tweak_noCopies');
     return { pages: msgs.flat().length, messages: msgs.length };
   });
-  check('المفتاح بيرجّع لصفحة لكل ملصق', noCopies.pages === 60, noCopies);
-  check('ولسه بيقسّم على رسايل بالحجم', noCopies.messages > 1, noCopies);
+  check('الافتراضي: صفحة لكل ملصق', perPage.pages === 60, perPage);
+  check('ولسه بيقسّم على رسايل بالحجم', perPage.messages > 1, perPage);
 
   // ---------- الصورة أخف من HTML ----------
   const weight = await p.evaluate(async () => {
