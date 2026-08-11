@@ -157,6 +157,51 @@ const REAL = 'بونيه حجاب — بندانه سوري مفتوح درجة 
   check('⭐ طلب من نسخة قديمة (من غير وصفة) لسه بيتطبع',
     legacy && legacy.status === 'printed', legacy);
 
+  // ============================================================
+  // 6) ⭐⭐ حجم الطلب — العطل اللي خلّى الـ100 ملصق تختفي من الموبايل
+  // ============================================================
+  // ⚠️ ده أهم فحص في الملف. طلب الطباعة بيتخزّن كمستند في Firestore،
+  // وحد المستند **1 ميجا**. وكنا بنبعت الملصق **مكرر بعدد النسخ**
+  // **ومرتين** (html و browserHTML):
+  //     40 ملصق  →  561 كيلو  ✅
+  //     100 ملصق → 1377 كيلو  ❌ السحابة بترفضه
+  //
+  // وأسوأ حاجة: Firestore بيقبل الكتابة محليًا ويرفضها على السيرفر —
+  // فالتطبيق بيقول "اتبعت" وهو عمره ما وصل. **مفيش رسالة خالص.**
+  // ده سبب "من الكمبيوتر بيطبع 100 عادي ومن الموبايل مفيش رد أصلًا".
+  const sizes = await p.evaluate(async (SIZE) => {
+    const cat = { itemName: 'Chanvie Leen 58047', barcodeNumber: '62808737', sellingPrice: 495 };
+    const out = [];
+    for (const n of [1, 40, 100, 300, 1000]) {
+      const built = await buildItemLabel(cat, SIZE, n);
+      window.__sent = [];
+      await sendPrintJob('label', 'pc1',
+        [{ html: built.jobHTML, image: built.image, copies: n }], SIZE, built.fallbackHTML,
+        { kind: 'item', cat, copies: n });
+      const doc = window.__sent[0];
+      out.push({
+        n,
+        sent: !!doc,
+        kb: doc ? Math.round(new TextEncoder().encode(JSON.stringify(doc)).length / 1024) : 0,
+      });
+    }
+    return out;
+  }, SIZE);
+
+  const LIMIT_KB = 1024; // حد Firestore الثابت
+  for (const r of sizes) {
+    check(`⭐⭐ ${r.n} ملصق: الطلب تحت حد السحابة (${r.kb} كيلو)`,
+      r.sent && r.kb < LIMIT_KB * 0.85, r);
+  }
+  // ⚠️ والأهم: الحجم **مايكبرش مع العدد**. لو كبر، يبقى فيه نص بيتكرر
+  // بعدد النسخ في الطلب — وده بالظبط العطل اللي اتصلح.
+  const small = sizes.find((r) => r.n === 1);
+  const huge = sizes.find((r) => r.n === 1000);
+  check('⭐⭐ حجم الطلب تقريبًا ثابت مهما كبر العدد (1 مقابل 1000 ملصق)',
+    huge.kb <= small.kb + 5, { واحد: small.kb, ألف: huge.kb });
+
+  console.log('\nحجم طلب الطباعة:', JSON.stringify(sizes));
+
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();
 
