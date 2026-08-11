@@ -50,6 +50,7 @@ const state = {
   lastGradeGroup: '',          // آخر مجموعة اخترتها (عشان ماتختارهاش كل مرة)
   lastAddedGrade: null,        // آخر درجة اتضافت — بتظهر كرسالة تأكيد
   newGradeStartsWithOne: false, // الافتراضي صفر في الفرع، والمفتاح ده بيخلّيه 1
+  rangeStartsWithOne: true,     // الإضافة الجماعية: افتراضيها 1 (زي ما كانت قبل ما يبقى فيه اختيار)
   showEditCategoryInfoForm: false,
   pendingCount: 0,
   resolvingGradeId: null,
@@ -257,6 +258,34 @@ function groupedGrades(grades, cat) {
   const out = sections.filter((s) => s.grades.length);
   if (rest.grades.length) out.push(rest);
   return out.length ? out : [{ name: '', grades: [] }];
+}
+
+// ============================================================
+// ⭐ "إنت واقف في أنهي مجموعة دلوقتي؟"
+// ============================================================
+// لما تكون فاتح على "بيجات" في كريب سادة وتدوس "إضافة درجة"، المنطقي إن
+// المجموعة تبقى **بيجات** جاهزة — إنت أصلًا جوّاها. قبل كده كانت بتفتح
+// على آخر مجموعة ضفت فيها (أو على بلا مجموعة في الإضافة الجماعية)،
+// فكنت بتختار كل مرة أو — الأسوأ — تضيف في المجموعة الغلط من غير ما تاخد
+// بالك.
+//
+// بترجّع:
+//   null → "كل المجموعات" مفتوحة، يعني مافيش مجموعة بعينها إنت جوّاها
+//   ''   → واقف على "باقي الدرجات" (اللي مالهاش مجموعة)
+//   اسم  → المجموعة دي
+//
+// ⚠️ الفرق بين null و'' مهم: الاتنين "قيمة فاضية" بس معناهم مختلف تمامًا.
+function openGroupScope() {
+  const f = state.gradeGroupFilter || '';
+  if (!f) return null;
+  return f === UNGROUPED_LABEL ? '' : f;
+}
+
+// المجموعة اللي المفروض تبقى مختارة في شاشة إضافة درجة: اللي إنت فاتح
+// عليها، وإلا آخر واحدة ضفت فيها.
+function defaultGroupForAdd() {
+  const scope = openGroupScope();
+  return scope === null ? state.lastGradeGroup || '' : scope;
 }
 
 // خانة اختيار مجموعة — بتظهر بس لو الفئة مقسّمة، فالفورم مايكبرش من غير داعي.
@@ -1392,7 +1421,7 @@ function gradeTableHTML() {
   // الزرار بيظهر لو **المجموعة اللي إنت فاتح عليها** مالهاش درجات أساسية.
   // قبل كده كان بيختفي أول ما أي مجموعة تاخدهم، فمكانش فيه طريقة تضيفهم
   // لمجموعة تانية.
-  const baseScope = state.gradeGroupFilter === UNGROUPED_LABEL ? '' : state.gradeGroupFilter || '';
+  const baseScope = openGroupScope() ?? '';
   const missingBase =
     canAddGrades && !state.grades.some((g) => g.isBase && (g.group || '') === baseScope);
 
@@ -1585,7 +1614,7 @@ function gradeTableHTML() {
         <div class="field" style="margin-bottom:0;"><label>الدرجة (رقم)</label><input class="input" style="width:90px;" type="number" id="new-grade-number" data-draft="grade_num" required /></div>
         <div class="field" style="margin-bottom:0;"><label>الفرع</label><input class="input" style="width:70px;" type="number" id="new-grade-branch" value="${startWithOne ? 1 : 0}" /></div>
         <div class="field" style="margin-bottom:0;"><label>الرئيسي</label><input class="input" style="width:70px;" type="number" id="new-grade-main" value="0" /></div>
-        ${groupSelectHTML('new-grade-group', cat, state.lastGradeGroup)}
+        ${groupSelectHTML('new-grade-group', cat, defaultGroupForAdd())}
         <button class="btn btn-primary" type="submit">إضافة</button>
         <button class="btn" type="button" id="cancel-add-grade">إغلاق</button>
       </form>
@@ -3021,12 +3050,30 @@ function openColorGroupsDialog(categoryId) {
 
       <div id="groups-list" style="margin-bottom:12px;"></div>
 
-      <form id="add-group-form" style="display:flex; gap:8px; align-items:flex-end; margin-bottom:16px;">
-        <div class="field" style="flex:1; margin-bottom:0;">
-          <label>اسم مجموعة جديدة</label>
-          <input class="input" id="new-group-name" placeholder="مثال: بيجات" required />
+      <form id="add-group-form" style="margin-bottom:16px;">
+        <div style="display:flex; gap:8px; align-items:flex-end;">
+          <div class="field" style="flex:1; margin-bottom:0;">
+            <label>اسم مجموعة جديدة</label>
+            <input class="input" id="new-group-name" placeholder="مثال: بيجات" required />
+          </div>
+          <button class="btn btn-primary" type="submit">إضافة</button>
         </div>
-        <button class="btn btn-primary" type="submit">إضافة</button>
+        <!-- ⭐ المجموعة الجديدة بتتملي على طول لو حبيت. من غير ده كنت
+             تعمل المجموعة، تقفل الشاشة، تفتح "إضافة درجات دفعة واحدة"،
+             وتختار المجموعة من تاني — تلات خطوات لحاجة واحدة. -->
+        <div style="font-size:12px; color:var(--text-secondary); margin:10px 0 6px;">
+          وتضيف فيها درجات على طول؟ <span style="opacity:.75;">(اختياري)</span>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <div class="field" style="flex:1; margin-bottom:0;"><label>من</label>
+            <input class="input" type="number" id="new-group-from" min="1" inputmode="numeric" /></div>
+          <div class="field" style="flex:1; margin-bottom:0;"><label>إلى</label>
+            <input class="input" type="number" id="new-group-to" min="1" inputmode="numeric" /></div>
+        </div>
+        <label style="display:flex; gap:6px; align-items:center; margin-top:8px; font-size:12px; cursor:pointer; color:var(--text-secondary);">
+          <input type="checkbox" id="new-group-start-one" ${state.rangeStartsWithOne ? 'checked' : ''} />
+          ابدأ الدرجات بـ 1 في الفرع (بدل صفر)
+        </label>
       </form>
 
       <div id="assign-box" style="border-top:1px solid var(--border); padding-top:12px;">
@@ -3164,18 +3211,46 @@ function openColorGroupsDialog(categoryId) {
 
   overlay.querySelector('#add-group-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const input = overlay.querySelector('#new-group-name');
-    const name = input.value.trim();
-    if (!name) return;
-    const groups = currentGroups();
-    if (groups.includes(name)) {
-      say('⚠️ المجموعة دي موجودة خلاص.');
-      return;
-    }
-    saveGroups(groups.concat([name]));
-    input.value = '';
-    say(`✅ اتضافت مجموعة "${escapeHTML(name)}".`);
-    setTimeout(draw, 150);
+    safeAsync(async () => {
+      const input = overlay.querySelector('#new-group-name');
+      const name = input.value.trim();
+      if (!name) return;
+      const groups = currentGroups();
+      if (groups.includes(name)) {
+        say('⚠️ المجموعة دي موجودة خلاص.');
+        return;
+      }
+
+      // المدى اختياري — لو سابه فاضي بتتعمل المجموعة وبس (السلوك القديم)
+      const from = parseInt(overlay.querySelector('#new-group-from').value, 10);
+      const to = parseInt(overlay.querySelector('#new-group-to').value, 10);
+      const hasRange = !Number.isNaN(from) && !Number.isNaN(to);
+      if (hasRange) {
+        if (from < 1 || to < 1) { say('⚠️ الأرقام لازم تبدأ من 1.'); return; }
+        if (to < from) { say('⚠️ "إلى" لازم يكون أكبر من أو يساوي "من".'); return; }
+        if (to - from + 1 > 2000) { say('⚠️ المدى كبير جدًا (أكتر من 2000 درجة).'); return; }
+      }
+
+      // ⚠️ الترتيب مهم: المجموعة الأول، بعدين الدرجات. لو عكسنا، الدرجات
+      // هتتكتب على مجموعة الفئة لسه ماتعرفهاش فتظهر تحت "باقي الدرجات".
+      await saveGroups(groups.concat([name]));
+      input.value = '';
+
+      if (!hasRange) {
+        say(`✅ اتضافت مجموعة "${escapeHTML(name)}".`);
+        setTimeout(draw, 150);
+        return;
+      }
+
+      const startOne = !!overlay.querySelector('#new-group-start-one').checked;
+      state.rangeStartsWithOne = startOne;
+      say(`اتضافت "${escapeHTML(name)}" — جارٍ إضافة الدرجات...`);
+      const res = await addGradeRange(categoryId, from, to, name, startOne ? 1 : 0);
+      overlay.querySelector('#new-group-from').value = '';
+      overlay.querySelector('#new-group-to').value = '';
+      say(`✅ اتضافت مجموعة "${escapeHTML(name)}" و${res.added} درجة جوّاها.`);
+      setTimeout(draw, 150);
+    }, 'إضافة مجموعة');
   });
 
   overlay.querySelector('#assign-btn').addEventListener('click', () =>
@@ -3849,6 +3924,53 @@ function choosePrintTarget() {
 // ------------------------------------------------------------
 // إضافة درجات دفعة واحدة (من رقم إلى رقم)
 // ------------------------------------------------------------
+// ============================================================
+// ⭐ إضافة مدى درجات — **نقطة واحدة** لكل اللي بيضيفوا دفعة
+// ============================================================
+// بتستخدمها شاشتين: "إضافة درجات دفعة واحدة"، و"مجموعات الألوان" لما
+// تضيف مجموعة جديدة وتملاها على طول.
+//
+// ⚠️ اتكتبت كدالة واحدة من الأول عن قصد. الطباعة اتلسعنا فيها لما نفس
+// المنطق كان مكتوب في تلات أماكن وواحد منهم فات عليه مفتاح — فبقى نفس
+// الحاجة بتطلع بشكلين. متكتبش نسخة تانية من الكلام ده.
+//
+// الترقيم **مستقل لكل مجموعة**: "الوان" تقدر تبدأ من 1 حتى لو "بيجات"
+// فيها 1 أصلًا — زي الشيت الأصلي بالظبط. فالتكرار بيتحسب جوه المجموعة
+// المختارة بس.
+//
+// بترجّع { added, skipped } — أو بترمي لو حصل خطأ في السحابة.
+async function addGradeRange(categoryId, from, to, group, branchQty) {
+  const existing = new Set(
+    state.grades.filter((g) => (g.group || '') === group).map((g) => Number(g.number))
+  );
+  const toAdd = [];
+  for (let n = from; n <= to; n++) if (!existing.has(n)) toAdd.push(n);
+  if (!toAdd.length) return { added: 0, skipped: to - from + 1 };
+
+  const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
+  // دفعات من 400 — الحد الأقصى للدفعة الواحدة في Firestore هو 500.
+  for (let i = 0; i < toAdd.length; i += 400) {
+    const batch = db.batch();
+    toAdd.slice(i, i + 400).forEach((number) => {
+      const payload = { number, branchQty, mainQty: 0, status: 'normal' };
+      if (group) payload.group = group;
+      batch.set(gradesRef.doc(), payload);
+    });
+    await batch.commit();
+  }
+
+  const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
+  logActivity({
+    action: 'add_grade_range',
+    categoryId,
+    categoryName,
+    oldValue: `${from}-${to}`,
+    newValue: toAdd.length,
+  });
+
+  return { added: toAdd.length, skipped: to - from + 1 - toAdd.length };
+}
+
 function openAddGradeRangeDialog(categoryId) {
   const overlay = document.createElement('div');
   overlay.style.cssText =
@@ -3867,7 +3989,11 @@ function openAddGradeRangeDialog(categoryId) {
         <div class="field" style="flex:1;"><label>إلى</label>
           <input class="input" type="number" id="range-to" min="1" inputmode="numeric" /></div>
       </div>
-      ${groupSelectHTML('range-group', state.categories.find((c) => c.id === categoryId))}
+      ${groupSelectHTML('range-group', state.categories.find((c) => c.id === categoryId), defaultGroupForAdd())}
+      <label style="display:flex; gap:6px; align-items:center; margin:10px 0; font-size:12px; cursor:pointer; color:var(--text-secondary);">
+        <input type="checkbox" id="range-start-one" ${state.rangeStartsWithOne ? 'checked' : ''} />
+        ابدأ الدرجات بـ 1 في الفرع (بدل صفر)
+      </label>
       <div id="range-status" style="font-size:12px; margin-bottom:10px; min-height:16px;"></div>
       <div style="display:flex; gap:8px; justify-content:flex-end;">
         <button class="btn" id="range-cancel">إلغاء</button>
@@ -3912,49 +4038,28 @@ function openAddGradeRangeDialog(categoryId) {
     // المختارة بس**، مش في الفئة كلها.
     const groupEl = document.getElementById('range-group');
     const group = groupEl ? groupEl.value : '';
-    const existing = new Set(
-      state.grades.filter((g) => (g.group || '') === group).map((g) => Number(g.number))
-    );
-    const toAdd = [];
-    for (let n = from; n <= to; n++) if (!existing.has(n)) toAdd.push(n);
-
-    if (!toAdd.length) {
-      statusEl.style.color = 'var(--text-secondary)';
-      statusEl.textContent = 'كل الأرقام دي موجودة عندك خلاص.';
-      return;
-    }
-
+    // ⚠️ الافتراضي هنا **متعلّم** (1) مش زي الدرجة الواحدة (صفر). ده مش
+    // سهو: الإضافة الجماعية كانت بتحط DEFAULT_RESTOCK_QTY دايمًا من غير
+    // أي اختيار، فلو خلّينا الافتراضي صفر كنا هنغيّر سلوك شغّال من غير
+    // ما حد يطلب. المفتاح بيدّي الاختيار، والافتراضي زي ما هو.
+    const startOne = !!(document.getElementById('range-start-one') || {}).checked;
+    state.rangeStartsWithOne = startOne;
+    const branchQty = startOne ? 1 : 0;
     addBtn.disabled = true;
     statusEl.style.color = 'var(--text-secondary)';
-    statusEl.textContent = `جارٍ إضافة ${toAdd.length} درجة...`;
+    statusEl.textContent = 'جارٍ الإضافة...';
 
     try {
-      const gradesRef = db.collection('categories').doc(categoryId).collection('grades');
-      // دفعات من 400 — الحد الأقصى للدفعة الواحدة في Firestore هو 500.
-      for (let i = 0; i < toAdd.length; i += 400) {
-        const batch = db.batch();
-        toAdd.slice(i, i + 400).forEach((number) => {
-          // نفس منطق الدرجة الواحدة: الفرع بيبدأ بقطعة، مش بصفر.
-          const payload = { number, branchQty: DEFAULT_RESTOCK_QTY, mainQty: 0, status: 'normal' };
-          if (group) payload.group = group;
-          batch.set(gradesRef.doc(), payload);
-        });
-        await batch.commit();
+      const res = await addGradeRange(categoryId, from, to, group, branchQty);
+      if (!res.added) {
+        statusEl.style.color = 'var(--text-secondary)';
+        statusEl.textContent = 'كل الأرقام دي موجودة عندك خلاص.';
+        addBtn.disabled = false;
+        return;
       }
-
-      const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
-      logActivity({
-        action: 'add_grade_range',
-        categoryId,
-        categoryName,
-        oldValue: `${from}-${to}`,
-        newValue: toAdd.length,
-      });
-
-      const skipped = to - from + 1 - toAdd.length;
       const where = group ? ` في "${group}"` : '';
       statusEl.style.color = '#2e7d32';
-      statusEl.textContent = `✅ اتضافت ${toAdd.length} درجة${where}${skipped ? ` (${skipped} كانوا موجودين)` : ''}.`;
+      statusEl.textContent = `✅ اتضافت ${res.added} درجة${where}${res.skipped ? ` (${res.skipped} كانوا موجودين)` : ''}.`;
       setTimeout(close, 1200);
     } catch (err) {
       console.error(err);
