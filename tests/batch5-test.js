@@ -331,9 +331,14 @@ function decodeCell(dataUrl, quiet) {
   // الطباعة بتحترم شكل كل صنف
   const printed = await p.evaluate(async () => {
     window.__jobs.length = 0;
+    // ⚠️ من v0.41.0 المقسوم بقى **نص** افتراضيًا، فـrenderQuarterLabelPNG
+    // ممكن ماتتنداش خالص. بنراقب الطريقتين عشان الفحص يفضل صحيح مهما كان
+    // المفتاح مفتوح ولا مقفول.
     const seen = [];
     const origQ = window.renderQuarterLabelPNG;
+    const origQH = window.buildQuarterLabelHTML;
     window.renderQuarterLabelPNG = (cat, o) => { seen.push({ q: cat.itemName, noPrice: !!o.noPrice }); return origQ(cat, o); };
+    window.buildQuarterLabelHTML = (cat, o, u, c) => { seen.push({ q: cat.itemName, noPrice: !!o.noPrice }); return origQH(cat, o, u, c); };
     state.printCart = [
       { key: 'a', product: window.productsCache[0], qty: 1, mode: 'normal' },
       { key: 'b', product: window.productsCache[1], qty: 2, mode: 'quarter', noPrice: true },
@@ -341,8 +346,12 @@ function decodeCell(dataUrl, quiet) {
     ];
     await printCartLabels({ pageWidthMm: 38, pageHeightMm: 25, halves: 2 });
     window.renderQuarterLabelPNG = origQ;
+    window.buildQuarterLabelHTML = origQH;
     const j = window.__jobs[0];
-    return { jobs: j ? j.jobs.length : 0, copies: j ? j.jobs.map(x => x.copies) : [], quarterCalls: seen };
+    // الطريقتين ممكن يتندهوا للملصق الواحد — بناخد واحد لكل صنف
+    const uniq = [];
+    for (const x of seen) if (!uniq.some((u) => u.q === x.q && u.noPrice === x.noPrice)) uniq.push(x);
+    return { jobs: j ? j.jobs.length : 0, copies: j ? j.jobs.map(x => x.copies) : [], quarterCalls: uniq };
   });
   check('⭐ التلات أصناف اتطبعوا بأعدادهم',
     printed.jobs === 3 && JSON.stringify(printed.copies) === '[1,2,3]', printed);

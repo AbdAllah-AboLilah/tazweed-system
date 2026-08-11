@@ -65,6 +65,7 @@ node tests/restock-hatch-test.js
 node tests/print-unify-test.js
 node tests/grade-add-test.js
 node tests/remote-print-test.js
+node tests/quarter-label-test.js
 node tests/raster-label-test.js
 node tests/shared-print-test.js
 ```
@@ -104,6 +105,17 @@ node tests/qr-decode-test.js
 مختلفة، فالـ`top` بيختلف وهما في نفس الصف. الفحص بيجمّع العناصر في "شرايط"
 حسب **التقاطع الرأسي** بدل كده. وبيتأكد كمان إن خانة الكتابة مابتتهدّش لما
 يجي تبليغ من السحابة — ده اللي كان بيقفل الكيبورد.
+
+`quarter-label-test.js` بيفحص "مقسوم ٤" بعد ما بقى نص. أهم حاجة فيه إنه
+بيقارن **أقصر اسم بأطولهم** ويتأكد إن الرقم والسعر **نفس الرقم بالظبط** —
+مش "بيخسروا أقل" زي الملصق العادي، هنا صفر. وبيتأكد كمان إن الاسم **بيفرق
+فعلًا** بين الحالتين، وإلا المقارنة مالهاش أي معنى.
+
+⚠️ نقطتين غلّطوا أول محاولة:
+* `letter-spacing` على الرقم كان بيخلّيه يتقص — قياس الخط مابيعرفش عن
+  التباعد حاجة، فبيحسب إنه داخل وهو بيتقص على الشاشة.
+* عدّ السطور بـ`scrollHeight` **غلط** مع `-webkit-line-clamp`: الـ
+  scrollHeight بيفضل يقول الارتفاع الكامل غير المقصوص. الصح `clientHeight`.
 
 `remote-print-test.js` بيفحص الطباعة عن بُعد. أهم حاجتين فيه:
 

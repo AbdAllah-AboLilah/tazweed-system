@@ -216,6 +216,8 @@ const SAFE_MARGIN_MM = 2.0;
 const LABEL_WEIGHT = 'normal';
 
 const mmToDots = (mm) => (mm * PRINTER_DPI) / 25.4;
+// العكس — بنحتاجه لما نحسب حاجة بالنقط (زي مربعات الباركود) وننزّلها CSS
+const dotsToMm = (dots) => (dots * 25.4) / PRINTER_DPI;
 
 // مقاس الملصق بنقط الطابعة — 38×25 مم = 304×200 نقطة
 function labelDots(sizeOptions) {
@@ -648,6 +650,171 @@ function renderQuarterLabelPNG(cat, sizeOptions) {
   ctx.fillRect(Math.floor(W / 2) - 1, cutPad, 2, H - cutPad * 2);
 
   return shrinkToPrinterDots(hi.canvas, W, H);
+}
+
+// ============================================================
+// ⭐ "مقسوم ٤" كنص (HTML) — زي باقي الملصقات
+// ============================================================
+// كان الملصق الوحيد اللي **مالوش نسخة نصّية**، فكان مجبور يترسم كصورة —
+// وده اللي كان بيخلّيه يطلع منغمش على الورق وباقي الملصقات نضيفة (شوف
+// مفتاح htmlLabels: النص بيترسم بمحرّك الطابعة على دقتها مباشرة، والصورة
+// بتعدّي على إعادة رسم).
+//
+// وكان فيه عطل تاني جوّه: مقاس الرقم والسعر كان **مربوط بمقاس الاسم**
+//     fitOne(code, Math.min(restH / LINE, nameSize))
+// يعني اسم طويل = خط صغير = الرقم والسعر يصغّروا معاه، مع إن مالهمش ذنب.
+//
+// القاعدة هنا (اللي اتفقنا عليها):
+//   • الرقم والسعر **مقاسهم ثابت** — مايتأثروش بالاسم خالص
+//   • الاسم بياخد اللي فاضل: سطر لو قصير، سطرين لو طويل
+//   • ولو لسه مش كافي → **نقط (…)** على اللي مش ظاهر
+//
+// ⚠️ النقط دي بتتحط بـCSS (`-webkit-line-clamp`) عن قصد هنا، عكس الملصق
+// العادي اللي شيلناها منه. الفرق: هناك بنصغّر الخط لحد ما الاسم يدخل
+// كامل (المساحة تسمح)، وهنا المساحة ربع اللاصقة — فالتصغير لحد ما يدخل
+// بيوصّل لخط مايتقراش. النقط أنضف من اسم مايتقراش.
+function buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
+  const { pageWidthMm, pageHeightMm } = sizeOptions;
+  const copyCount = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(copies, 10) || 1));
+  const cellW = pageWidthMm / 2;
+  const cellH = pageHeightMm / 2;
+
+  const name = String(cat.itemName || cat.name || '');
+  const code = String(cat.barcodeNumber || '');
+  const showPrice = !!cat.sellingPrice && !sizeOptions.noPrice;
+
+  // نفس هوامش الصورة بالظبط: الحرف الخارجي بالهامش الكامل، والجوّاني
+  // (اللي جنب خط القص) بثلاثة أرباعه — مافيش طابعة بتاكل من خط القص.
+  const pad = SAFE_MARGIN_MM;
+  const padX = SAFE_MARGIN_MM * 0.75;
+  const gapX = 0.6;
+  const LINE = 1.15;
+  const contentH = cellH - pad * 2;
+
+  // الباركود: مربعاته لازم تبقى عدد صحيح من نقط الطابعة وإلا بيتلغبط.
+  const qrMm = Math.min(contentH, dotsToMm(QUARTER_QR_DOTS_PER_MODULE * 21));
+  const textW = cellW - qrMm - padX * 2 - gapX;
+
+  // ------------------------------------------------------------
+  // المقاسات: الرقم والسعر الأول (ثابتين)، والاسم بياخد الباقي
+  // ------------------------------------------------------------
+  const rows = 2 + 1 + (showPrice ? 1 : 0); // اسم(٢) + رقم + سعر
+  const rowH = contentH / rows;
+  const cap = rowH / LINE;
+
+  const priceText = showPrice ? `${cat.sellingPrice} L.E` : '';
+  const codeSize = Math.min(cap, fitWrappedFontSizeMm(code, textW, 1, true));
+  const priceSize = showPrice ? Math.min(cap, fitWrappedFontSizeMm(priceText, textW, 1, true)) : 0;
+
+  // اللي فاضل للاسم بعد ما الرقم والسعر خدوا حقهم
+  const nameBudget = contentH - (codeSize + priceSize) * LINE;
+  // سطر ولا سطرين؟ اللي بيطلّع خط أكبر — بالظبط زي الملصق العادي.
+  let nameSize = 0;
+  let nameLines = 1;
+  for (let L = 1; L <= 2; L++) {
+    const size = Math.min(nameBudget / (L * LINE), fitWrappedFontSizeMm(name, textW, L, true), cap);
+    if (size > nameSize) { nameSize = size; nameLines = L; }
+  }
+  // ولو الخط نزل تحت حد القراءة، بنثبّته عند الحد ونسيب النقط تقص الزيادة
+  const MIN_NAME_MM = dotsToMm(8);
+  if (nameSize < MIN_NAME_MM) { nameSize = MIN_NAME_MM; nameLines = 2; }
+
+  const cellHTML = `
+      <div class="cell">
+        ${qrDataUrl ? `<img class="q" src="${qrDataUrl}" alt="">` : '<div class="q"></div>'}
+        <div class="t">
+          <div class="n">${escapeHTML(name)}</div>
+          <div class="c">${escapeHTML(code)}</div>
+          ${showPrice ? `<div class="p">${escapeHTML(priceText)}</div>` : ''}
+        </div>
+      </div>`;
+
+  const rowOfCells = `<div class="half">${cellHTML}${cellHTML}</div>`;
+
+  return `
+    <!doctype html>
+    <html dir="ltr" lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>ملصق مقسوم - ${escapeHTML(name)}</title>
+      <style>
+        @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, Helvetica, Tahoma, sans-serif; width: ${pageWidthMm}mm; color: #000; line-height: ${LINE}; }
+        .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; position: relative; ${printAlignCSS()} }
+        .label + .label { page-break-before: always; break-before: page; }
+        .half { height: ${cellH}mm; width: 100%; display: flex; }
+        .cell {
+          width: ${cellW}mm; height: ${cellH}mm;
+          display: flex; align-items: center; gap: ${gapX}mm;
+          padding: ${pad}mm ${padX}mm;
+          overflow: hidden;
+        }
+        .q { width: ${qrMm.toFixed(2)}mm; height: ${qrMm.toFixed(2)}mm; flex: 0 0 ${qrMm.toFixed(2)}mm; display: block; }
+        .t {
+          flex: 1; min-width: 0; text-align: center;
+          height: ${contentH.toFixed(2)}mm;
+          display: flex; flex-direction: column; justify-content: space-between;
+        }
+        .t > * { flex: 0 0 auto; }
+        /* ⭐ النقط: الاسم بس. الرقم والسعر مالهمش داعي — مقاسهم متقاس على
+           عرضهم أصلًا فبيدخلوا دايمًا. */
+        .n {
+          font-size: ${nameSize.toFixed(2)}mm; font-weight: bold;
+          overflow: hidden; overflow-wrap: anywhere; word-break: break-word;
+          display: -webkit-box; -webkit-box-orient: vertical;
+          -webkit-line-clamp: ${nameLines};
+          max-height: ${(nameLines * LINE * nameSize).toFixed(2)}mm;
+        }
+        /* ⚠️ مفيش letter-spacing هنا عن قصد. العمود ضيق جدًا (7.5مم)،
+           وقياس الخط مابيعرفش عن التباعد ده حاجة — فكان بيحسب إن الرقم
+           داخل وهو بيتقص فعليًا على الشاشة. (الملصق العادي عمود أوسع
+           فالتباعد فيه مايضرش.) */
+        .c { font-size: ${codeSize.toFixed(2)}mm; font-weight: bold; white-space: nowrap; }
+        .p { font-size: ${priceSize.toFixed(2)}mm; font-weight: bold; white-space: nowrap; }
+        /* خط القص في النص — مابيلمسش حرف الورقة، بيبدأ وينتهي عند الهامش */
+        .cut {
+          position: absolute; top: ${pad}mm; bottom: ${pad}mm;
+          left: 50%; width: 0.25mm; margin-left: -0.125mm; background: #000;
+        }
+      </style>
+    </head>
+    <body>${`<div class="label">${rowOfCells}${rowOfCells}<div class="cut"></div></div>`.repeat(copyCount)}</body>
+    </html>
+  `;
+}
+
+// بتبني "مقسوم ٤" بالطريقة المعتمدة (نص)، أو كصورة لو المستخدم قفل
+// المفتاح — نفس شكل buildItemLabel و buildTextLabel بالظبط.
+//
+// ⚠️ أي شاشة عايزة تطبع مقسوم ٤ **لازم** تعدّي من هنا. متكتبش نسخة تانية —
+// ده بالظبط اللي خلّى المسمّى يطلع بشكلين مختلفين قبل كده.
+async function buildQuarterLabel(cat, sizeOptions, copies) {
+  const n = Math.max(1, parseInt(copies, 10) || 1);
+  if (!getPrintTweak('htmlLabels')) {
+    const png = renderQuarterLabelPNG(cat, sizeOptions);
+    if (png) {
+      const d = labelDots(sizeOptions);
+      return {
+        previewHTML: wrapImageLabelPreviewHTML(png, d.w, d.h),
+        jobHTML: wrapImageLabelHTML(png, sizeOptions, 1),
+        fallbackHTML: wrapImageLabelHTML(png, sizeOptions, n),
+        image: png,
+        previewPx: d,
+      };
+    }
+  }
+  // مربع الباركود صغير هنا (ربع اللاصقة)، فبنطلبه بدقة تكفي من غير تضخيم
+  const qrPx = Math.round(mmToDots(dotsToMm(QUARTER_QR_DOTS_PER_MODULE * 21)) * 3);
+  const qrDataUrl = await generateQRDataURL(cat.barcodeNumber || cat.name, qrPx);
+  const jobHTML = buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, 1);
+  return {
+    previewHTML: jobHTML,
+    jobHTML,
+    fallbackHTML: buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, n),
+    image: null,
+    previewPx: null,
+  };
 }
 
 // ملصق الدرجة كصورة كمان — نفس السبب بالظبط: نص بس، بس المحرك التاني
