@@ -170,15 +170,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     document.getElementById('print-custom-btn').click();
     await new Promise(r => setTimeout(r, 60));
     const out = { opened: !!document.getElementById('custom-label-form') };
-    out.focused = document.activeElement && document.activeElement.id === 'custom-line1';
+    out.focused = document.activeElement && document.activeElement.id === 'custom-text';
 
     // نص فاضي مابيطبعش
     document.getElementById('custom-label-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await new Promise(r => setTimeout(r, 120));
     out.emptyBlocked = window.__jobs.length === 0 && !!document.getElementById('custom-label-form');
 
-    document.getElementById('custom-line1').value = 'بضاعة مرتجعة';
-    document.getElementById('custom-line2').value = 'مورّد: نصار';
+    // ⚠️ من v0.42.0 خانة واحدة بدل اتنين — النص بيلف لوحده
+    document.getElementById('custom-text').value = 'بضاعة مرتجعة — مورّد: نصار';
     document.getElementById('custom-copies').value = '4';
     document.getElementById('custom-label-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await new Promise(r => setTimeout(r, 600));
@@ -251,8 +251,9 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     window.buildGradeLabelHTML = oHTML;
     return seen[0];
   });
+  // ⚠️ من v0.42.0 الاتنين نص واحد بيلف بدل سطرين مفروضين
   check('⭐ الملصق = اسم الفئة + مسمّى الدرجة',
-    rowText && rowText[0] === 'كريب سادة لوكس' && rowText[1] === 'كيوي درجة 1', rowText);
+    rowText && rowText[0] === 'كريب سادة لوكس — كيوي درجة 1', rowText);
 
   // ---------- 6) الرمز بيختفي في الأوضاع ----------
   const modes = await p.evaluate(() => {

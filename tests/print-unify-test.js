@@ -31,14 +31,14 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
     state.activeCategoryId = 'c1';
     state.grades = [{ id: 'g1', number: 56, group: '', branchQty: 1, mainQty: 1, status: 'normal' }];
 
-    const L1 = 'بضاعة مرتجعة', L2 = 'مورّد: نصار';
+    const TXT = 'بضاعة مرتجعة — مورّد: نصار';
     const out = {};
 
     // (أ) شاشة الفئات: "طباعة مسمّى" → printTextLabel → buildTextLabel
-    out.direct = buildTextLabel(L1, L2, SIZE, 1);
+    out.direct = buildTextLabel(TXT, SIZE, 1);
 
     // (ب) شاشة الطباعة: السلة → buildCartItemLabel
-    out.cart = await buildCartItemLabel({ custom: { line1: L1, line2: L2 }, qty: 1 }, SIZE);
+    out.cart = await buildCartItemLabel({ custom: { text: TXT }, qty: 1 }, SIZE);
 
     return {
       directHTML: out.direct.jobHTML, cartHTML: out.cart.html,
@@ -54,18 +54,18 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
     { direct: agree.directImage ? 'صورة' : 'نص', cart: agree.cartImage ? 'صورة' : 'نص' });
   // والافتراضي لازم يبقى النص — ده اللي بيطبع نضيف على الورق (v0.36.0)
   check('⭐ والافتراضي نص مش صورة (ده اللي بيطبع نضيف)',
-    agree.directImage === null && /class="l1"/.test(agree.directHTML), agree.directHTML.slice(0, 120));
+    agree.directImage === null && /class="t"/.test(agree.directHTML), agree.directHTML.slice(0, 200));
 
   // ============================================================
   // 2) ⭐ المفتاح بيقلب **كل** المسارات مع بعض
   // ============================================================
   // العطل الأصلي كان بالظبط إن المفتاح بيقلب البعض والبعض لأ.
   const both = await p.evaluate(async (SIZE) => {
-    const L1 = 'بضاعة مرتجعة', L2 = 'مورّد: نصار';
+    const TXT = 'بضاعة مرتجعة — مورّد: نصار';
     const snap = async () => ({
-      direct: buildTextLabel(L1, L2, SIZE, 1).image !== null,
-      cart: (await buildCartItemLabel({ custom: { line1: L1, line2: L2 }, qty: 1 }, SIZE)).image !== null,
-      grade: buildTextLabel('كريب سادة لوكس', 'درجة 56', SIZE, 1).image !== null,
+      direct: buildTextLabel(TXT, SIZE, 1).image !== null,
+      cart: (await buildCartItemLabel({ custom: { text: TXT }, qty: 1 }, SIZE)).image !== null,
+      grade: buildTextLabel('كريب سادة لوكس — درجة 56', SIZE, 1).image !== null,
     });
     localStorage.setItem('tazweed_qz_tweak_htmlLabels', '0'); // صورة
     const asImage = await snap();

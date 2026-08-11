@@ -188,11 +188,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
     savePrintAlign({ x: 0, y: 0, shrink: 0 });
     const before = buildLabelHTML(cat, opts, url, 1);
-    const gradeBefore = buildGradeLabelHTML('كريب', 'درجة 1', opts, 1);
+    const gradeBefore = buildGradeLabelHTML('كريب — درجة 1', opts, 1);
 
     savePrintAlign({ x: 1, y: 0.5, shrink: 0 });
     const after = buildLabelHTML(cat, opts, url, 1);
-    const gradeAfter = buildGradeLabelHTML('كريب', 'درجة 1', opts, 1);
+    const gradeAfter = buildGradeLabelHTML('كريب — درجة 1', opts, 1);
     const frame = buildFrameHTML(38, 25);
 
     savePrintAlign({ x: 0, y: 0, shrink: 0 });

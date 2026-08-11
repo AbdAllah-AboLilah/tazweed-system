@@ -819,7 +819,9 @@ async function buildQuarterLabel(cat, sizeOptions, copies) {
 
 // ملصق الدرجة كصورة كمان — نفس السبب بالظبط: نص بس، بس المحرك التاني
 // بيقسّمه بمقاسات مختلفة فبيتقص.
-function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
+// ملصق نصّي كصورة — نفس المحتوى بالظبط بس مرسوم عندنا، لمن يقفل مفتاح
+// "ابعت كنص". نص واحد بيلف زي نسخة الـHTML.
+function renderGradeLabelPNG(text, sizeOptions) {
   const { pageWidthMm, pageHeightMm } = sizeOptions;
   const halves = sizeOptions.halves || 1;
   const W = Math.round(mmToDots(pageWidthMm));
@@ -831,46 +833,35 @@ function renderGradeLabelPNG(categoryName, gradeLabel, sizeOptions) {
   const ctx = hi.ctx;
 
   const FAMILY = 'Tahoma, Arial, sans-serif';
-  const line1 = String(categoryName || '');
-  const line2 = String(gradeLabel || '');
+  const body = String(text || '');
   // الهامش الآمن على حرف الورقة بس — خط القص اللي في النص مش حرف
   const outer = mmToDots(SAFE_MARGIN_MM);
   const inner = mmToDots(halves > 1 ? 0.6 : SAFE_MARGIN_MM);
-  const pad = outer;
   const availW = W - mmToDots(SAFE_MARGIN_MM) * 2;
   const availH = halfH - outer - inner;
-  const LINE = 1.2;
+  const LINE = 1.25;
+
+  // أكبر خط بيخلّي النص يدخل في عدد السطور المسموح — نفس منطق الـHTML
+  let chosen = null;
+  for (let L = 1; L <= GRADE_LABEL_MAX_LINES; L++) {
+    const fit = fitCanvasFont(ctx, body, availW, L, LABEL_WEIGHT, FAMILY, availH / (L * LINE));
+    if (!chosen || fit.size > chosen.size) chosen = fit;
+  }
 
   for (let h = 0; h < halves; h++) {
     const top = h * halfH;
     const topOffset = h === 0 ? outer : inner;
-
-    let chosen = null;
-    for (let maxLines = 1; maxLines <= 2; maxLines++) {
-      const byHeight = availH / ((maxLines + 1) * LINE);
-      const fit = fitCanvasFont(ctx, line1, availW, maxLines, LABEL_WEIGHT, FAMILY, byHeight);
-      if (!chosen || fit.size > chosen.size) chosen = fit;
-    }
-    const n1 = chosen.lines.length;
-    const byHeight = availH / ((n1 + 1) * LINE);
-    // مقاسات بأعداد صحيحة من نقط الطابعة — الشرح في renderLabelPNG
-    const size1 = Math.max(6, Math.round(Math.min(chosen.size, byHeight)));
-    const fit2 = fitCanvasFont(ctx, line2, availW, 1, LABEL_WEIGHT, FAMILY, byHeight);
-    const size2 = Math.max(6, Math.round(Math.min(fit2.size, byHeight)));
-
-    const lineH = availH / (n1 + 1);
-    // المحتوى في نص النصف رأسيًا
-    const blockH = lineH * (n1 + 1);
-    let y = top + topOffset + (availH - blockH) / 2;
-    y += drawLines(ctx, chosen.lines, size1, LABEL_WEIGHT, FAMILY, W / 2, y, lineH);
-    drawLines(ctx, fit2.lines.length ? fit2.lines : [line2], size2, LABEL_WEIGHT, FAMILY, W / 2, y, lineH);
+    const size = Math.max(6, Math.round(chosen.size));
+    const lineH = size * LINE;
+    const blockH = chosen.lines.length * lineH;
+    const y = top + topOffset + (availH - blockH) / 2;
+    ctx.fillStyle = '#000000';
+    drawLines(ctx, chosen.lines, size, LABEL_WEIGHT, FAMILY, W / 2, y, lineH);
   }
 
   return shrinkToPrinterDots(hi.canvas, W, H);
 }
 
-// بتلفّ الصورة في صفحة HTML بمقاس الملصق — للمعاينة ولنافذة طباعة
-// المتصفح (لما QZ مش موجود). الصورة هي هي في الحالتين.
 function wrapImageLabelHTML(dataUrl, sizeOptions, copies) {
   const { pageWidthMm, pageHeightMm } = sizeOptions;
   const copyCount = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(copies, 10) || 1));
@@ -1194,10 +1185,10 @@ async function buildItemLabel(cat, sizeOptions, copies) {
 // فأي حاجة بتطبع ملصق نصّي **لازم** تعدّي من هنا. متكتبش نسخة تانية.
 //
 // بترجّع نفس شكل buildItemLabel بالظبط عشان الاتنين يتعاملوا بنفس الطريقة.
-function buildTextLabel(line1, line2, sizeOptions, copies) {
+function buildTextLabel(text, sizeOptions, copies) {
   const n = Math.max(1, parseInt(copies, 10) || 1);
   if (!getPrintTweak('htmlLabels')) {
-    const png = renderGradeLabelPNG(line1, line2, sizeOptions);
+    const png = renderGradeLabelPNG(text, sizeOptions);
     if (png) {
       const d = labelDots(sizeOptions);
       return {
@@ -1210,11 +1201,11 @@ function buildTextLabel(line1, line2, sizeOptions, copies) {
     }
     // الرسم فشل (متصفح من غير canvas) → بنكمّل على النص بدل ورق فاضي
   }
-  const jobHTML = buildGradeLabelHTML(line1, line2, sizeOptions, 1);
+  const jobHTML = buildGradeLabelHTML(text, sizeOptions, 1);
   return {
     previewHTML: jobHTML,
     jobHTML,
-    fallbackHTML: buildGradeLabelHTML(line1, line2, sizeOptions, n),
+    fallbackHTML: buildGradeLabelHTML(text, sizeOptions, n),
     image: null,
     previewPx: null,
   };
@@ -1360,29 +1351,27 @@ function fitWrappedFontSizeMm(text, maxWidthMm, maxLines, bold) {
   }
 }
 
-// بتختار بين "سطر واحد" و"سطرين" للاسم: بتحسب حجم الخط الناتج في
-// الحالتين وتاخد الأكبر.
+// ============================================================
+// ⭐ الملصق النصّي — **نص واحد بيلف**، مش سطرين مفروضين
+// ============================================================
+// كان بياخد سطرين منفصلين: اسم الفئة في سطر، والمجموعة والدرجة في سطر
+// تاني. وده كان بيعمل مشكلتين:
+//   • النص الطويل في أي سطر كان **بيتقص** بدل ما ينزل تحت
+//   • "كريب سادة لوكس" و"كيوي درجة 56" حاجة واحدة منطقيًا — فصلهم
+//     بالعافية كان بيضيّع مساحة وبيصغّر الخط من غير داعي
 //
-// ليه مش دايمًا سطرين؟ لأن السطرين بياخدوا ارتفاع أكتر، فنصيب السطر
-// الواحد من الارتفاع بيقل. الاسم القصير بيطلع أكبر وأوضح في سطر واحد.
-// ⭐ بنجرّب لحد **تلات** سطور للاسم.
-// السبب: الاسم الطويل على سطرين بيضطر الخط يصغّر جدًا. السطر التالت
-// بيدّي الحروف مساحة أكبر — بس بيتاخد **بس** لو طلّع خط أكبر فعلًا،
-// لأن السطر الزيادة بياكل من ارتفاع السطور التانية.
-function pickNameLayout(name, widthMm, contentH, lineHeight, otherLines, capMm) {
-  let best = { lines: 1, size: 0 };
-  for (let lines = 1; lines <= 3; lines++) {
-    const byHeight = contentH / ((lines + otherLines) * lineHeight);
-    const byWidth = fitWrappedFontSizeMm(name, widthMm, lines, true);
-    const size = Math.min(byHeight, byWidth, capMm || Infinity);
-    if (size > best.size) best = { lines, size };
-  }
-  return best;
+// دلوقتي نص واحد بيلف طبيعي: بياخد سطر لو قصير، وينزل تحته لو طال،
+// ولو حتى كده مش كافي بيحط **نقط (…)** على اللي مش ظاهر.
+const GRADE_LABEL_MAX_LINES = 3;
+
+// بتوصّل حتّتين نص في سطر واحد. موجودة عشان الفاصل يبقى مكتوب في مكان
+// واحد — لو اتكرر في كل شاشة، أول ما نغيّره هيبقى مختلف من شاشة للتانية.
+// وبتشيل الفاضي: "كريب سادة" لوحدها مش "كريب سادة — ".
+function joinLabelText(a, b) {
+  return [a, b].map((x) => String(x || '').trim()).filter(Boolean).join(' — ');
 }
 
-// gradeLabel = النص اللي هيتكتب في السطر التاني: "درجة 56" للدرجات
-// المرقّمة، أو الاسم نفسه ("أبيض") للدرجات الأساسية.
-function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
+function buildGradeLabelHTML(text, sizeOptions, copies) {
   const { pageWidthMm, pageHeightMm, halves } = sizeOptions;
   const halfHeight = pageHeightMm / (halves || 1);
   const copyCount = Math.max(1, Math.min(MAX_LABEL_COPIES, parseInt(copies, 10) || 1));
@@ -1391,33 +1380,33 @@ function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
   // القص اللي في النص. (شوف الشرح المطوّل في buildLabelHTML)
   const OUTER_MM = SAFE_MARGIN_MM;
   const INNER_MM = halves > 1 ? 0.6 : SAFE_MARGIN_MM;
-  const pad = OUTER_MM;
   const availableW = pageWidthMm - SAFE_MARGIN_MM * 2;
   const availableH = halfHeight - OUTER_MM - INNER_MM;
 
-  const line1 = String(categoryName || '');
-  const line2 = String(gradeLabel || '');
+  const body = String(text || '');
+  const LINE = 1.25;
 
-  // اسم الفئة الطويل بيتقسم على سطرين بدل ما يتقطع أو يخرج بره اللاصقة.
-  const LINE = 1.2;
-  const layout = pickNameLayout(line1, availableW, availableH, LINE, 1, null);
-  const nameLines = layout.lines;
-  const size1 = layout.size;
-  const byHeight = availableH / ((nameLines + 1) * LINE);
-  const size2 = Math.min(byHeight, fitWrappedFontSizeMm(line2, availableW, 1, true));
+  // أكبر خط بيخلّي النص كامل يدخل في عدد السطور المسموح.
+  // ⚠️ بنجرّب من سطر لحد الحد وناخد **الأكبر** — مش بنثبّت على عدد سطور.
+  // السطر الزيادة بياكل من ارتفاع الباقي، فمش دايمًا مكسب.
+  let size = 0;
+  let lines = 1;
+  for (let L = 1; L <= GRADE_LABEL_MAX_LINES; L++) {
+    const s = Math.min(availableH / (L * LINE), fitWrappedFontSizeMm(body, availableW, L, true));
+    if (s > size) { size = s; lines = L; }
+  }
+  // حد القراءة: تحته بنثبّت الخط ونسيب النقط تقص الزيادة
+  const MIN_MM = dotsToMm(9);
+  if (size < MIN_MM) { size = MIN_MM; lines = GRADE_LABEL_MAX_LINES; }
 
-  const halfHTML = `
-      <div class="half">
-        <div class="l1">${escapeHTML(line1)}</div>
-        <div class="l2">${escapeHTML(line2)}</div>
-      </div>`;
+  const halfHTML = `<div class="half"><div class="t">${escapeHTML(body)}</div></div>`;
 
   return `
     <!doctype html>
     <html dir="rtl" lang="ar">
     <head>
       <meta charset="UTF-8">
-      <title>ملصق ${escapeHTML(gradeLabel)}</title>
+      <title>ملصق ${escapeHTML(body.slice(0, 40))}</title>
       <style>
         @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
@@ -1433,16 +1422,15 @@ function buildGradeLabelHTML(categoryName, gradeLabel, sizeOptions, copies) {
         }
         /* النص التاني مقلوب — الهامش الكبير على حرف الورقة السفلي */
         .half + .half { padding: ${INNER_MM}mm ${SAFE_MARGIN_MM}mm ${OUTER_MM}mm; }
-        .l1, .l2 { font-weight: bold; line-height: ${LINE}; }
-        /* ⚠️ مفيش -webkit-line-clamp — شوف الشرح في ملصق الصنف فوق. */
-        .l1 {
-          font-size: ${size1.toFixed(2)}mm;
+        .t {
+          font-size: ${size.toFixed(2)}mm; font-weight: bold; line-height: ${LINE};
           overflow-wrap: anywhere; word-break: break-word;
-          max-height: ${(nameLines * LINE * size1).toFixed(2)}mm;
+          /* النقط: بس لو حتى ${GRADE_LABEL_MAX_LINES} سطور مكفوش */
+          display: -webkit-box; -webkit-box-orient: vertical;
+          -webkit-line-clamp: ${lines};
           overflow: hidden;
+          max-height: ${(lines * LINE * size).toFixed(2)}mm;
         }
-        .l2 { white-space: nowrap; }
-        .l2 { font-size: ${size2.toFixed(2)}mm; }
       </style>
     </head>
     <body>${`<div class="label">${halfHTML.repeat(halves || 1)}</div>`.repeat(copyCount)}</body>
@@ -1459,7 +1447,8 @@ async function printGradeLabels(cat, sizeOptions) {
 
   // ⭐ نفس بنّاء الملصق النصّي اللي بتستخدمه كل الشاشات — شوف buildTextLabel
   const buildOne = (label, copies) => {
-    const b = buildTextLabel(cat.name, label, sizeOptions, copies);
+    // ⭐ الاتنين نص واحد بيلف — مش سطر لكل واحد
+    const b = buildTextLabel(joinLabelText(cat.name, label), sizeOptions, copies);
     return {
       html: copies > 1 ? b.fallbackHTML : b.jobHTML,
       preview: b.image ? b.previewHTML : null,
@@ -1513,13 +1502,18 @@ function openCustomLabelDialog(opts) {
     <div class="card" style="max-width:340px; width:100%; max-height:88vh; overflow:auto;">
       <div style="margin-bottom:12px; font-size:14px; font-weight:500; text-align:center;">✍️ طباعة مسمّى</div>
       <form id="custom-label-form">
+        <!-- ⭐ خانة واحدة بدل اتنين. الخانتين كانوا بيفرضوا سطرين، والنص
+             الطويل في أي واحدة فيهم كان **بيتقص**. دلوقتي تكتب اللي إنت
+             عايزه وهو بينزل السطر لوحده. -->
         <div class="field">
-          <label>السطر الأول</label>
-          <input class="input" id="custom-line1" maxlength="60" placeholder="مثلًا: كريب سادة لوكس" required />
-        </div>
-        <div class="field">
-          <label>السطر التاني (اختياري)</label>
-          <input class="input" id="custom-line2" maxlength="60" placeholder="مثلًا: درجة 56" />
+          <label>الكلام اللي هيتطبع</label>
+          <textarea class="input" id="custom-text" rows="2" maxlength="120"
+                    style="resize:vertical; font-family:inherit;"
+                    placeholder="مثلًا: كريب سادة لوكس — كيوي درجة 56" required></textarea>
+          <div style="font-size:11px; color:var(--text-secondary); margin-top:4px; line-height:1.7;">
+            الكلام الطويل بينزل السطر اللي بعده لوحده، ولو طوّل أوي بيتحط
+            مكانه نقط (…).
+          </div>
         </div>
         <div class="field">
           <label>عدد اللاصقات</label>
@@ -1535,30 +1529,31 @@ function openCustomLabelDialog(opts) {
 
   const close = () => document.body.removeChild(overlay);
   document.getElementById('custom-cancel').addEventListener('click', close);
-  const first = document.getElementById('custom-line1');
+  const first = document.getElementById('custom-text');
   if (first) first.focus();
 
   document.getElementById('custom-label-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const line1 = document.getElementById('custom-line1').value.trim();
-    const line2 = document.getElementById('custom-line2').value.trim();
+    // ⚠️ الأسطر اللي المستخدم يدوس عليها Enter بتتحوّل مسافات: اللف
+    // بيحصل حسب المساحة الحقيقية، مش حسب مكان ما ضغط.
+    const text = document.getElementById('custom-text').value.replace(/\s+/g, ' ').trim();
     const raw = parseInt(document.getElementById('custom-copies').value, 10);
     const copies = Math.max(1, Math.min(MAX_LABEL_COPIES, Number.isNaN(raw) ? 1 : raw));
-    if (!line1 && !line2) return;
+    if (!text) return;
     close();
     if (toCart) {
-      addCustomLabelToCart(line1, line2, copies);
+      addCustomLabelToCart(text, copies);
       return;
     }
-    safeAsync(() => printTextLabel(line1, line2, { ...LABEL_SIZE, copies }), 'طباعة المسمّى');
+    safeAsync(() => printTextLabel(text, { ...LABEL_SIZE, copies }), 'طباعة المسمّى');
   });
 }
 
 // بتطبع ملصق نص حر (سطرين). نفس مسار ملصق الدرجة: صورة بمقاس نقط
 // الطابعة، معاينة، وبعدين وظايف طباعة صغيرة.
-async function printTextLabel(line1, line2, sizeOptions) {
+async function printTextLabel(text, sizeOptions) {
   const copies = sizeOptions.copies || 1;
-  const built = buildTextLabel(line1, line2, sizeOptions, copies);
+  const built = buildTextLabel(text, sizeOptions, copies);
 
   const approved = await showPrintPreview(
     built.previewHTML,
@@ -1586,7 +1581,7 @@ async function printOneGradeLabel(gradeId, copies) {
   // ⭐ الرمز ده **دايمًا** بيكتب اسم المجموعة لو الدرجة ليها مجموعة.
   // مش تابع لمفتاح: إنت واقف على الدرجة في قايمة مجموعتها، فالملصق
   // المفروض يقول نفس اللي شايفه على الشاشة.
-  await printTextLabel(cat.name || '', gradeLabelText(g, true), {
+  await printTextLabel(joinLabelText(cat.name, gradeLabelText(g, true)), {
     ...LABEL_SIZE,
     copies: Math.max(1, Math.min(MAX_LABEL_COPIES, copies || 1)),
   });
