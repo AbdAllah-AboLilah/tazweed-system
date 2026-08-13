@@ -166,8 +166,22 @@ async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML
 
     // التقدم بيوصل من الجهاز التاني وهو بيطبع
     if (data.status === 'pending' && data.progressTotal > 0) {
-      if (!bar) bar = showPrintProgress(data.progressTotal);
+      // ⏹️ الإيقاف من هنا كمان — والسبب إن **الشغل بيتم من الموبايل**.
+      // لو الزرار على الكمبيوتر بس، يبقى ناقص في الاستخدام الأساسي.
+      // بنكتب علامة على الطلب، والجهاز اللي بيطبع بيشوفها بين الدفعات.
+      if (!bar) bar = showPrintProgress(data.progressTotal, () => {
+        ref.update({ cancelRequested: true }).catch((err) => {
+          console.warn('تعذّر إرسال طلب الإيقاف:', err);
+        });
+      });
       bar.update(data.progressDone || 0);
+      return;
+    }
+
+    if (data.status === 'stopped') {
+      stop();
+      closeBar();
+      alert(`⏹️ اتوقفت.\n\n${data.failReason || ''}\n\nاللي كان في الماكينة خلاص هيكمّل.`);
       return;
     }
 
@@ -311,9 +325,28 @@ async function executePrintJob(jobId, job) {
   // نجرب QZ Tray الأول (طباعة صامتة فعليًا 100%، من غير أي نافذة أو ضغطة
   // خالص)، ولو مش متاح على الجهاز ده، نرجع لطريقة الـiframe المخفي القديمة
   // (اللي لسه محتاجة ضغطة "طباعة" أخيرة جوه نافذة المتصفح).
-  const printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions, onProgress);
+  // ⏹️ اللي بعت الطلب من تليفونه يقدر يوقّفه. بنسمع على الطلب ده **وهو
+  // بيتطبع بس**، وأول ما تيجي العلامة بنندهها للحلقة اللي بتبعت الدفعات.
+  //
+  // ⚠️ مستمع على **مستند واحد** ولمدة الطبعة بس — مش استعلام دايم.
+  const stopWatch = ref.onSnapshot(
+    (snap) => {
+      const d = snap.data();
+      if (d && d.cancelRequested) requestPrintCancel();
+    },
+    () => {}
+  );
+
+  let printedViaQZ = false;
+  try {
+    printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions, onProgress);
+  } finally {
+    stopWatch();
+  }
   const outcome = lastPrintOutcome;
-  if (!printedViaQZ) {
+  // ⚠️ الطبعة اللي **اتوقفت بطلب المستخدم** مايصحّش نرجع لها بنافذة
+  // المتصفح — ده معناه إن اللي وقفه يرجع يتطبع تاني وكامل.
+  if (!printedViaQZ && !outcome.cancelled) {
     // ⚠️ الطلب مابقاش بيحمل النسخة المكررة (كانت بتفجّر حجم المستند)،
     // فبنكرّرها هنا — نافذة المتصفح بتتعامل مع مستند واحد بس.
     printHTMLSilently(job.browserHTML || expandCopies(list));
@@ -333,10 +366,20 @@ async function executePrintJob(jobId, job) {
   //
   // الرجوع لنافذة المتصفح (printHTMLSilently) بيتحسب **مش** نجاح: النافذة
   // دي محتاجة حد يدوس "طباعة"، ولو مافيش حد عند الجهاز مش هيحصل حاجة.
+  // ⭐ وفيه حالة تالتة: **اتوقفت**. لو كتبناها "فشلت"، اللي على الموبايل
+  // هيدوّر على عطل مش موجود — هو اللي وقفها بإيده.
   const ok = printedViaQZ && outcome.ok;
   ref
     .update(
-      ok
+      outcome.cancelled
+        ? {
+            status: 'stopped',
+            failReason: outcome.reason || 'اتوقفت بطلب المستخدم.',
+            printedByUid: state.user.uid,
+            printedByName: state.profile.name || '',
+            printedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          }
+        : ok
         ? {
             status: 'printed',
             printedByUid: state.user.uid,
@@ -750,15 +793,81 @@ let lastBatchStats = null;
 //
 // تغيير القيمة المرجّعة كان هيكسر كل اللي بينده عليها، فبدل كده الدالة
 // بتسجّل **إيه اللي حصل بالظبط** هنا، واللي محتاج التفصيل بيقراه.
-let lastPrintOutcome = { ok: false, reason: '', done: 0, total: 0 };
+// ⭐ فيه **تلات** حالات مش اتنين. لو "اتوقفت" اتحسبت "فشلت"، المستخدم
+// هيدوّر على عطل مش موجود — هو اللي وقفها. ولو اتحسبت "اتطبعت"، هيفتكر
+// إن الـ100 خرجوا وهما 40.
+let lastPrintOutcome = { ok: false, reason: '', done: 0, total: 0, cancelled: false };
 
-function setPrintOutcome(ok, reason, done, total) {
-  lastPrintOutcome = { ok, reason: reason || '', done: done || 0, total: total || 0 };
+function setPrintOutcome(ok, reason, done, total, cancelled) {
+  lastPrintOutcome = {
+    ok,
+    reason: reason || '',
+    done: done || 0,
+    total: total || 0,
+    cancelled: !!cancelled,
+  };
   return lastPrintOutcome;
 }
 
 // شريط تقدّم بسيط للطبعات الكبيرة.
-function showPrintProgress(total) {
+// ============================================================
+// ⏹️ وقف الباقي
+// ============================================================
+// ⚠️⚠️ **الاسم هنا مقصود وماينفعش يتغيّر لـ"إلغاء".**
+//
+// أول ما `qz.print()` تتنادى، الدفعة دي بتبقى في **طابور ويندوز** —
+// ومن المتصفح مفيش أي طريقة نسحبها، وQZ Tray نفسه مالوش أمر إلغاء.
+// يعني الدفعة اللي في الماكينة **هتكمّل وتخرج** مهما عملنا.
+//
+// اللي بنوقفه هو **اللي لسه ماتبعتش**. ولو الزرار كتب عليه "إلغاء"
+// وطلعوا 20 ملصق بعد الضغط، المستخدم هيفتكر إنه باظ — وده أوحش من إن
+// الزرار مايبقاش موجود أصلًا.
+//
+// 📌 وفيه ربط مباشر مع حجم الدفعة: الدفعة الكبيرة أسرع، **بس أصعب
+// توقفها** — أكتر حاجة تخسرها = حجم الدفعة.
+let activePrintCancel = null;
+
+function beginPrintCancelScope() {
+  activePrintCancel = { requested: false, wake: null };
+  return activePrintCancel;
+}
+
+function endPrintCancelScope() {
+  activePrintCancel = null;
+}
+
+function requestPrintCancel() {
+  if (!activePrintCancel) return false;
+  activePrintCancel.requested = true;
+  // ⚠️ لازم نقطع الانتظار **فورًا**. من غير ده تدوس "وقّف" وتقعد مستني
+  // لحد 20 ثانية (مدة إيقاع الدفعة) والشريط قدامك مش بيعمل حاجة —
+  // فتفتكر إن الزرار مش شغّال وتدوس تاني.
+  if (typeof activePrintCancel.wake === 'function') activePrintCancel.wake();
+  return true;
+}
+
+function isPrintCancelRequested() {
+  return !!(activePrintCancel && activePrintCancel.requested);
+}
+
+// انتظار بيتقطع لو المستخدم دق "وقّف الباقي"
+function cancellableSleep(ms) {
+  return new Promise((resolve) => {
+    const scope = activePrintCancel;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (scope && scope.wake === finish) scope.wake = null;
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    if (scope) scope.wake = finish;
+  });
+}
+
+function showPrintProgress(total, onCancel) {
   const box = document.createElement('div');
   box.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;' +
@@ -773,10 +882,23 @@ function showPrintProgress(total) {
       <div style="font-size:11px; color:var(--text-secondary); margin-top:10px; line-height:1.7;">
         متقفلش الصفحة لحد ما تخلص
       </div>
+      ${onCancel ? `
+        <button class="btn" id="pp-stop" style="margin-top:10px; width:100%;">⏹️ وقّف الباقي</button>
+        <div style="font-size:10.5px; color:var(--text-muted); margin-top:6px; line-height:1.7;">
+          اللي اتبعت للماكينة خلاص هيكمّل — بنوقف اللي لسه ماتبعتش
+        </div>` : ''}
     </div>`;
   document.body.appendChild(box);
   const num = box.querySelector('#pp-num');
   const bar = box.querySelector('#pp-bar');
+  const stopBtn = box.querySelector('#pp-stop');
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+      stopBtn.disabled = true;
+      stopBtn.textContent = '⏳ بيقف بعد الدفعة دي...';
+      try { onCancel(); } catch (err) { console.warn('تعذّر إيقاف الطباعة:', err); }
+    });
+  }
   return {
     update(n) {
       num.textContent = `${n} / ${total}`;
@@ -927,7 +1049,9 @@ async function paceForPrinter(labelCount) {
   // استنى الدفعة كلها. ومابنستناش أقل من صفر لو التقديم أكبر من الدفعة.
   const waitFor = Math.max(0, labelCount - getPrintLeadLabels());
   if (waitFor <= 0) return;
-  await sleepMs(Math.min(20000, Math.round(waitFor * per * PACE_OVERLAP)));
+  // ⚠️ `cancellableSleep` مش `sleepMs`: الانتظار ده ممكن يوصل 20 ثانية،
+  // ولو مابيتقطعش المستخدم بيدوس "وقّف" ومايحصلش حاجة قدامه.
+  await cancellableSleep(Math.min(20000, Math.round(waitFor * per * PACE_OVERLAP)));
 }
 
 // بتلفّ أي وعد بمهلة. لو عدّت المهلة بترمي خطأ واضح بدل ما تفضل مستنية.
@@ -1880,7 +2004,10 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     //   بعد:  صورة واحدة 10 كيلو، ووظيفة من صفحة واحدة
     //
     // ولو الملصقات مختلفة (سلة فيها أصناف)، كل صنف بياخد وظيفته بعدد نسخه.
-    const progress = totalLabels > 10 ? showPrintProgress(totalLabels) : null;
+    // ⚠️ نطاق الإيقاف بيتفتح **قبل** الشريط: الزرار جوّه الشريط بينده
+    // requestPrintCancel، ولو النطاق لسه مافتحش الضغطة بتضيع في الهوا.
+    beginPrintCancelScope();
+    const progress = totalLabels > 10 ? showPrintProgress(totalLabels, requestPrintCancel) : null;
     // ⭐ نفس التقدم بيتبعت للجهاز اللي بعت الطلب (لو الطباعة عن بُعد)،
     // عشان اللي على الموبايل يشوف نفس الشريط بدل ما يستنى في الفراغ.
     const report = (done, total) => {
@@ -1964,6 +2091,24 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     const COPIES_PER_JOB = getPrintBatchSize();
     const sizeOf = (pg) => (pg && pg.data ? pg.data.length : 0) + 64; // 64 = حِمل الغلاف
 
+    // نهاية واحدة للإيقاف — عشان المسارين يقولوا نفس الكلام بالظبط
+    const finishStopped = (done, total) => {
+      if (progress) progress.close();
+      endPrintCancelScope();
+      const el = document.createElement('div');
+      el.style.cssText =
+        'position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:3200;' +
+        'background:#4a3b00; color:#fff; padding:10px 16px; border-radius:8px; max-width:88vw;' +
+        'font-size:12.5px; line-height:1.8; box-shadow:0 4px 18px rgba(0,0,0,.3); text-align:center;';
+      // ⚠️ الرقم ده **مش دقيق للملصق**: الدفعة الأخيرة اللي اتبعتت لسه
+      // بتخرج من الماكينة. بنقول "لحد" عشان مانوعدش برقم مش بإيدنا.
+      el.textContent = `⏹️ اتوقفت — اتبعت لحد ${done} من ${total}. اللي في الماكينة هيكمّل.`;
+      document.body.appendChild(el);
+      setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 8000);
+      setPrintOutcome(false, `اتوقفت بطلب المستخدم — اتبعت ${done} من ${total}.`, done, total, true);
+      return true;
+    };
+
     if (useCopies && list.length === 1 && list[0].copies > 1) {
       const page = pageOf(list[0]);
       const total = list[0].copies;
@@ -1978,6 +2123,8 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
             maxKB: Math.round(sizeOf(page) / 1024),
           };
           while (sent < total) {
+            // ⏹️ الفحص **قبل** الإرسال: بعد الإرسال يبقى فات الأوان
+            if (isPrintCancelRequested()) return finishStopped(sent, total);
             const n = Math.min(COPIES_PER_JOB, total - sent);
             const cfg = qz.configs.create(printerName, { ...configOpts, copies: n });
             await qzPrintWithTimeout(cfg, [page], `نسخ ${sent + 1}-${sent + n}`);
@@ -1987,6 +2134,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
           }
           if (progress) progress.close();
           if (progress) showPrintHint(total);
+          endPrintCancelScope();
           setPrintOutcome(true, '', total, total);
           return true;
         } catch (errCopies) {
@@ -2062,6 +2210,8 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     let done = 0;
     try {
       for (const chunk of perMessage) {
+        // ⏹️ الفحص **قبل** الإرسال: بعد الإرسال يبقى فات الأوان
+        if (isPrintCancelRequested()) return finishStopped(done, pages.length);
         await qzPrintWithTimeout(config, chunk, `الملصقات ${done + 1}-${done + chunk.length}`);
         done += chunk.length;
         report(done, pages.length);
@@ -2075,6 +2225,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
       console.warn('الطباعة المجمّعة مانفعتش — بنرجع لواحدة واحدة:', errBatch);
       try {
         for (let i = done; i < pages.length; i++) {
+          if (isPrintCancelRequested()) return finishStopped(i, pages.length);
           await qzPrintWithTimeout(config, [pages[i]], `الملصق ${i + 1}`);
           report(i + 1, pages.length);
           if (i + 1 < pages.length) await paceForPrinter(1);
@@ -2131,9 +2282,11 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     // البديل: تنبيه **مش موقّف** بيظهر ويختفي لوحده. المستخدم اللي واقف
     // عند الماكينة بيشوفه، واللي مش واقف مايتأثرش.
     if (progress) showPrintHint(pages.length);
+    endPrintCancelScope();
     setPrintOutcome(true, '', pages.length, pages.length);
     return true;
   } catch (err) {
+    endPrintCancelScope();
     console.error('فشلت الطباعة عبر QZ Tray:', err);
     setPrintOutcome(false, 'خطأ في الاتصال بالطابعة' + (err && err.message ? `: ${err.message}` : '.'));
     return false;
