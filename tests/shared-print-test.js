@@ -66,7 +66,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       pages: m.reduce((s,x)=>s+x.length,0),
       maxPages: Math.max(...m.map(x=>x.length)),
       maxKB: +(Math.max(...m.map(x=>x.reduce((s,pg)=>s+pg.data.length,0)))/1024).toFixed(0),
-      perJob: QZ_PAGES_PER_JOB,
+      perJob: getPrintBatchSize(),
     };
   });
   check('⭐ 100 ملصق اتبعتوا كلهم', big.pages === 100, big);

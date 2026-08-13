@@ -686,22 +686,27 @@ function printHTMLSilently(htmlContent) {
 // أقصى حجم لرسالة واحدة رايحة لـQZ: الرسالة الأكبر من كده بتتضاع في صمت
 // والطابعة "بتاخد الأمر ومفيش حاجة بتتطبع".
 //
-// ⚠️ مش مستخدم في الكود ده — التقسيم بقى بعدد الصفحات (QZ_PAGES_PER_JOB)
-// مش بالحجم. الرقم فاضل هنا عشان الفحوصات (restock-print و raster-label)
-// بتتأكد إن مفيش رسالة عدّته. متمسحوش وانت شايف audit.py بيقول "كود ميت" —
-// مسحه معناه إن الحد مابقاش متفحوص وممكن نرجع لنفس العطل من غير ما ناخد بالنا.
+// ⚠️⚠️ الرقم ده **مايتغيّرش من الإعدادات ولا من أي مكان**. هو الحاجز
+// الوحيد بينّا وبين "بياخد الأمر ومفيش حاجة بتتطبع"، وطلع من العطل ده
+// بالظبط. خانة "عدد الدفعة" اللي المستخدم بيظبطها **سقف تاني جنبه**، مش
+// بديل عنه — والحجم دايمًا بيكسب.
+//
+// (كان مكتوب هنا قبل كده إنه "مش مستخدم" — وده كان غلط: هو الشرط الأول
+// في تقسيم الرسايل تحت.)
 const QZ_MAX_MESSAGE_BYTES = 48 * 1024;
 
-// عدد الصفحات في وظيفة الطباعة الواحدة. الشرح الكامل عند مكان الاستخدام —
-// باختصار: الوظيفة الكبيرة بتقف في صمت، والصغيرة بتعدّي.
-// ⚠️ الرقم ده **نادرًا** بيبقى هو الحاكم. القياس الحقيقي:
+// ⚠️ كان هنا رقم ثابت `QZ_PAGES_PER_JOB = 8`. بقى **خانة في الإعدادات**
+// (getPrintBatchSize) — الشرح الكامل عند تعريفها.
 //
-//   الملصق النصّي  → 9.8 كيلو للصفحة → 4 صفحات = 39 كيلو (الحجم وقف قبل العدد)
-//   المقسوم ٤      → 13.1 كيلو للصفحة → 3 صفحات = 39 كيلو (الحجم كمان)
+// وده القياس الحقيقي اللي بيوضّح ليه الرقم ده **نادرًا** بيبقى هو الحاكم:
 //
-// يعني رفع الرقم ده لوحده **مش هيسرّع حاجة** — الحد بالبايت بيقفل الرسالة
-// قبل ما نوصله أصلًا. سيبناه كسقف أمان بس.
-const QZ_PAGES_PER_JOB = 8;
+//   درجة (نص بس)     →  1.5 كيلو للصفحة  →  32 صفحة = 48 كيلو
+//   صنف بباركود      →  9.7 كيلو للصفحة  →   4 صفحات = 39 كيلو ← الحجم وقف
+//   المقسوم ٤        → 15.8 كيلو للصفحة  →   3 صفحات = 47 كيلو ← الحجم كمان
+//
+// يعني في ملصقات الباركود، رفع الرقم **مش هيعمل حاجة** — الحد بالبايت
+// بيقفل الرسالة قبل ما نوصله. وده اللي المستخدم لازم يشوفه بعينه بدل ما
+// يفتكر إن الخانة باظت، فبنعرض الرقم المستخدَم فعلًا بعد كل طبعة.
 
 // تنبيه **مش موقّف** بيظهر تحت ويختفي لوحده بعد شوية.
 //
@@ -715,9 +720,25 @@ function showPrintHint(count) {
     'background:#263238; color:#fff; padding:10px 16px; border-radius:8px; max-width:88vw;' +
     'font-size:12.5px; line-height:1.8; box-shadow:0 4px 18px rgba(0,0,0,.3); text-align:center;';
   el.textContent = `🖨️ اتبعت ${count} ملصق للطابعة. لو مفيش حاجة خرجت: شوف الورق والغطا واللمبة.`;
+  // ⭐ سطر التجربة: بيقول الدفعة طلعت **كام فعلًا**، مش كام طلبت.
+  // من غيره المستخدم يكتب 40 ويشوف 4 ويفتكر إن الخانة باظت — وهي الحجم
+  // اللي وقف. التجربة لازم تبقى **باينة** عشان تنفع.
+  const stat = lastBatchStats;
+  if (stat && stat.jobs > 1) {
+    const line = document.createElement('div');
+    line.style.cssText = 'margin-top:5px; font-size:11.5px; opacity:.82;';
+    const asked = getPrintBatchSize();
+    line.textContent =
+      `📦 ${stat.jobs} دفعة، أكبر واحدة ${stat.maxPerJob} ملصق` +
+      (stat.maxPerJob < asked ? ` (طلبت ${asked} — الحجم وقف عند ${stat.maxKB} كيلو)` : '');
+    el.appendChild(line);
+  }
   document.body.appendChild(el);
-  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 7000);
+  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 9000);
 }
+
+// آخر طبعة اتقسّمت إزاي — بيتكتب من tryPrintViaQZ ويتقرا في التنبيه فوق.
+let lastBatchStats = null;
 
 // ============================================================
 // نتيجة آخر طباعة — عشان اللي بعت الطلب يعرف حصل إيه
@@ -883,6 +904,17 @@ const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 //
 // 📌 الدرس: التحسين اللي محدش طلبه، لو غيّر إحساس الاستخدام، **مش
 // تحسين**. الوقت الكلي مش المقياس الوحيد.
+//
+// ------------------------------------------------------------
+// ⭐ ورجعت الفكرة — بس **كخانة** بدل ما تكون مفروضة
+// ------------------------------------------------------------
+// الاعتراض على v0.45.1 مكانش على الفكرة، كان على إني فرضتها. ولما بقت
+// رقم المستخدم بيلفّه عند الماكينة، الاعتراض راح: بيجرّب ويشوف بعينه،
+// ويرجّعه في ثانية من غير أي تحديث.
+//
+// ⚠️ وبقت **عدد ملصقات ثابت** مش نسبة مئوية، والفرق مهم: 70٪ من دفعة 4
+// = ملصق واحد، و70٪ من دفعة 40 = 12 ملصق — يعني نفس الإعداد بيتصرّف
+// مختلف تمامًا على حسب حجم الدفعة. "فاضل 3 ملصقات" معناه واحد دايمًا.
 const PACE_OVERLAP = 1.0;
 
 async function paceForPrinter(labelCount) {
@@ -891,7 +923,11 @@ async function paceForPrinter(labelCount) {
   // قاس الوقت الحقيقي ولقى إن "صفر" بتاخد 15 ثانية زي الافتراضي بالظبط.
   const per = getPrintPaceMs();
   if (!(per > 0)) return;
-  await sleepMs(Math.min(20000, Math.round(labelCount * per * PACE_OVERLAP)));
+  // بنستنى وقت (الدفعة **ناقص** اللي المستخدم عايز يسبقها بيهم). صفر =
+  // استنى الدفعة كلها. ومابنستناش أقل من صفر لو التقديم أكبر من الدفعة.
+  const waitFor = Math.max(0, labelCount - getPrintLeadLabels());
+  if (waitFor <= 0) return;
+  await sleepMs(Math.min(20000, Math.round(waitFor * per * PACE_OVERLAP)));
 }
 
 // بتلفّ أي وعد بمهلة. لو عدّت المهلة بترمي خطأ واضح بدل ما تفضل مستنية.
@@ -1543,6 +1579,72 @@ function getPrintPaceMs() {
   }
 }
 
+// ============================================================
+// ⭐ عدد الدفعة والتداخل — أرقام المستخدم بيظبطها عند الماكينة
+// ============================================================
+// ليه دول إعدادات مش أرقام ثابتة في الكود؟ لأن **مافيش طريقة نعرف بيها من
+// هنا** الماكينة هتستحمل كام. جرّبنا نخمّن أكتر من مرة:
+//
+//   v0.44: 8 صفحات في الوظيفة  →  اتغيّر للحجم
+//   v0.45.0: 20 نسخة            →  اشتغلت
+//   v0.45.1: 25 نسخة + تداخل 70٪ →  المستخدم رفضها
+//   v0.45.2: رجعنا 20            →  زي ما كانت
+//
+// اللي واقف قدام الماكينة هو الوحيد اللي يقدر يجاوب. فبدل ما نفضل نغيّر
+// أرقام ونشحن، بقت خانة بيلفّها ويشوف بعينه.
+//
+// ⚠️⚠️ **بس حد الحجم مايتكسرش.** لو المستخدم كتب 40 وهو بيطبع ملصق
+// بباركود (9.7 كيلو)، الرسالة تبقى 390 كيلو وتتضاع **في سكوت** — نفس
+// العطل اللي "بياخد الأمر ومفيش حاجة بتتطبع". الرقم بتاعه **سقف**،
+// والحجم بيقفل قبله لو لزم.
+const PRINT_BATCH_KEY = 'tazweed_print_batch';
+const PRINT_LEAD_KEY = 'tazweed_print_lead';
+const PRINT_BATCH_DEFAULT = 20;
+const PRINT_BATCH_MAX = 200;
+// صفر = استنى الدفعة تخلص بالكامل (السلوك اللي المستخدم جرّبه ورضي عنه)
+const PRINT_LEAD_DEFAULT = 0;
+
+function getPrintBatchSize() {
+  try {
+    const v = localStorage.getItem(PRINT_BATCH_KEY);
+    if (v === null || v === '') return PRINT_BATCH_DEFAULT;
+    const n = parseInt(v, 10);
+    return isFinite(n) && n >= 1 ? Math.min(PRINT_BATCH_MAX, n) : PRINT_BATCH_DEFAULT;
+  } catch (err) {
+    return PRINT_BATCH_DEFAULT;
+  }
+}
+
+function setPrintBatchSize(n) {
+  try {
+    localStorage.setItem(PRINT_BATCH_KEY, String(Math.max(1, Math.min(PRINT_BATCH_MAX, parseInt(n, 10) || PRINT_BATCH_DEFAULT))));
+  } catch (err) {
+    /* لا شيء */
+  }
+}
+
+// "ابعت اللي بعدها وفاضل كام ملصق". الرقم ده **ثابت** مش نسبة مئوية عن
+// قصد: النسبة معناها يختلف مع حجم الدفعة (70٪ من 4 = ملصق، ومن 40 = 12)،
+// والرقم الثابت معناه واحد في كل الحالات.
+function getPrintLeadLabels() {
+  try {
+    const v = localStorage.getItem(PRINT_LEAD_KEY);
+    if (v === null || v === '') return PRINT_LEAD_DEFAULT;
+    const n = parseInt(v, 10);
+    return isFinite(n) && n >= 0 ? Math.min(50, n) : PRINT_LEAD_DEFAULT;
+  } catch (err) {
+    return PRINT_LEAD_DEFAULT;
+  }
+}
+
+function setPrintLeadLabels(n) {
+  try {
+    localStorage.setItem(PRINT_LEAD_KEY, String(Math.max(0, Math.min(50, parseInt(n, 10) || 0))));
+  } catch (err) {
+    /* لا شيء */
+  }
+}
+
 function setPrintPaceMs(ms) {
   try {
     localStorage.setItem(PRINT_PACE_KEY, String(Math.max(0, Math.min(3000, Number(ms) || 0))));
@@ -1791,6 +1893,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
       const page = pageOf(job);
       for (let i = 0; i < job.copies; i++) pages.push(page);
     }
+    lastBatchStats = null;
 
     // ------------------------------------------------------------
     // ⚠️⚠️ الدفعة بتتحسب بالحجم، مش بعدد الملصقات
@@ -1819,7 +1922,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     //
     // جرّبنا نصغّر الرسالة، وجرّبنا نبعت العدد كـ"عدد نسخ" — والاتنين
     // مانفعوش. فبقينا نبعت **وظايف صغيرة ورا بعض**: كل وظيفة فيها
-    // QZ_PAGES_PER_JOB صفحة بس. الطابعة بتخلّص وظيفة وتاخد اللي بعدها،
+    // العدد اللي في الإعدادات بس. الطابعة بتخلّص وظيفة وتاخد اللي بعدها،
     // وكل واحدة صغيرة لدرجة إنها مستحيل تتخنق.
     //
     // أبطأ شوية من وظيفة واحدة — بس بتطبع فعلًا، وده اللي يهم.
@@ -1855,9 +1958,10 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     //
     // 📌 لو اشتغلت عندك، نخليها الافتراضي. لو لأ، تقفلها ومافيش خسارة.
     const useCopies = getPrintTweak('fastCopies');
-    // ⚠️ رجع 20 زي v0.45.0 — الرقم اللي المستخدم جرّبه ولقاه شغّال.
-    // كبّرته لـ25 من نفسي، وده تغيير مالوش داعي في حاجة مجرّبة.
-    const COPIES_PER_JOB = 20;
+    // ⚠️ الرقم ده بقى **خانة في الإعدادات** مش رقم ثابت. السبب إننا
+    // جرّبنا نخمّنه 3 مرات وكل مرة نشحن تحديث — واللي واقف قدام الماكينة
+    // هو الوحيد اللي يقدر يجاوب. الافتراضي 20 (اللي اتجرّب ورضي عنه).
+    const COPIES_PER_JOB = getPrintBatchSize();
     const sizeOf = (pg) => (pg && pg.data ? pg.data.length : 0) + 64; // 64 = حِمل الغلاف
 
     if (useCopies && list.length === 1 && list[0].copies > 1) {
@@ -1866,6 +1970,13 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
       if (sizeOf(page) <= QZ_MAX_MESSAGE_BYTES) {
         let sent = 0;
         try {
+          // ⭐ هنا الحجم **مش عامل**: بنبعت صفحة واحدة ونقول "اطبعها n
+          // مرة". فرقم المستخدم بيتنفّذ زي ما هو — 40، 60، 100.
+          lastBatchStats = {
+            jobs: Math.ceil(total / COPIES_PER_JOB),
+            maxPerJob: Math.min(COPIES_PER_JOB, total),
+            maxKB: Math.round(sizeOf(page) / 1024),
+          };
           while (sent < total) {
             const n = Math.min(COPIES_PER_JOB, total - sent);
             const cfg = qz.configs.create(printerName, { ...configOpts, copies: n });
@@ -1887,6 +1998,8 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
       }
     }
 
+    // السقف بالعدد: الأقل بين رقم المستخدم وسقف الأمان القديم.
+    const maxPerMessage = getPrintBatchSize();
     const perMessage = [];
     let chunk = [];
     let bytes = 0;
@@ -1895,7 +2008,12 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
       // نقفل الرسالة لو زوّدنا هنعدّي الحد، أو لو وصلنا العدد الأقصى.
       // الصفحة الواحدة لو أكبر من الحد أصلًا بتروح لوحدها — أحسن من
       // إننا نبعت رسالة فاضية.
-      if (chunk.length && (bytes + s > QZ_MAX_MESSAGE_BYTES || chunk.length >= QZ_PAGES_PER_JOB)) {
+      //
+      // ⚠️⚠️ **الحجم دايمًا بيكسب.** رقم المستخدم سقف، مش أمر. لو كتب 40
+      // وهو بيطبع ملصق بباركود (9.7 كيلو)، الرسالة تبقى 390 كيلو وتتضاع
+      // في **سكوت** — "بياخد الأمر ومفيش حاجة بتتطبع". عشان كده الشرط
+      // بالحجم أول حاجة، ورقمه بيتحط جنبه مش مكانه.
+      if (chunk.length && (bytes + s > QZ_MAX_MESSAGE_BYTES || chunk.length >= maxPerMessage)) {
         perMessage.push(chunk);
         chunk = [];
         bytes = 0;
@@ -1904,6 +2022,12 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
       bytes += s;
     }
     if (chunk.length) perMessage.push(chunk);
+
+    lastBatchStats = {
+      jobs: perMessage.length,
+      maxPerJob: perMessage.reduce((m, c) => Math.max(m, c.length), 0),
+      maxKB: Math.round(perMessage.reduce((m, c) => Math.max(m, c.reduce((s, pg) => s + sizeOf(pg), 0)), 0) / 1024),
+    };
 
     // الصفحة الواحدة لو أكبر من الحد، الرسالة هتتضاع في صمت مهما قسّمنا.
     // ده مش وارد بتصميماتنا (الصفحة ~8 كيلو والحد 48)، بس لو حصل يومًا
@@ -2116,6 +2240,31 @@ async function openPrinterSettings() {
                 <span id="pq-pace-status" style="font-size:11px; color:var(--text-muted);"></span>
               </div>
             </div>
+
+            <!-- ⭐ الأرقام دي للتجربة عند الماكينة — مافيش حد يعرفها من بعيد -->
+            <div style="border-top:1px dashed var(--border); margin-top:10px; padding-top:10px;">
+              <div style="font-size:12px; font-weight:500; margin-bottom:4px;">📦 حجم الدفعة والتقديم</div>
+              <div style="font-size:11px; color:var(--text-muted); line-height:1.8; margin-bottom:8px;">
+                الرقمين دول <strong>للتجربة</strong> — جرّب وشوف بعينك على الماكينة.
+                بعد كل طبعة كبيرة هيظهر لك تحت <strong>الدفعة طلعت كام فعلًا</strong>.
+                <br>⚠️ <strong>عدد الدفعة سقف مش أمر</strong>: لو الملصق تقيل (بباركود مثلًا)
+                النظام هيقلّل لوحده عشان الرسالة ماتضيعش في سكوت. هيقولك لما ده يحصل.
+                <br>⚡ ولو شغّلت مفتاح <strong>"اطبع العدد كنسخ"</strong> فوق، الرقم بيتنفّذ
+                زي ما هو من غير أي تقليل.
+              </div>
+              <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap;">
+                <div class="field" style="width:135px; margin-bottom:0;">
+                  <label style="font-size:11px;">أقصى عدد في الدفعة</label>
+                  <input class="input" type="number" id="pq-batch" min="1" max="200" step="1" style="padding:6px;" />
+                </div>
+                <div class="field" style="width:165px; margin-bottom:0;">
+                  <label style="font-size:11px;">ابعت اللي بعدها وفاضل كام</label>
+                  <input class="input" type="number" id="pq-lead" min="0" max="50" step="1" style="padding:6px;" />
+                </div>
+                <button class="btn" id="pq-batch-save">حفظ</button>
+                <span id="pq-batch-status" style="font-size:11px; color:var(--text-muted);"></span>
+              </div>
+            </div>
           </div>
 
           <div style="border-top:1px dashed var(--border); margin-top:12px; padding-top:10px;">
@@ -2322,6 +2471,23 @@ async function openPrinterSettings() {
       st.textContent = getPrintPaceMs() > 0
         ? `✅ اتحفظ — الطبعة الكبيرة هتمشي على ${getPrintPaceMs()}مث للملصق.`
         : '✅ اتحفظ — من غير انتظار.';
+    });
+  }
+
+  const pqBatch = overlay.querySelector('#pq-batch');
+  const pqLead = overlay.querySelector('#pq-lead');
+  if (pqBatch && pqLead) {
+    pqBatch.value = getPrintBatchSize();
+    pqLead.value = getPrintLeadLabels();
+    overlay.querySelector('#pq-batch-save').addEventListener('click', () => {
+      setPrintBatchSize(pqBatch.value);
+      setPrintLeadLabels(pqLead.value);
+      pqBatch.value = getPrintBatchSize();
+      pqLead.value = getPrintLeadLabels();
+      const lead = getPrintLeadLabels();
+      overlay.querySelector('#pq-batch-status').textContent =
+        `✅ اتحفظ — لحد ${getPrintBatchSize()} في الدفعة، ` +
+        (lead > 0 ? `والجاية بتتبعت وفاضل ${lead}.` : 'وبنستنى الدفعة تخلص.');
     });
   }
 
