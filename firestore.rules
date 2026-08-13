@@ -256,13 +256,22 @@ service cloud.firestore {
       //    pending، ومفيش أي حقل تاني بيتغيّر.
       //    ⚠️ من غير الاستثناء ده، أي كتابة تقدم بترفض — لأن الشرط القديم
       //    كان بيطلب إن الحالة **تتغيّر** لـprinted/failed.
-      // 2) **النتيجة النهائية**: printed أو failed، ومعاها سبب الفشل.
+      // 2) **النتيجة النهائية**: printed أو failed أو stopped، ومعاها السبب.
+      // 3) ⏹️ **طلب الإيقاف**: اللي بعت الطلب بيعلّم عليه إنه عايز يوقفه،
+      //    والجهاز اللي بيطبع بيشوف العلامة بين الدفعات ويقف.
+      //    ⚠️ **صاحب الطلب بس** — عشان محدش يوقّف طبعة حد تاني. والحالة
+      //    بتفضل pending: الإيقاف مجرد طلب، واللي بيطبع هو اللي بيقرّر
+      //    وبيكتب النتيجة.
       allow update: if isSignedIn()
         && oldStatus() == 'pending'
         && (
           (onlyChangedKeys(['progressDone', 'progressTotal']) && newStatus() == 'pending')
+          || (onlyChangedKeys(['cancelRequested'])
+              && newStatus() == 'pending'
+              && request.resource.data.cancelRequested == true
+              && resource.data.requestedByUid == request.auth.uid)
           || (onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt', 'error', 'failReason', 'progressDone', 'progressTotal'])
-              && newStatus() in ['printed', 'failed'])
+              && newStatus() in ['printed', 'failed', 'stopped'])
         );
       allow delete: if can('manageCategories');
     }
