@@ -691,6 +691,14 @@ function decodeCell(dataUrl, quiet) {
     // (ج) الطابعة وقفت في النص
     said.length = 0;
     let n = 0;
+    // ⚠️ الفحص ده كان **بيعتمد على رقم مش قايله**: كان مفترض إن الـ40
+    // ملصق بيتقسّموا على 5 رسايل (8 لكل رسالة)، فالفشل عند الرسالة
+    // الرابعة. ولما بقى حجم الدفعة **إعداد** والافتراضي 20، بقوا رسالتين
+    // بس — فالفشل عمره ما حصل والفحص عدّى وهو مبسوط ومش فاحص حاجة.
+    //
+    // 📌 القاعدة: الفحص اللي محتاج تقسيم معيّن **يقوله بنفسه**، مايستناش
+    // إعداد ممكن يتغيّر.
+    localStorage.setItem('tazweed_print_batch', '8');
     window.qz = { ...base, print: () => (++n > 3 ? Promise.reject(new Error('paper out')) : Promise.resolve()) };
     qzConnected = true; qzConnecting = null;
     await tryPrintViaQZ('label', [{ html: '<html></html>', image: null, copies: 40 }], size);
@@ -708,6 +716,7 @@ function decodeCell(dataUrl, quiet) {
     said.length = 0; asked.length = 0;
     await tryPrintViaQZ('label', jobs, size);
     out.singleQuiet = asked.length === 0 && said.length === 0;
+    localStorage.removeItem('tazweed_print_batch'); // مانسيبش إعداد ورانا
     return out;
   });
   check('⭐ الطابعة مش موجودة: بيقول الاسم والسبب',
