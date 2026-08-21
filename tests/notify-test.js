@@ -34,9 +34,10 @@ const snap = (docs) => ({ docs });
   // ------------------------------------------------------------
   await p.evaluate(() => {
     window.__log = { sounds: 0, notifs: [] };
-    window.playNotifySound = () => window.__log.sounds++;
-    window.showRestockNotification = (count, names) => {
-      window.__log.notifs.push({ count, names: names.slice() });
+    window.__soundWorks = true;
+    window.playNotifySound = () => { window.__log.sounds++; return window.__soundWorks; };
+    window.showRestockNotification = (count, names, ring) => {
+      window.__log.notifs.push({ count, names: names.slice(), ring: !!ring });
       return Promise.resolve(true);
     };
     window.clearRestockNotification = () => Promise.resolve();
@@ -325,8 +326,11 @@ const snap = (docs) => ({ docs });
   // ============================================================
   check('⭐⭐ فيه tag — من غيره كل طلب بيبقى إشعار منفصل على الشاشة',
     /tag: NOTIFY_TAG/.test(src), null);
-  check('⭐⭐ وsilent — عشان نغمتنا هي اللي ترن مش نغمة النظام',
-    /silent: true/.test(src), null);
+  // ⚠️ الفحص ده كان بيتأكد إن `silent: true` **ثابتة**. اتغيّر عن قصد في
+  // v0.52.0: السكوت الثابت كان بيطلّع إشعار من غير أي صوت لما أندرويد
+  // يجمّد الصفحة (نغمتنا واقفة، ونغمة النظام قافلينها). دلوقتي بتتحدد
+  // على حسب إن نغمتنا رنّت ولا لأ — الشرح في القسم 15 تحت.
+  check('⭐⭐ السكوت مربوط بنغمتنا مش ثابت', /silent: !ring/.test(src), null);
   check('⭐ والإشعار من الـService Worker الأول (new Notification بترمي خطأ على أندرويد)',
     src.indexOf('reg.showNotification') < src.indexOf('new Notification('), null);
 
@@ -371,6 +375,61 @@ const snap = (docs) => ({ docs });
   });
   check('⭐⭐ تغيير الحساب بيصفّر خط الأساس (الجديد مايرثش إشعارات القديم)',
     switched.beforeNames > 0 && switched.after.sounds === 0 && switched.after.notifs.length === 0, switched);
+
+  // ============================================================
+  // 15) ⭐⭐ الإشعار الساكت — العطل اللي كان هيفضّي الميزة من معناها
+  // ============================================================
+  // الإشعار كان متبعت `silent: true` **دايمًا**، عشان نغمتنا هي اللي ترن.
+  // بس لما تبدّل لتطبيق تاني، أندرويد بيجمّد الصفحة ومحرّك الصوت بيقف:
+  //
+  //   نغمتنا ......... ❌ مجمّدة
+  //   نغمة أندرويد ... ❌ إحنا قافلينها
+  //   النتيجة ........ **إشعار من غير أي صوت**
+  //
+  // يعني بالظبط في الحالة اللي الميزة كلها اتعملت عشانها.
+  const ringing = await p.evaluate(async () => {
+    const s = (ids) => onGradesSnapshotForNotify({
+      docs: ids.map((id) => ({
+        id, data: () => ({ status: 'pending', number: id, isBase: false }),
+        ref: { parent: { parent: { id: 'c1' } } }, metadata: { hasPendingWrites: false },
+      })),
+    });
+    const out = {};
+
+    // (أ) نغمتنا شغّالة → الإشعار ساكت (مانرنّش مرتين)
+    window.__setup(window.__mainKeeper);
+    window.__soundWorks = true;
+    s(['1']); s(['1', '2']);
+    out.soundOK = window.__log.notifs[0];
+
+    // (ب) نغمتنا مش شغّالة (الصفحة متجمّدة) → أندرويد يرن
+    window.__setup(window.__mainKeeper);
+    window.__soundWorks = false;
+    s(['1']); s(['1', '2']);
+    out.soundDead = window.__log.notifs[0];
+
+    // (ج) وسط الدفعة → ساكت برضه (النغمة مرة واحدة في الدفعة)
+    window.__setup(window.__mainKeeper);
+    window.__soundWorks = false;
+    s(['1']); s(['1', '2']); s(['1', '2', '3']);
+    out.midBurst = window.__log.notifs[1];
+    out.midBurstSounds = window.__log.sounds;
+    return out;
+  });
+  check('⭐⭐ نغمتنا رنّت؟ الإشعار ساكت (مافيش رنتين)',
+    ringing.soundOK && ringing.soundOK.ring === false, ringing.soundOK);
+  check('⭐⭐ نغمتنا ماقدرتش؟ أندرويد يرن بدل السكوت',
+    ringing.soundDead && ringing.soundDead.ring === true, ringing.soundDead);
+  check('⭐⭐ ووسط الدفعة ساكت — النغمة لسه مرة واحدة',
+    ringing.midBurst && ringing.midBurst.ring === false, ringing.midBurst);
+  check('⭐ والنغمة اتنادت مرة واحدة بس في الدفعة', ringing.midBurstSounds === 1, ringing);
+
+  // ⚠️ `renotify` لازم تمشي مع `silent`: من غيرها الاستبدال بنفس الوسم
+  // بيحصل **في سكوت** حتى لو silent=false — يعني الإصلاح مايشتغلش.
+  check('⭐⭐ silent وrenotify متربطين بـring (مش ثابتين)',
+    /renotify: !!ring/.test(src) && /silent: !ring/.test(src), null);
+  check('⭐ ومفيش silent: true ثابتة فاضلة', !/silent: true/.test(src), null);
+  check('⭐ والنغمة بترجّع نجحت ولا لأ', /return true;[\s\S]{0,120}return false;/.test(src), null);
 
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();
