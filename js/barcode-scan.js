@@ -71,6 +71,27 @@ function createDetector() {
   };
 }
 
+// ============================================================
+// ⚠️⚠️ "اختار تلقائي" **اختيار**، مش "مااختارش"
+// ============================================================
+// العطل اللي كان هنا: زرار "اختيار تلقائي" كان بينده `saveCameraId('')`،
+// والدالة كانت **بتمسح** المحفوظ لما القيمة تبقى فاضية. فالنتيجة إن
+// الكود مايقدرش يفرق بين حالتين مختلفتين تمامًا:
+//
+//   "لسه ماختارش"      → لازم نسأله
+//   "اختار تلقائي"     → قال رأيه خلاص، مايتسألش تاني
+//
+// الاتنين كانوا بيتخزّنوا فاضي، فنافذة اختيار الكاميرا كانت بتظهر **كل
+// مرة** — والنافذة نفسها مكتوب فيها "الاختيار ده بيتحفظ ومش هيتسألك
+// تاني". يعني الكود كان بيوعد بحاجة ومابيعملهاش.
+//
+// وده كان بيتضاعف على **الآيفون**: النافذة بتفتح الكاميرا مرة عشان تقرا
+// الأسماء وتقفلها، وبعدين التصوير بيفتحها تاني — وسفاري بيسأل الإذن
+// **في كل فتحة**. فالمستخدم كان بيتسأل مرتين، كل مرة.
+//
+// الحل: نحفظ كلمة `auto` بدل الفاضي. بقى فيه تلات حالات واضحة.
+const CAMERA_AUTO = 'auto';
+
 function getSavedCameraId() {
   try {
     return localStorage.getItem(CAMERA_ID_KEY) || '';
@@ -79,10 +100,22 @@ function getSavedCameraId() {
   }
 }
 
+// هل المستخدم قال رأيه قبل كده (سواء اختار كاميرا أو قال "تلقائي")؟
+function hasCameraChoice() {
+  return !!getSavedCameraId();
+}
+
+// معرّف الكاميرا اللي هنفتحها فعلًا. "تلقائي" معناها سيب المتصفح يختار
+// الخلفية، فبنرجّع فاضي — بس ده **مش** معناه "مااختارش".
+function activeCameraId() {
+  const saved = getSavedCameraId();
+  return saved === CAMERA_AUTO ? '' : saved;
+}
+
 function saveCameraId(id) {
   try {
-    if (id) localStorage.setItem(CAMERA_ID_KEY, id);
-    else localStorage.removeItem(CAMERA_ID_KEY);
+    // ⚠️ الفاضي بيتحوّل لـ`auto` مش بيمسح — ده جوهر التصليح
+    localStorage.setItem(CAMERA_ID_KEY, id || CAMERA_AUTO);
   } catch (err) {
     console.error('تعذّر حفظ اختيار الكاميرا:', err);
   }
@@ -105,16 +138,31 @@ async function listCameras() {
 // أو '' لو المستخدم قفل من غير اختيار.
 function openCameraChooser() {
   return new Promise(async (resolve) => {
-    // لازم إذن الكاميرا يتاخد الأول، وإلا أسماء الكاميرات بترجع فاضية
-    // من المتصفح (سياسة خصوصية) وتظهر "كاميرا 1، كاميرا 2" من غير معنى.
+    // ============================================================
+    // ⚠️ مابنفتحش الكاميرا هنا إلا لو **مضطرين**
+    // ============================================================
+    // المتصفح بيخفي أسماء الكاميرات لحد ما ياخد الإذن (سياسة خصوصية)،
+    // فكنا بنفتح الكاميرا مرة عشان نقرا الأسماء ونقفلها، وبعدين التصوير
+    // بيفتحها تاني.
+    //
+    // على أندرويد ده مابيبانش — الإذن محفوظ. **على الآيفون سفاري بيسأل
+    // الإذن في كل فتحة**، فالمستخدم كان بيتسأل **مرتين** في المرة الواحدة.
+    //
+    // دلوقتي: لو النافذة اتفتحت والكاميرا **شغّالة أصلًا** (وده الوضع
+    // الطبيعي — بتتفتح من جوه شاشة التصوير)، الأسماء بتبقى متاحة من غير
+    // ما نلمس حاجة. الفتحة الزيادة بتحصل **بس** لو النافذة اتنادت
+    // والكاميرا مقفولة (زرار "تبديل الكاميرا" في شاشة الطباعة).
+    let cams = await listCameras();
     let warmup = null;
-    try {
-      warmup = await navigator.mediaDevices.getUserMedia({ video: true });
-    } catch (err) {
-      /* هنكمّل عادي — القايمة هتظهر بأسماء عامة */
+    if (cams.length && !cams.some((c) => c.label)) {
+      try {
+        warmup = await navigator.mediaDevices.getUserMedia({ video: true });
+        cams = await listCameras();
+      } catch (err) {
+        /* هنكمّل عادي — القايمة هتظهر بأسماء عامة */
+      }
+      if (warmup) warmup.getTracks().forEach((t) => t.stop());
     }
-    const cams = await listCameras();
-    if (warmup) warmup.getTracks().forEach((t) => t.stop());
 
     if (!cams.length) {
       // ⚠️ ده **مش** معناه إن الجهاز مالوش كاميرا.
@@ -123,7 +171,7 @@ function openCameraChooser() {
       // لو الإذن مش مستقر لحظة السؤال — وكنا بنقول للمستخدم "مش لاقي أي
       // كاميرا" وهي موجودة وشغّالة. لو الكاميرا نفسها فتحت (warmup) يبقى
       // مفيش أي مشكلة أصلًا: نكمّل بالاختيار التلقائي (الكاميرا الخلفية).
-      saveCameraId('');
+      saveCameraId(CAMERA_AUTO);
       if (!warmup) {
         alert('مقدرتش أفتح الكاميرا. اتأكد إنك سمحت للموقع باستخدامها من إعدادات المتصفح.');
       }
@@ -154,7 +202,7 @@ function openCameraChooser() {
         </div>
         <div style="display:flex; gap:8px; justify-content:space-between;">
           <button class="btn" id="cam-auto">اختيار تلقائي</button>
-          <button class="btn" id="cam-cancel">إلغاء</button>
+          <button class="btn" id="cam-cancel">سيبها زي ما هي</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -172,10 +220,15 @@ function openCameraChooser() {
       });
     });
     overlay.querySelector('#cam-auto').addEventListener('click', () => {
-      saveCameraId('');
+      saveCameraId(CAMERA_AUTO);
       close('');
     });
-    overlay.querySelector('#cam-cancel').addEventListener('click', () => close(getSavedCameraId()));
+    // ⚠️ "سيبها زي ما هي" **بتتحفظ** هي كمان. لو سيبناها من غير حفظ،
+    // النافذة هتفضل تظهر كل مرة — وده بالظبط اللي المستخدم اشتكى منه.
+    overlay.querySelector('#cam-cancel').addEventListener('click', () => {
+      if (!hasCameraChoice()) saveCameraId(CAMERA_AUTO);
+      close(activeCameraId());
+    });
   });
 }
 
@@ -248,15 +301,18 @@ async function openBarcodeScanner(onResult, keepOpen, options) {
 
   const start = async () => {
     stopStream();
-    let camId = getSavedCameraId();
-
-    // أول مرة على الجهاز: نسأل المستخدم يختار الكاميرا مرة واحدة بس.
-    if (!camId) {
-      const cams = await listCameras();
-      if (cams.length > 1) {
-        camId = await openCameraChooser();
-      }
-    }
+    // ============================================================
+    // ⭐ الكاميرا بتتفتح **مرة واحدة** — والاختيار بعدها
+    // ============================================================
+    // قبل كده كنا بنسأل عن الكاميرا **قبل** ما نفتحها، والسؤال ده كان
+    // بيفتح الكاميرا عشان يقرا الأسماء. يعني فتحتين = سؤالين إذن على
+    // الآيفون.
+    //
+    // دلوقتي بنفتح على طول بالخلفية (أو المحفوظة)، وشاشة الاختيار بتظهر
+    // **بعد** ما الصورة تشتغل — والأسماء بتبقى متاحة من غير فتحة زيادة.
+    // والمستخدم بيشوف الكاميرا شغّالة وراها، فلو الافتراضية كويسة يدوس
+    // "سيبها زي ما هي" وخلاص.
+    const camId = activeCameraId();
 
     const constraints = camId
       ? { video: { deviceId: { exact: camId } } }
@@ -293,6 +349,19 @@ async function openBarcodeScanner(onResult, keepOpen, options) {
 
     video.srcObject = stream;
     await video.play();
+
+    // أول مرة على الجهاز بس: لو فيه أكتر من كاميرا، نسأله يختار — والصورة
+    // شغّالة وراه. بعد ما يقول رأيه (أي رأي) مايتسألش تاني.
+    if (!hasCameraChoice()) {
+      const cams = await listCameras();
+      if (cams.length > 1) {
+        const picked = await openCameraChooser();
+        // اختار كاميرا تانية غير الشغّالة؟ نعيد التشغيل بيها.
+        if (picked && picked !== camId) return start();
+      } else {
+        saveCameraId(CAMERA_AUTO); // كاميرا واحدة = مفيش حاجة تتسأل عنها
+      }
+    }
     return true;
   };
 
