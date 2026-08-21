@@ -175,16 +175,20 @@ function knockAt(ctx, when) {
   src.start(when);
 }
 
+// ⭐ بترجّع **true لو رنّت فعلًا**. القيمة دي مهمة: لو مارنّتش، لازم
+// نسيب أندرويد يرن بنغمته بدل ما الإشعار يطلع ساكت تمامًا.
 function playNotifySound() {
   try {
     unlockNotifyAudio();
-    if (!notifyAudioCtx || notifyAudioCtx.state !== 'running') return;
+    if (!notifyAudioCtx || notifyAudioCtx.state !== 'running') return false;
     const t = notifyAudioCtx.currentTime + 0.01;
     // طرقات متساوية تمامًا وعلى مسافات متساوية — لا فرق درجة (لحن) ولا
     // نمط إيقاعي.
     for (let k = 0; k < KNOCK_COUNT; k++) knockAt(notifyAudioCtx, t + k * KNOCK_GAP);
+    return true;
   } catch (err) {
     /* الصوت مش لازم عشان الإشعار يوصل */
+    return false;
   }
 }
 
@@ -194,7 +198,27 @@ function playNotifySound() {
 // ⚠️ `new Notification()` **بترمي خطأ على أندرويد** — كروم على الموبايل
 // بيفرض إن الإشعار يتعرض من الـService Worker. فالطريق الأساسي هو الـSW،
 // و`new Notification` مجرد احتياطي للكمبيوتر لو الـSW مش جاهز.
-async function showRestockNotification(count, names) {
+// ============================================================
+// ⚠️⚠️ الإشعار الساكت — العطل اللي كان هيفضّي الميزة من معناها
+// ============================================================
+// كان الإشعار متبعت `silent: true` **دايمًا**، عشان نغمتنا (الطرقات) هي
+// اللي ترن مش نغمة أندرويد كمان. منطقي — بس فيه حالة بتكسره:
+//
+// لما تبدّل لتطبيق تاني، أندرويد بعد شوية **بيجمّد الصفحة** عشان يوفّر
+// بطارية. وساعتها محرّك الصوت بتاعنا بيتوقف:
+//
+//   نغمتنا ......... ❌ مجمّدة
+//   نغمة أندرويد ... ❌ إحنا قافلينها
+//   النتيجة ........ **إشعار من غير أي صوت**
+//
+// يعني بالظبط في الحالة اللي المستخدم عايز يتنبّه فيها — وهو مش باصص
+// على النظام. الميزة كلها اتعملت عشان الحالة دي.
+//
+// الحل: `ring` بتتحدد **بعد** ما نحاول نشغّل نغمتنا:
+//   نغمتنا رنّت      → الإشعار ساكت (مانرنّش مرتين)
+//   نغمتنا ماقدرتش   → أندرويد يرن بنغمته (صوت أحسن من سكوت)
+//   وسط الدفعة       → ساكت (النغمة مرة واحدة في الدفعة، زي ما اتفقنا)
+async function showRestockNotification(count, names, ring) {
   const title = count === 1 ? 'طلب تزويد جديد' : `${count} طلبات تزويد جديدة`;
   const body = names.length
     ? names.slice(0, 4).join('، ') + (names.length > 4 ? ` و${names.length - 4} غيرهم` : '')
@@ -202,8 +226,10 @@ async function showRestockNotification(count, names) {
   const opts = {
     body,
     tag: NOTIFY_TAG, // الوسم ده هو اللي بيخلي إشعار واحد يتحدّث بدل كومة
-    renotify: false, // ⚠️ true معناها النظام يرن تاني — والنغمة عندنا بإيدنا
-    silent: true, // ⚠️ سكوت من النظام عن قصد: النغمة بتاعتنا هي اللي بترن
+    // ⚠️ `renotify` لازم تبقى true لو عايزين أندرويد يرن على إشعار بنفس
+    // الوسم — من غيرها الاستبدال بيحصل **في سكوت** حتى لو silent=false.
+    renotify: !!ring,
+    silent: !ring, // الشرح فوق
     icon: './icon-192.png',
     badge: './icon-192.png',
     lang: 'ar',
@@ -304,13 +330,17 @@ function onGradesSnapshotForNotify(snap) {
   // **أول مرة في الدفعة بس**، والباقي بيحدّث نص نفس الإشعار في سكوت.
   const startingNewBurst = notifyPendingCount === 0;
   const silentTooLong = Date.now() - notifyLastSoundAt > RESOUND_AFTER_MS;
+  const shouldRing = startingNewBurst || silentTooLong;
   notifyPendingCount += fresh.length;
 
-  if (startingNewBurst || silentTooLong) {
+  let ourSoundRang = false;
+  if (shouldRing) {
     notifyLastSoundAt = Date.now();
-    playNotifySound();
+    ourSoundRang = playNotifySound();
   }
-  if (!visible) showRestockNotification(notifyPendingCount, notifyLastNames);
+  // ⭐ أندرويد يرن **بس** لو كان المفروض يرن ونغمتنا ماقدرتش (الصفحة
+  // متجمّدة). غير كده الإشعار ساكت زي ما كان.
+  if (!visible) showRestockNotification(notifyPendingCount, notifyLastNames, shouldRing && !ourSoundRang);
 }
 
 // المستخدم رجع للنظام = شافهم. العدّاد بيتصفّر فالدفعة الجاية ترن من جديد.

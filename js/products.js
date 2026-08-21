@@ -60,6 +60,63 @@ function buildProductsIndex(list) {
   );
 }
 
+// ============================================================
+// ⭐⭐ بنقرا التاريخ الأول — ومانزّلش غير لو اتغيّر فعلًا
+// ============================================================
+// ⚠️ القياس اللي أدّى للتعديل ده (46,052 صنف في المحل):
+//
+//   حجم القاعدة .......... ~7 ميجا
+//   قراءات Firestore ..... 24 قراءة
+//   وكل ده كان بيتنزّل **كل جلسة جديدة**، حتى لو مفيش حاجة اتغيّرت.
+//
+// السبب: `.get()` بتروح **للسحابة الأول** دايمًا، والنسخة المحلية
+// بتتستخدم **بس** لما النت يقطع. فالبيانات موجودة على الجهاز وبرضه
+// بننزّلها.
+//
+// وأمين المخزن بيفتح شاشة الطباعة **عشرات المرات في اليوم**. الاستيراد
+// بيحصل مرة في الشهر يمكن — يعني 449 مرة من الـ450 كنا بننزّل حاجة
+// موجودة عنده أصلًا.
+//
+// الحل: مستند `meta` فيه **تاريخ آخر استيراد**. بنقراه لوحده (حاجة صغيرة
+// جدًا)، ولو التاريخ زي المحفوظ على الجهاز بنقرا القطع **من ذاكرة الجهاز**
+// (`source: 'cache'`) — صفر تنزيل وصفر قراءات.
+//
+// ⚠️⚠️ وأي شك = ننزّل من السحابة. الحالات اللي بنرجع فيها للتنزيل الكامل:
+//   • مفيش تاريخ محفوظ (أول مرة على الجهاز)
+//   • التاريخ اتغيّر (حد استورد ملف جديد)
+//   • الذاكرة المحلية فاضية أو ناقصة (المتصفح مسحها)
+//   • **العدد مايطابقش** اللي في meta ← ده أهم حارس: نسخة ناقصة أسوأ من
+//     تنزيل زيادة، لأن المستخدم هيدوّر على صنف موجود ومايلاقيهوش
+const PRODUCTS_STAMP_KEY = 'products_stamp';
+
+// بصمة نسخة الأصناف: تاريخ آخر استيراد + العدد. أي اختلاف = نزّل.
+function productsStampOf(meta) {
+  if (!meta) return '';
+  const at = meta.updatedAt;
+  // ⚠️ serverTimestamp بترجع null لحظة الكتابة لحد ما السيرفر يأكّدها.
+  // من غير الشرط ده، البصمة بتبقى فاضية والتنزيل بيحصل كل مرة.
+  const ms = at && typeof at.toMillis === 'function' ? at.toMillis() : 0;
+  if (!ms) return '';
+  return `${ms}:${Number(meta.count) || 0}`;
+}
+
+function readChunks(snap) {
+  const chunks = [];
+  let meta = null;
+  snap.docs.forEach((d) => {
+    if (d.id === 'meta') {
+      meta = d.data();
+      return;
+    }
+    const data = d.data();
+    chunks.push({ index: Number(data.index) || 0, items: data.items || [] });
+  });
+  chunks.sort((a, b) => a.index - b.index);
+  const list = [];
+  chunks.forEach((c) => c.items.forEach((it) => list.push(it)));
+  return { list, meta };
+}
+
 // بيحمّل الأصناف مرة واحدة لكل جلسة. لو مفيش نت، Firestore بيرجّع النسخة
 // المحفوظة محليًا من غير أي كود إضافي مننا.
 function loadProducts(force) {
@@ -67,22 +124,53 @@ function loadProducts(force) {
   if (productsLoading && !force) return productsLoading;
 
   productsLoading = (async () => {
-    const snap = await db.collection('products').get();
-    const chunks = [];
-    snap.docs.forEach((d) => {
-      if (d.id === 'meta') {
-        productsMeta = d.data();
-        return;
-      }
-      const data = d.data();
-      chunks.push({ index: Number(data.index) || 0, items: data.items || [] });
-    });
-    chunks.sort((a, b) => a.index - b.index);
+    const ref = db.collection('products');
 
-    const list = [];
-    chunks.forEach((c) => c.items.forEach((it) => list.push(it)));
+    // ------------------------------------------------------------
+    // المسار السريع: التاريخ زي ما هو → اقرا من ذاكرة الجهاز
+    // ------------------------------------------------------------
+    // ⚠️ `force` معناها "المستخدم طلب تحديث بنفسه" — بنتخطّاه بالكامل.
+    if (!force) {
+      try {
+        const metaSnap = await ref.doc('meta').get();
+        const meta = metaSnap.exists ? metaSnap.data() : null;
+        const stamp = productsStampOf(meta);
+        const saved = lsGet(PRODUCTS_STAMP_KEY, '');
+
+        if (stamp && saved === stamp) {
+          const cached = await ref.get({ source: 'cache' });
+          const { list } = readChunks(cached);
+          // ⚠️⚠️ الحارس: لازم العدد يطابق. الذاكرة المحلية ممكن تكون
+          // اتمسحت أو ناقصة، ونسخة ناقصة أسوأ من تنزيل زيادة.
+          if (list.length && list.length === (Number(meta.count) || -1)) {
+            productsMeta = meta;
+            productsCache = list;
+            productsIndex = buildProductsIndex(list);
+            return list;
+          }
+        }
+      } catch (err) {
+        // مفيش نت، أو الذاكرة المحلية مقفولة — بنكمّل بالطريقة العادية
+        // اللي بترجع للنسخة المحلية لوحدها لو مفيش اتصال.
+        console.warn('تعذّر فحص نسخة الأصناف — هننزّلها كاملة:', err && err.code);
+      }
+    }
+
+    // ------------------------------------------------------------
+    // التنزيل الكامل (أول مرة، أو الملف اتغيّر، أو أي شك)
+    // ------------------------------------------------------------
+    const snap = await ref.get();
+    const { list, meta } = readChunks(snap);
+    productsMeta = meta;
     productsCache = list;
     productsIndex = buildProductsIndex(list);
+
+    // البصمة بتتحفظ **بعد** ما التنزيل ينجح — عشان لو وقع في النص
+    // مانفتكرش إن عندنا نسخة كاملة.
+    const stamp = productsStampOf(meta);
+    if (stamp && list.length === (Number(meta.count) || -1)) lsSet(PRODUCTS_STAMP_KEY, stamp);
+    else lsRemove(PRODUCTS_STAMP_KEY);
+
     return list;
   })();
 
@@ -184,6 +272,10 @@ async function saveProducts(list, onProgress) {
 
   productsCache = list;
   productsIndex = buildProductsIndex(list);
+  // ⚠️ البصمة القديمة بقت غلط دلوقتي. بنشيلها بدل ما نحاول نحسب الجديدة:
+  // `serverTimestamp` لسه ماتأكدتش من السيرفر لحظة الكتابة، فأي بصمة
+  // نحسبها هنا هتبقى ناقصة — والنتيجة إن الأجهزة تفضل على نسخة قديمة.
+  lsRemove(PRODUCTS_STAMP_KEY);
 }
 
 // ------------------------------------------------------------
