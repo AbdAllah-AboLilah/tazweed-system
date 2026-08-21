@@ -997,8 +997,6 @@ const QZ_PRINT_TIMEOUT_MS = 30000;
 // أو أبطأ، المفتاح في إعدادات الطابعة بيظبّطه.
 const PRINT_PACE_MS_PER_LABEL = 420;
 
-const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
-
 // بتستنى الطابعة تلحق الدفعة اللي لسه اتبعتت.
 // ⚠️ مش تأخير مصطنع — ده الوقت اللي الماكينة بتاخده أصلًا. من غيره
 // إحنا بنبعت أسرع منها 30 مرة والباقي بيضيع.
@@ -1049,8 +1047,8 @@ async function paceForPrinter(labelCount) {
   // استنى الدفعة كلها. ومابنستناش أقل من صفر لو التقديم أكبر من الدفعة.
   const waitFor = Math.max(0, labelCount - getPrintLeadLabels());
   if (waitFor <= 0) return;
-  // ⚠️ `cancellableSleep` مش `sleepMs`: الانتظار ده ممكن يوصل 20 ثانية،
-  // ولو مابيتقطعش المستخدم بيدوس "وقّف" ومايحصلش حاجة قدامه.
+  // ⚠️ انتظار **بيتقطع**: المدة دي ممكن توصل 20 ثانية، ولو مابتتقطعش
+  // المستخدم بيدوس "وقّف" ومايحصلش حاجة قدامه فيفتكر إنه باظ.
   await cancellableSleep(Math.min(20000, Math.round(waitFor * per * PACE_OVERLAP)));
 }
 

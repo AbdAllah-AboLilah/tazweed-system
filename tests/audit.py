@@ -1,4 +1,5 @@
-import re, os, json, collections
+import re
+import sys, os, json, collections
 
 # ⚠️ القايمة دي كانت **مكتوبة بالإيد**، وده غلّطها: أول ما اتقسم app.js
 # لملفات جديدة، الفحص فضل بيقرا القدام بس — فطلّع دوال شغّالة على إنها
@@ -97,6 +98,53 @@ fields=re.findall(r'^\s{2}([A-Za-z_$][\w$]*):', m.group(1), re.M) if m else []
 unused=[f for f in fields if len(re.findall(r'state\.'+re.escape(f)+r'(?![\w$])', allcode))<=1]
 print(unused or 'مفيش ✅')
 
+# ============================================================
+# 7) نسخة النظام — ⚠️ ده **بيفشل** مش بيطبع وبس
+# ============================================================
+# الرقم مكتوب في ملفين لازم يفضلوا متطابقين. ولو اختلفوا:
+#   • app-info أحدث → الشريط بيقول رقم جديد **والتحديث مايوصلش لحد**،
+#     لأن المتصفح بيكتشف التحديث من محتوى sw.js مش من الرقم اللي في الشاشة
+#   • sw أحدث → التحديث بيوصل والشريط بيقول رقم قديم
+#
+# الاتنين بيعدّوا في صمت. عشان كده الفحص ده **بيفشل** بدل ما يطبع رقمين
+# وينتظر إن حد يقارنهم بعينه.
+#
+# 📌 وعشان مانوصلش للحالة دي أصلًا: `python3 tools/bump.py` بتكتب في
+#    الاتنين مع بعض.
+# ============================================================
+# ⭐⭐ فحص الصياغة — أرخص فحص في الملف وأهمه
+# ============================================================
+# اتضاف بعد ما تعديل بإيد (شيل زرار) **أكل قوس القفل** بتاع الدالة اللي
+# فوقه، فـapp.js كله وقع بـ SyntaxError. النتيجة كانت إن النظام مايفتحش
+# خالص — ومحدش من الفحوصات التانية بيقول ليه، لأنها كلها بتشتغل جوه
+# الصفحة واللي وقعت أصلًا.
+#
+# `node --check` بيقرا الملف ويقول لو فيه غلط صياغة، في أقل من ثانية.
+print('\n=== 6ب) صياغة ملفات الجافاسكريبت ===')
+import subprocess, glob
+broken = []
+for f in sorted(glob.glob('js/*.js') + glob.glob('js/vendor/*.js') + ['sw.js']):
+    r = subprocess.run(['node', '--check', f], capture_output=True, text=True)
+    if r.returncode != 0:
+        first = (r.stderr.strip().splitlines() or [''])[-1]
+        broken.append(f'{f}: {first[:120]}')
+if broken:
+    for line in broken:
+        print(' ❌', line)
+    FAILED = True
+else:
+    print('مفيش ✅')
+
 print('\n=== 7) نسخة النظام في كل مكان ===')
-print(' app-info:', re.search(r"APP_VERSION = '([^']+)'", open('js/app-info.js',encoding='utf-8').read()).group(1))
-print(' sw      :', re.search(r"SW_VERSION = '([^']+)'", sw).group(1))
+app_v = re.search(r"APP_VERSION = '([^']+)'", open('js/app-info.js',encoding='utf-8').read()).group(1)
+sw_v  = re.search(r"SW_VERSION = '([^']+)'", sw).group(1)
+print(' app-info:', app_v)
+print(' sw      :', sw_v)
+if app_v != sw_v:
+    print(f' ❌ الرقمين مختلفين! ظبّطهم بـ: python3 tools/bump.py --set {app_v}')
+    FAILED = True
+else:
+    print(' مطابقين ✅')
+
+if 'FAILED' in dir():
+    sys.exit(1)

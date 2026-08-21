@@ -324,8 +324,10 @@ function openProductsImportDialog(onDone) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
 
-    if (typeof XLSX === 'undefined') {
-      statusEl.textContent = 'مكتبة قراءة الإكسل مش متحمّلة. اتصل بالنت وجرّب تاني.';
+    // ⚠️ بتتحمّل وقت الحاجة — الشرح الكامل عند ensureXLSX في import-export.js
+    statusEl.textContent = 'جارٍ تجهيز قارئ الإكسل...';
+    if (!(await ensureXLSX())) {
+      statusEl.textContent = 'مكتبة قراءة الإكسل ماتحمّلتش. اتصل بالنت وجرّب تاني.';
       return;
     }
 
