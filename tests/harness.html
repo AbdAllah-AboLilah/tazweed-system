@@ -1,4 +1,4 @@
-<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>harness v24</title><link rel="stylesheet" href="../styles.css"></head><body>
+<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>harness v25</title><link rel="stylesheet" href="../styles.css"></head><body>
 <div id="root"></div>
     <script>
       // الرسالة الواحدة بتتعرض مرة واحدة بس ومعاها عدّاد تكرار — قبل كده
@@ -56,7 +56,9 @@
 <script src="../js/vendor/qrcode-generator.js"></script>
 <script src="../js/vendor/jsqr.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsrsasign-all-min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx.full.min.js"></script>
+<!-- ⚠️ الإكسل **مش متحمّل هنا** عن قصد — زي index.html بالظبط.
+     بيتحمّل وقت الحاجة من ensureXLSX(). لو حمّلناه هنا، الفحص هيبقى
+     بيجرّب صفحة مختلفة عن اللي المستخدم بيفتحها. -->
 <script>
   window.firebaseConfig = { apiKey: 'x', projectId: 'x' };
   window.firebase = { firestore: { FieldValue: { serverTimestamp: () => 'TS' } }, initializeApp: () => ({ auth: () => ({}) }) };

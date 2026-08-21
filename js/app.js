@@ -3793,9 +3793,13 @@ async function openBaseGradesDialog(categoryId) {
       <div id="base-status" style="font-size:12px; color:var(--text-secondary); margin-bottom:10px;">${
         hasBaseHere ? 'المجموعة دي عندها درجات أساسية خلاص — تقدر تضيف واحدة باسم من عندك من فوق.' : ''
       }</div>
+      <!-- ⚠️ كان هنا زرار "ضيفهم لكل الفئات من غير مجموعة". اتشال في
+           v0.50.0 **بعد ما التأسيس خلص**: هو كان للتجهيز الأولي (تملا
+           الـ25 فئة مرة واحدة)، وبعد كده بقى زرار خطر جنب زرار عادي —
+           ضغطة غلط بتضيف درجات في كل الفئات ومفيش تراجع جماعي.
+           الإضافة للمجموعة اللي انت فيها كفاية للشغل اليومي. -->
       <div style="display:flex; flex-direction:column; gap:8px;">
         <button class="btn btn-primary" id="base-this">ضيف التلاتة الجاهزين للمجموعة دي</button>
-        <button class="btn" id="base-all">ضيفهم لكل الفئات من غير مجموعة (${state.categories.length})</button>
         <button class="btn" id="base-cancel">إلغاء</button>
       </div>
     </div>`;
@@ -3845,29 +3849,6 @@ async function openBaseGradesDialog(categoryId) {
       close();
     } catch (err) {
       statusEl.textContent = 'فشلت الإضافة: ' + (err.message || err);
-    }
-  });
-
-  document.getElementById('base-all').addEventListener('click', async () => {
-    if (!state.isOnline) {
-      statusEl.textContent = '⚠️ العملية دي بتلمس كل الفئات، فمحتاجة إنترنت.';
-      return;
-    }
-    let done = 0;
-    let total = 0;
-    try {
-      for (const cat of state.categories) {
-        statusEl.innerHTML = `جارٍ الإضافة... <strong>${done}/${state.categories.length}</strong>`;
-        // على كل الفئات: المجموعة المختارة مش موجودة بالضرورة في كل فئة،
-        // فبنضيف "من غير مجموعة" — وده اللي كان بيحصل قبل الخاصية دي.
-        total += await addBaseGradesToCategory(cat.id, critical(), '');
-        done++;
-      }
-      logActivity({ action: 'add_base_grades', newValue: total });
-      statusEl.innerHTML = `✅ اتضافت <strong>${total}</strong> درجة أساسية في ${done} فئة.`;
-      setTimeout(close, 1500);
-    } catch (err) {
-      statusEl.textContent = `وقفت عند الفئة رقم ${done + 1}: ` + (err.message || err);
     }
   });
 }

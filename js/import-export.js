@@ -7,6 +7,62 @@
 //
 // كل حاجة بتشتغل في المتصفح نفسه — الملف مابيتبعتش لأي سيرفر خارجي.
 
+// ============================================================
+// ⭐ مكتبة الإكسل بتتحمّل **وقت الحاجة** مش مع فتح النظام
+// ============================================================
+// ⚠️ القياس اللي أدّى للتغيير ده (فتح النظام على موبايل بمعالج أبطأ 4×):
+//
+//   الفتح الكامل ............ 2107 مث
+//   منهم xlsx.full.min.js ... 1956 مث   ← أكتر من 90٪ من الوقت
+//
+// والمكتبة دي (~900 كيلو) بتتستخدم في حاجتين بس: استيراد إكسل وتصدير
+// نسخة احتياطية — الاتنين **ورا ضغطة زرار**، ومقصورين على صلاحية
+// `excelTools`. يعني أمين المخزن اللي بيفتح النظام 40 مرة في اليوم على
+// تليفونه كان بيستنى المكتبة دي كل مرة **وهو عمره ما هيستخدمها**.
+//
+// دلوقتي بتتحمّل أول ما تدوس "استيراد" أو "تصدير"، مرة واحدة في الجلسة.
+//
+// ⚠️ وبتفضل شغّالة من غير نت: الملف محفوظ في الـService Worker
+// (CDN_LIBS في sw.js)، فالتحميل بييجي من الذاكرة المحلية لو مفيش
+// إنترنت. متشيلوش من قايمة الحفظ.
+const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+let xlsxLoading = null;
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    // اتحمّل قبل كده؟ (لو حد لسه حاطط الوسم في الصفحة مثلًا)
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing && existing.dataset.loaded === '1') return resolve();
+    const el = document.createElement('script');
+    el.src = src;
+    el.async = true;
+    el.dataset.loaded = '0';
+    el.onload = () => { el.dataset.loaded = '1'; resolve(); };
+    el.onerror = () => reject(new Error('تعذّر تحميل: ' + src));
+    document.head.appendChild(el);
+  });
+}
+
+// بترجّع true لو المكتبة جاهزة. بتتنادى قبل أي استخدام لـXLSX.
+async function ensureXLSX() {
+  if (typeof XLSX !== 'undefined') return true;
+  if (!xlsxLoading) {
+    xlsxLoading = loadScriptOnce(XLSX_URL).catch((err) => {
+      // ⚠️ بنصفّر الوعد عشان المحاولة الجاية تبدأ من الأول بدل ما تفضل
+      // ترجّع نفس الفشل للأبد
+      xlsxLoading = null;
+      throw err;
+    });
+  }
+  try {
+    await xlsxLoading;
+    return typeof XLSX !== 'undefined';
+  } catch (err) {
+    console.warn(err);
+    return false;
+  }
+}
+
 // ------------------------------------------------------------
 // قراءة شيت وتحويله لفئة + درجات
 // ------------------------------------------------------------
@@ -129,8 +185,9 @@ function openImportDialog() {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
 
-    if (typeof XLSX === 'undefined') {
-      statusEl.textContent = 'مكتبة قراءة الإكسل مش متحمّلة. اتأكد إنك متصل بالإنترنت وجرّب تاني.';
+    statusEl.textContent = 'جارٍ تجهيز قارئ الإكسل...';
+    if (!(await ensureXLSX())) {
+      statusEl.textContent = 'مكتبة قراءة الإكسل ماتحمّلتش. اتأكد إنك متصل بالإنترنت وجرّب تاني.';
       return;
     }
 
@@ -276,8 +333,8 @@ function openImportDialog() {
 // ------------------------------------------------------------
 // بيعمل ملف فيه شيت لكل فئة (زي ملفك الأصلي)، وشيت ملخّص.
 async function exportToExcel() {
-  if (typeof XLSX === 'undefined') {
-    alert('مكتبة الإكسل مش متحمّلة. اتأكد إنك متصل بالإنترنت وجرّب تاني.');
+  if (!(await ensureXLSX())) {
+    alert('مكتبة الإكسل ماتحمّلتش. اتأكد إنك متصل بالإنترنت وجرّب تاني.');
     return;
   }
 
