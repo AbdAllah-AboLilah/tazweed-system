@@ -65,6 +65,31 @@ const PROFILES = {
     });
   };
 
+  // ⚠️ القالب بيبدأ الدرجة **"عادي"** دايمًا. فالعمليات اللي شرطها إن
+  // الحالة تكون **"معلّق"** (الإلغاء، والتزويد من الرئيسي) مستحيل تعدّي
+  // عليه — ومش لأن فيه عطل، لأن السيناريو نفسه مش مكتمل.
+  //
+  // أول نسخة من الفحوصات دي وقعت للسبب ده بالظبط، وكانت هتخلّيني أدوّر
+  // على عطل مش موجود. القالب ده بيحط درجة **معلّقة** فعلًا.
+  const resetPending = async (manual) => {
+    seq++;
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await db.collection('categories').doc('c1').set({ name: 'كريب', order: 1, minQty: 1 });
+      await db.collection('categories').doc('c1').collection('grades').doc('g1')
+        .set({ number: 1, branchQty: 0, mainQty: 5, status: 'pending', requestedQty: 3, manualRequest: manual });
+    });
+  };
+
+  // زي T بالظبط، بس الدرجة بتبدأ **معلّقة**
+  const Tp = async (label, uid, op, shouldPass, manual) => {
+    await resetPending(manual !== false);
+    let ok;
+    try { await (shouldPass ? assertSucceeds(op(uid)) : assertFails(op(uid))); ok = true; }
+    catch (e) { ok = false; if (process.env.VERBOSE) console.log('   ↳', label, uid, String(e.message||e).slice(0,180)); }
+    check(`${label} — ${PROFILES[uid].name}: ${shouldPass ? 'مسموح' : 'ممنوع'}`, ok);
+  };
+
   const T = async (label, uid, op, shouldPass) => {
     await reset();
     let ok;
@@ -157,6 +182,59 @@ const PROFILES = {
   await T('كتابة إعدادات الطباعة المشتركة', 'plain', writeSettings, false);
   await T('قراءة إعدادات الطباعة المشتركة', 'plain', readSettings, true);
   await T('قراءة إعدادات الطباعة المشتركة', 'printer', readSettings, true);
+
+  // ============================================================
+  // ⭐⭐ الكتابات الحقيقية بعد ما اتضاف `manualRequest`
+  // ============================================================
+  // ⚠️ الفخ اللي بيتصاد هنا: قواعد الدرجات بتستخدم `onlyChangedKeys`
+  // بقايمة **حصرية**. أي حقل جديد بيتكتب مع الحالة **لازم** يتضاف في
+  // القايمة، وإلا الكتابة بترفض — **في صمت**: الحالة تفضل زي ما هي
+  // والمستخدم مش فاهم ليه طلب التزويد مش بيتسجّل.
+  //
+  // ده حصل فعلًا قبل كده مع `requestedQty`، والفحوصات دي بتمنع تكراره.
+  //
+  // 📌 الكتابات دي **منقولة حرف بحرف** من js/app.js — لو اتغيّرت هناك
+  //    لازم تتغيّر هنا، وإلا الفحص بيبقى بيجرّب حاجة النظام مابيعملهاش.
+
+  // 1) طلب تزويد بإيد المستخدم (requestShortage) — عدد واحد
+  const reqManual = (uid) =>
+    grade(uid).update({ status: 'pending', requestedQty: null, manualRequest: true });
+  // 2) طلب تزويد بكمية
+  const reqManualQty = (uid) =>
+    grade(uid).update({ status: 'pending', requestedQty: 3, manualRequest: true });
+  // 3) إلغاء الطلب (cancelShortage)
+  const cancelReq = (uid) =>
+    grade(uid).update({ status: 'normal', requestedQty: null, manualRequest: null });
+  // 4) التغيير التلقائي من ناحية الفرع: الكمية نزلت صفر → طلب تلقائي
+  const autoPending = (uid) =>
+    grade(uid).update({ branchQty: 0, status: 'pending', manualRequest: false });
+  // 5) التزويد من الرئيسي (fulfillShortage)
+  const fulfill = (uid) =>
+    grade(uid).update({ status: 'normal', mainQty: 4, branchQty: 6, requestedQty: null, manualRequest: null });
+  // 6) التغيير التلقائي من ناحية الرئيسي
+  const autoOut = (uid) =>
+    grade(uid).update({ mainQty: 0, status: 'normal', manualRequest: null });
+  // 7) قيمة بايظة في الحقل — لازم تترفض
+  const badManual = (uid) =>
+    grade(uid).update({ status: 'pending', requestedQty: null, manualRequest: 'أيوه' });
+  // 8) الشكل القديم (جهاز لسه على نسخة قديمة) لازم يفضل شغّال
+  const legacyReq = (uid) => grade(uid).update({ status: 'pending', requestedQty: null });
+
+  await T('⭐⭐ طلب تزويد بإيد المستخدم', 'branchKeep', reqManual, true);
+  await T('⭐⭐ طلب تزويد بكمية', 'branchKeep', reqManualQty, true);
+  await Tp('⭐ إلغاء طلب التزويد (والدرجة معلّقة فعلًا)', 'branchKeep', cancelReq, true);
+  await T('⭐⭐ الطلب التلقائي (الكمية نزلت صفر)', 'branchKeep', autoPending, true);
+  await Tp('⭐⭐ التزويد من الرئيسي (والدرجة معلّقة فعلًا)', 'mainKeep', fulfill, true);
+  await T('⭐ التغيير التلقائي من ناحية الرئيسي', 'mainKeep', autoOut, true);
+  await T('⭐⭐ الشكل القديم (نسخة قديمة على جهاز)', 'branchKeep', legacyReq, true);
+
+  // ⚠️ والحقل لازم يبقى محمي: قيمة مش bool تترفض
+  await T('⭐⭐ قيمة بايظة في manualRequest', 'branchKeep', badManual, false);
+  // ومحدش من بره يقدر يلمسها
+  await T('⭐ طلب تزويد من مستخدم عادي', 'plain', reqManual, false);
+  await T('⭐ وطلب تزويد من موظف الطباعة', 'printer', reqManual, false);
+  // وأمين الفرع مايقدرش يعمل عملية الرئيسي
+  await Tp('⭐ أمين الفرع مايقدرش يزوّد', 'branchKeep', fulfill, false);
 
   await env.cleanup();
   console.log('\n✅ نجح (' + pass.length + ')');
