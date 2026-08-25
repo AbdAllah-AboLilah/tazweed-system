@@ -2387,6 +2387,20 @@ async function openPrinterSettings() {
           <select class="input" id="qz-restock-printer-select"></select>
         </div>
 
+        <!-- ============================================================
+             ⭐ الإعدادات المتقدمة بقت مطوية
+             ============================================================
+             النافذة دي فيها 13 خانة و16 زرار و9 أقسام كلهم مفتوحين مع
+             بعض. وانت بتفتحها 99% من المرات عشان **حاجة واحدة**: تختار
+             طابعة — وهي فوق خالص.
+             ⚠️⚠️ **ولا سطر جوّه القسم ده اتغيّر**: نفس الخانات ونفس
+             الـid ونفس الأزرار ونفس الترتيب. اللي اتضاف هو الغلاف
+             والزرار بس، عشان أي تعديل في المنطق مايتكسرش. -->
+        <button type="button" class="pset-toggle" id="pset-advanced-toggle" aria-expanded="false">
+          <span>⚙️ إعدادات متقدمة</span>
+          <span class="pset-chev">▾</span>
+        </button>
+        <div id="pset-advanced" hidden>
         <!-- ---------- معايرة الطابعة ---------- -->
         <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">🎯 معايرة طابعة الملصق</div>
@@ -2502,6 +2516,8 @@ async function openPrinterSettings() {
         </div>
 
         <!-- ---------- النسخ من جهاز تاني ---------- -->
+        </div><!-- /pset-advanced -->
+
         <div id="copy-box" style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px; display:none;">
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">📥 انسخ الإعدادات من جهاز تاني</div>
           <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
@@ -2612,6 +2628,18 @@ async function openPrinterSettings() {
         <button class="btn btn-primary" id="qz-settings-save" style="display:none;">حفظ</button>
       </div>
     </div>`;
+  // زرار الإعدادات المتقدمة — بيفتح/يقفل الغلاف وبس.
+  const advToggle = overlay.querySelector('#pset-advanced-toggle');
+  const advBox = overlay.querySelector('#pset-advanced');
+  if (advToggle && advBox) {
+    advToggle.addEventListener('click', () => {
+      const open = advBox.hidden;
+      advBox.hidden = !open;
+      advToggle.setAttribute('aria-expanded', String(open));
+      advToggle.classList.toggle('on', open);
+    });
+  }
+
   document.body.appendChild(overlay);
 
   // ⚠️ درس اتعلمناه من خطأ حقيقي ظهر على التليفون:

@@ -461,6 +461,29 @@ html, body {
   white-space: nowrap;
 }
 
+/* ============================================================
+   ⭐⭐ الأربعة دول لازم يفضلوا في **سطر واحد**
+   ============================================================
+   اتكسر فعلًا في v0.57: الخط الجديد (بلكس) أعرض شوية من خط ويندوز
+   القديم، فالأربعة مابقوش يدخلوا في 390 بكسل و**اتلفّوا على سطرين** —
+   سطر زيادة فوق أول درجة في شاشة أصلًا نصها مش درجات.
+   flex-wrap: wrap كان بيخبّي المشكلة دي: كل ما حاجة تكبر، سطر جديد
+   يظهر في سكوت. nowrap + زحلقة بتخلّي السطر ثابت مهما كان الخط.
+   ⚠️ فحص batch4-test بيقيس عدد السطور فعليًا ويقع لو رجعوا اتنين. */
+@media (max-width: 700px) {
+  .toolbar-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-inline-end: 4px;
+  }
+
+  .toolbar-row::-webkit-scrollbar { display: none; }
+  .toolbar-row > * { flex: 0 0 auto; }
+  .toolbar-row > .btn,
+  .toolbar-row .tool-menu > .btn { padding: 8px 8px; font-size: 13px; }
+}
+
 /* سطر بيانات الصنف — بقى معلومة بس بعد ما الأزرار اتنقلت للقوايم.
    سطر واحد رفيع بيتزحلق يمين وشمال بدل ما يلفّ على سطرين. */
 .cat-info-line {
@@ -1118,14 +1141,38 @@ th {
 }
 
 .side-filters,
+/* ============================================================
+   ⭐ الفلاتر: **سطر واحد بيتزحلق** على الموبايل
+   ============================================================
+   كانت flex-wrap: wrap، يعني الخمس فلاتر بيتلفّوا على سطرين على
+   شاشة 390 = 44 بكسل زيادة فوق أول درجة، في شاشة أصلًا نصها مش
+   درجات. سطر واحد بيتزحلق بياخد نص المساحة، والفلتر المخبّي على
+   بُعد سحبة واحدة.
+   ⚠️ على الكمبيوتر بيفضل wrap زي ما كان — فيه عرض والزحلقة هناك
+   مضايقة مش مريحة. */
 .filter-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-bottom: 0.75rem;
 }
 
-.filter-row {
-  margin-bottom: 0.75rem;
+@media (max-width: 700px) {
+  /* حشوة أقل على الموبايل — 4 بكسل من كل ناحية بترجع للدرجات */
+  .main-area { padding: 12px !important; }
+
+  .filter-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    /* الشريط بيتقطع من الحرف من غير ده — الحشوة بتخلي آخر شريحة
+       تبان كاملة وانت واصل لآخر الزحلقة. */
+    padding-inline-end: 4px;
+    scrollbar-width: none;
+    margin-bottom: 0.5rem;
+  }
+
+  .filter-row::-webkit-scrollbar { display: none; }
+  .cat-chip { flex: 0 0 auto; }
 }
 
 .cat-chip {
@@ -1610,3 +1657,330 @@ tr.grade-base td:first-child {
 
 .appearance-actions { display: flex; gap: 8px; }
 .appearance-actions .btn { flex: 1; }
+
+/* ============================================================
+   ⭐⭐ الشريط التحت + شاشة "المزيد" — الموبايل بس
+   ============================================================
+   ⚠️⚠️ كل اللي في القسم ده **جوّه @media (max-width: 700px)**.
+   على الكمبيوتر شريط التابات الفوقاني والقايمة الجانبية الثابتة
+   شغّالين كويس، والكمبيوتر ده جهاز الطباعة اللي شغله متظبّط عليه —
+   فمابنغيّرش عليه حاجة. */
+.bottom-nav { display: none; }
+.more-sheet { display: none; }
+.screen-title { display: none; }
+
+@media (max-width: 700px) {
+  /* شريط التابات الفوقاني بينزل تحت، فبيتخفي من فوق */
+  .tabs { display: none; }
+
+  /* ⭐ عنوان الشاشة — بياخد مكان الاسم اللي كان بيتقص في التاب */
+  .screen-title {
+    display: block;
+    position: sticky;
+    top: 65px;
+    z-index: 940;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 1rem;
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ⚠️ مساحة تحت المحتوى بقد الشريط، وإلا آخر درجة بتفضل مخبّية
+     تحته وانت مش عارف إن فيه حاجة تحتها. */
+  .app-body { padding-bottom: 68px; }
+
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 1300;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    /* الشريط السفلي في متصفح الموبايل بياخد جزء من الشاشة، فبنزوّد
+       مساحة أمان عشان الزراير ماتبقاش تحت شريط النظام. */
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.06);
+  }
+
+  /* ⚠️ الارتفاع 56 مقصود — أصغر من كده الصباع بيغلط. */
+  .bnav-item {
+    flex: 1;
+    min-height: 56px;
+    border: 0;
+    background: none;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 10px;
+    line-height: 1.3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: pointer;
+    position: relative;
+    padding: 4px 2px;
+  }
+
+  .bnav-icon { font-size: 19px; line-height: 1; }
+  .bnav-item.on { color: var(--accent); font-weight: 600; }
+
+  /* الشارة الصفرا على ركن أيقونة الفئات — نفس رقم الشارة اللي جنب
+     اسمك بالظبط، ونفس المعنى. */
+  .bnav-item .pending-dot {
+    position: absolute;
+    top: 4px;
+    inset-inline-start: 50%;
+    margin-inline-start: 4px;
+    min-width: 15px;
+    height: 15px;
+    font-size: 9px;
+  }
+
+  /* ⭐⭐ الفئات بقت **شاشة كاملة** مش درج بيغطي 82% من الشاشة.
+     ده تغيير تنسيقات بس — نفس الحالة (sideMenuOpen) ونفس الأزرار
+     ونفس الفلاتر ونفس الشارات. */
+  .side-menu {
+    width: 100vw;
+    max-width: none;
+    bottom: 56px;
+    box-shadow: none;
+  }
+
+  /* الطبقة السودا مالهاش لازمة والشاشة كلها متغطية */
+  .side-backdrop.open { display: none; }
+
+  .more-sheet {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    top: 0;
+    inset-inline: 0;
+    bottom: 56px;
+    z-index: 1200;
+    background: var(--bg);
+    transform: translateY(100%);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.18s ease, visibility 0.18s;
+  }
+
+  .more-sheet.open {
+    transform: translateY(0);
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .more-body { padding: 8px 12px 20px; overflow: auto; }
+
+  .more-group {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin: 12px 4px 6px;
+  }
+
+  .more-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 48px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .more-chev { color: var(--text-muted); }
+  .more-danger { color: var(--danger-text); border-color: var(--danger-text); }
+
+  /* سهم "ارجع لفوق" كان فوق الشريط بالظبط */
+  .to-top { bottom: 140px; }
+}
+
+/* ============================================================
+   بوابة الدخول
+   ============================================================
+   ⚠️ الخانات ارتفاعها 44 بكسل — أصغر مقاس الصباع مابيغلطش عليه.
+   الشغل من الموبايل، وباسورد غلط بيقفل الحساب مؤقتًا بعد كام محاولة. */
+.login-brand { text-align: center; margin-bottom: 22px; }
+
+.login-mark {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 10px;
+  border-radius: 16px;
+  background: var(--accent);
+  color: var(--accent-text);
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.login-name { font-size: 20px; font-weight: 600; margin: 0; }
+.login-by { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+.login-ver { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.login-card .input { min-height: 44px; }
+.login-card .btn-primary { min-height: 46px; font-size: 15px; }
+.login-wrap { background: var(--bg); }
+
+/* ============================================================
+   كارت صاحب الحساب (شاشة الحسابات)
+   ============================================================ */
+.owner-card { padding: 12px; margin-bottom: 12px; border: 1px solid var(--accent); }
+.owner-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+
+.owner-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--accent);
+  color: var(--accent-text);
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  flex: 0 0 auto;
+}
+
+.owner-who b { font-size: 15px; display: block; }
+.owner-who small { font-size: 12px; color: var(--text-secondary); }
+
+.owner-protected {
+  font-size: 12px;
+  background: var(--surface-muted);
+  border-radius: 8px;
+  padding: 6px 9px;
+  margin-bottom: 10px;
+}
+
+.owner-uid-label { font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+.owner-uid-note { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.7; }
+.owner-uid-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.owner-uid-row code {
+  flex: 1;
+  min-width: 170px;
+  direction: ltr;
+  text-align: start;
+  font-size: 12px;
+  background: var(--surface-muted);
+  padding: 8px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+/* ============================================================
+   الشاشة الرئيسية — مربعات بتتضغط + كارت الطلبات المدموج
+   ============================================================ */
+.stat-tile-go {
+  border: 1px solid var(--border);
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
+  position: relative;
+  /* ⚠️ 44 بكسل — أصغر مقاس الصباع مابيغلطش عليه */
+  min-height: 44px;
+}
+
+.stat-go {
+  display: block;
+  font-size: 10px;
+  color: var(--accent);
+  margin-top: 2px;
+}
+
+.home-big {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  margin-inline-end: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-card-lead { border-color: var(--dot-pending); }
+
+@media (max-width: 700px) {
+  /* تلات مربعات في سطر بدل أربعة في سطرين */
+  .stat-row-3 { grid-template-columns: repeat(3, 1fr); }
+  .stat-row-3 .stat-value { font-size: 18px; }
+  .stat-row-3 .stat-label { font-size: 10px; }
+}
+
+/* ============================================================
+   شاشة الطباعة — زرار واحد بطل
+   ============================================================ */
+.print-go { width: 100%; min-height: 48px; font-size: 15px; margin-top: 12px; }
+
+.print-second-row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.print-second-row .btn { flex: 1; min-width: 92px; font-size: 13px; }
+.print-gear { flex: 0 0 auto !important; min-width: 44px !important; }
+.print-gear.on { background: var(--surface-muted); border-color: var(--text-secondary); }
+
+.print-tools {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.print-tools .btn { flex: 1; min-width: 140px; font-size: 13px; }
+
+
+/* زرار الإعدادات المتقدمة في نافذة الطابعة */
+.pset-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pset-chev { color: var(--text-muted); transition: transform 0.15s; }
+.pset-toggle.on .pset-chev { transform: rotate(180deg); }
+
+/* ============================================================
+   سحب الفئة بالصباع (وضع الترتيب)
+   ============================================================
+   ⚠️ touch-action: none لازمة — من غيرها الموبايل بيفهم السحب على إنه
+   تمرير للصفحة وبيبلع الحركة. */
+.cat-drag-handle {
+  flex: 0 0 auto;
+  padding: 6px 4px;
+  font-size: 17px;
+  line-height: 1;
+  letter-spacing: -3px;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.side-item-order .cat-dragging,
+.side-item-order.cat-dragging { opacity: 0.5; }
+.side-item-order.cat-drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }

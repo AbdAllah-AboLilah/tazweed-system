@@ -322,12 +322,30 @@ async function computeStockTotals() {
 }
 
 
-function statTileHTML(value, label, color) {
-  return `
-    <div class="stat-tile" style="border-inline-start:4px solid ${color};">
+// ============================================================
+// ⭐⭐ المربع بيتضغط لما يبقى ليه مكان يوديك له
+// ============================================================
+// المربعات كانت <div> عادي من غير أي حدث: بتشوف "3 طلب تزويد معلّق"،
+// تدوس عليه، مايحصلش حاجة، وتضطر تنزّل تحت وتدوس "افتح".
+//
+// دلوقتي اللي ليه فلتر بيبقى <button> بيوديك على القايمة مفلترة —
+// **نفس منطق الشارة اللي جنب اسمك بالظبط**، ونفس السلسلة: القايمة
+// تتفلتر ← تدوس على فئة ← تفتح على الدرجات المطلوبة بس.
+//
+// ⚠️ اللي مالوش فلتر (زي "قطعة في مخزن الفرع") بيفضل <div> — زرار
+// مابيعملش حاجة أوحش من نص مابيتضغطش.
+function statTileHTML(value, label, color, filter) {
+  const inner = `
       <div class="stat-value">${escapeHTML(value)}</div>
-      <div class="stat-label">${escapeHTML(label)}</div>
-    </div>`;
+      <div class="stat-label">${escapeHTML(label)}</div>`;
+  if (!filter) {
+    return `<div class="stat-tile" style="border-inline-start:4px solid ${color};">${inner}</div>`;
+  }
+  return `
+    <button class="stat-tile stat-tile-go" data-stat-filter="${escapeHTML(filter)}"
+            style="border-inline-start:4px solid ${color};">${inner}
+      <span class="stat-go">اضغط ›</span>
+    </button>`;
 }
 
 // قايمة فئات مع أرقام الدرجات جواها — بتستخدم للنواقص وللي خلص.
@@ -409,15 +427,19 @@ function dashboardHomeHTML() {
 
   return `
     <div class="home-wrap">
-      <div class="stat-row">
-        ${statTileHTML(pendingTotal, 'طلب تزويد معلّق', 'var(--purple-text)')}
-        ${statTileHTML(state.lowStockCount || 0, 'درجة قرّبت تخلص', 'var(--warning-text)')}
-        ${statTileHTML(outTotal, 'درجة خلصت نهائيًا', 'var(--danger-text)')}
-        ${statTileHTML(state.categories.length, 'فئة (شيت)', 'var(--accent)')}
+      <!-- ⚠️ مربع "طلب تزويد معلّق" **اتشال من هنا** عن قصد: كان
+           بيكتب نفس الرقم اللي الكارت اللي تحته بيكتبه ومعاه التفاصيل.
+           رقم واحد مكتوب مرتين بيضعّف الاتنين. الرقم دلوقتي جوّه
+           الكارت نفسه، كبير وجنبه زرار "افتح" على طول. -->
+      <div class="stat-row stat-row-3">
+        ${statTileHTML(state.lowStockCount || 0, 'درجة قرّبت تخلص', 'var(--warning-text)', 'low')}
+        ${statTileHTML(outTotal, 'درجة خلصت نهائيًا', 'var(--danger-text)', 'out')}
+        ${statTileHTML(state.categories.length, 'فئة (شيت)', 'var(--accent)', 'all')}
       </div>
 
-      <div class="home-card">
+      <div class="home-card home-card-lead">
         <div class="home-title">
+          <span class="home-big" style="color:var(--purple-text);">${escapeHTML(pendingTotal)}</span>
           🟣 طلبات التزويد المعلّقة
           ${
             pendingTotal && canEditMain
