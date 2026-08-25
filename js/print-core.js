@@ -867,6 +867,23 @@ function cancellableSleep(ms) {
   });
 }
 
+// تنبيه معلومة **مش موقّف** — بيظهر ويختفي لوحده.
+//
+// ⚠️⚠️ **ممنوع `alert` أو `confirm` في أي مسار طباعة.** الدرس اتاخد
+// بالغالي في v0.34.1: `confirm()` بتجمّد خيط الجافاسكريبت **كله**، والجهاز
+// اللي بيستقبل طباعة عن بُعد مافيش حد واقف عنده يرد — فكان بيقف تمامًا،
+// ويقفل الطباعة عن بُعد كلها، والطلب عمره ما بيتعلّم "خلص".
+function showPrintNotice(text, ms) {
+  const el = document.createElement('div');
+  el.style.cssText =
+    'position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:3200;' +
+    'background:#1f3a5f; color:#fff; padding:10px 16px; border-radius:8px; max-width:88vw;' +
+    'font-size:12.5px; line-height:1.8; box-shadow:0 4px 18px rgba(0,0,0,.3); text-align:center;';
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, ms || 8000);
+}
+
 function showPrintProgress(total, onCancel) {
   const box = document.createElement('div');
   box.style.cssText =
@@ -1855,6 +1872,75 @@ function normalizePrintJobs(input) {
 
 // بيرجع true لو نجحت الطباعة عبر QZ Tray، false لو محتاج نرجع للطريقة
 // العادية (نافذة المتصفح / iframe).
+// ============================================================
+// ⭐⭐ ورقة التزويد: نقول للطابعة الطول الحقيقي بدل ما تخمّن
+// ============================================================
+// المشكلة اللي بيحلها: ورقة التزويد كانت بتتبعت **من غير أي مقاس**،
+// والنية كانت "سيب الرول المستمر يمشي". اللي بيحصل فعلًا إن QZ بياخد
+// **المقاس الافتراضي من تعريف الطابعة في ويندوز** — وده عند صاحب المحل
+// كان `80(72.1) x 297mm`. فالورقة الأطول من 297 **بتتزنق فيه وتصغّر**.
+//
+// القياس الحقيقي (عرض 80مم):
+//   30 درجة  →  62مم   ✅ تدخل
+//   80 درجة  → 125مم   ✅
+//  165 درجة  → 236مم   ✅ بالعافية
+//  300 درجة  → 403مم   ❌ بتتزنق في 297 = تصغير لـ74%
+//
+// ⚠️⚠️ والقياس **لازم يتم على الجهاز اللي هيطبع**، مش اللي بيبعت. ده
+// نفس الدرس اللي اتلسعنا منه في v0.43.0: الموبايل بيرسم بخطوط أضيق،
+// فلو قاس وبعت الرقم، الكمبيوتر هيرسم بخطوطه الأعرض والورقة تتقص.
+// عشان كده الدالة دي بتتنادى من جوه `tryPrintViaQZ` — يعني على الجهاز
+// اللي الطابعة عليه.
+const RESTOCK_PAGE_WIDTH_MM = 80;
+// أطول مقاس متاح في تعريف الطابعة (80 × 3276مم). أطول من كده مافيش
+// مقاس يستحمله، فبنسيب الطابعة تصغّر — **ومابنقسّمش**، لأن المستخدم طلب
+// ورقة واحدة ومش من حقنا نغيّر شكل اللي طلبه من ورا ظهره.
+const RESTOCK_MAX_HEIGHT_MM = 3276;
+
+function measureHTMLHeightMm(html, widthMm) {
+  return new Promise((resolve) => {
+    let frame = null;
+    const done = (mm) => {
+      if (frame && frame.parentNode) frame.parentNode.removeChild(frame);
+      resolve(mm);
+    };
+    try {
+      frame = document.createElement('iframe');
+      frame.setAttribute('aria-hidden', 'true');
+      frame.style.cssText =
+        `position:absolute; left:-9999px; top:0; width:${widthMm}mm; height:10px; border:0; visibility:hidden;`;
+      document.body.appendChild(frame);
+      const doc = frame.contentDocument;
+      doc.open();
+      doc.write(html);
+      doc.close();
+      // مهلة أمان: لو الرسم اتعلّق لأي سبب، مانوقفش الطباعة — بنرجّع صفر
+      // ونكمّل بالسلوك القديم (الطابعة تخمّن).
+      const guard = setTimeout(() => done(0), 3000);
+      const read = () => {
+        clearTimeout(guard);
+        const px = doc.body ? doc.body.scrollHeight : 0;
+        done(px > 0 ? Math.ceil(px / (96 / 25.4)) : 0);
+      };
+      // فريمين عشان الخطوط والصور تتحط قبل القياس
+      requestAnimationFrame(() => requestAnimationFrame(read));
+    } catch (err) {
+      console.warn('تعذّر قياس طول ورقة التزويد — هنسيب الطابعة تخمّن:', err);
+      done(0);
+    }
+  });
+}
+
+// بترجّع مقاس الصفحة لورقة التزويد، أو null لو مقدرناش نقيس أو الطول
+// عدّى أطول مقاس متاح.
+async function restockPageSize(html) {
+  const mm = await measureHTMLHeightMm(html, RESTOCK_PAGE_WIDTH_MM);
+  if (!(mm > 0) || mm > RESTOCK_MAX_HEIGHT_MM) return null;
+  // هامش بسيط: القياس على الشاشة ممكن يفرق نص مللي عن الرسم النهائي،
+  // وناقص نص مللي معناه سطر متقصوص.
+  return { width: RESTOCK_PAGE_WIDTH_MM, height: mm + 2 };
+}
+
 async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
   setPrintOutcome(false, 'الطباعة ماوصلتش لآخرها.');
   const printerName = getSavedPrinter(type);
@@ -1923,10 +2009,21 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
       return true;
     }
 
-    const size =
+    let size =
       sizeOptions && sizeOptions.pageWidthMm
         ? { width: sizeOptions.pageWidthMm, height: sizeOptions.pageHeightMm }
         : null;
+
+    // ⭐ ورقة التزويد: بنقيس طولها **هنا** (على جهاز الطباعة) ونقوله
+    // للطابعة، بدل ما تاخد الافتراضي وتصغّر. الشرح الكامل فوق عند
+    // restockPageSize.
+    //
+    // ⚠️ بنعمل ده للورقة الواحدة بس. لو الطبعة فيها أكتر من ورقة (كل
+    // مجموعة في ورقة)، أطوالهم مختلفة ومقاس واحد مايناسبهمش — فبنسيبها
+    // زي ما كانت بدل ما نقص واحدة عشان نظبّط التانية.
+    if (!size && type === 'restock' && list.length === 1 && list[0].html) {
+      size = await restockPageSize(list[0].html);
+    }
 
     // نفس شكل الإعداد اللي كان شغال 100% في v0.17 — من غير أي خيارات
     // إضافية. العدد بنعمله بتكرار الطلب نفسه، مش بخيار في الإعداد، عشان

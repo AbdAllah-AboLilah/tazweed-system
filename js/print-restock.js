@@ -400,6 +400,21 @@ async function printRestockPaper(cat, grades) {
   if (estByteSize > RESTOCK_SAFE_BYTES && !groupName) {
     const names = restockGroupNames(cat, grades, withBase);
     if (names.length > 1) {
+      // ⭐⭐ التقسيم ده **لازم يتقال**، مش يحصل في سكوت.
+      //
+      // المستخدم طلب **ورقة واحدة** وهيطلعله كذا ورقة. لو محصلش تنبيه،
+      // هيفتكر إن النظام باظ أو إن الورق اتقطع — وهو أصلًا اتقسم عشان
+      // الطبعة **توصل**.
+      //
+      // ⚠️ والتقسيم هنا سببه **حجم البيانات** مش طول الورقة: رسالة QZ
+      // ليها حد أقصى، واللي بيعدّيه بيتضاع في سكوت (نفس عطل "بياخد
+      // الأمر ومفيش حاجة بتتطبع"). فمينفعش نشيله — بس ينفع نقوله.
+      // ⚠️ تنبيه **مش موقّف** — مش `alert`. لو الطبعة دي جاية عن بُعد،
+      // الجهاز المستقبِل مافيش حد واقف عنده، والرسالة الموقّفة هتجمّده
+      // وتقفل الطباعة عن بُعد كلها. (الدرس الكامل عند showPrintNotice)
+      showPrintNotice(
+        `📄 الفئة كبيرة على أمر طباعة واحد — هتتقسّم على ${names.length} ورقة (كل مجموعة لوحدها).`
+      );
       const bundle = buildRestockBundle(cat, grades, names, withBase);
       await deliverPrint('restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML);
       return;
