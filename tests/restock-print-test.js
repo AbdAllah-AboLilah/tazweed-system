@@ -163,8 +163,59 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('الرسم المتأجّل بيتنفّذ بعد ما تسيبها', kb.flushed, kb);
 
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
-  console.log('\n✅ نجح (' + pass.length + ')');
   pass.filter(x => x.includes('⭐')).forEach(x => console.log('   ' + x));
+
+  // ============================================================
+  // ⭐⭐ ورقة التزويد بتتبعت بطولها الحقيقي (مش تصغّر)
+  // ============================================================
+  // القياس اللي أدّى للتعديل: تعريف الطابعة عند صاحب المحل افتراضيه
+  // `80(72.1) x 297mm`، وورقة الفئة الكبيرة بتطلع 403مم — فبتتزنق في
+  // 297 و**تصغّر لـ74%**. وده اللي اتصوّر على الورق.
+  //
+  // ⚠️ والقياس **لازم يتم على جهاز الطباعة** مش اللي بيبعت (درس v0.43.0:
+  // خطوط الموبايل أضيق، فالطول يطلع غلط والورقة تتقص).
+  const sizing = await p.evaluate(async () => {
+    const short = '<html><body style="margin:0"><div style="height:40mm">قصيرة</div></body></html>';
+    const long = '<html><body style="margin:0"><div style="height:400mm">طويلة</div></body></html>';
+    const huge = '<html><body style="margin:0"><div style="height:4000mm">أطول من أي مقاس</div></body></html>';
+    return {
+      short: await restockPageSize(short),
+      long: await restockPageSize(long),
+      huge: await restockPageSize(huge),
+      maxMm: RESTOCK_MAX_HEIGHT_MM,
+      widthMm: RESTOCK_PAGE_WIDTH_MM,
+    };
+  });
+  check('⭐⭐ الورقة الطويلة بتاخد طولها الحقيقي (مش 297)',
+    sizing.long && sizing.long.height >= 395 && sizing.long.height <= 415, sizing.long);
+  check('⭐ والقصيرة بتاخد طولها هي (مفيش ورق ضايع)',
+    sizing.short && sizing.short.height >= 38 && sizing.short.height <= 50, sizing.short);
+  check('⭐ والعرض 80مم زي الرول', sizing.long && sizing.long.width === 80, sizing);
+  // ⚠️ أطول من كل المقاسات المتاحة؟ نسيب الطابعة تصغّر — **ومانقسّمش**،
+  // لأن المستخدم طلب ورقة واحدة ومش من حقنا نغيّر شكل اللي طلبه.
+  check('⭐⭐ أطول من أطول مقاس (3276مم) → نرجع للتصغير، مش للتقسيم',
+    sizing.huge === null, sizing);
+  check('⭐ والحد مطابق لأطول مقاس في تعريف الطابعة', sizing.maxMm === 3276, sizing);
+
+  // ⚠️ ولازم القياس يبقى جوه tryPrintViaQZ (يعني على جهاز الطباعة)
+  const coreSrc = require('fs').readFileSync(__dirname + '/../js/print-core.js', 'utf8');
+  const inQZ = coreSrc.indexOf('async function tryPrintViaQZ');
+  const useIdx = coreSrc.indexOf("size = await restockPageSize(");
+  check('⭐⭐ القياس بيتم جوه tryPrintViaQZ (على جهاز الطباعة)',
+    useIdx > inQZ && useIdx !== -1, { inQZ, useIdx });
+
+  // ⚠️ والتقسيم بسبب الحجم لازم **يتقال** مش يحصل في سكوت
+  const restockSrc = require('fs').readFileSync(__dirname + '/../js/print-restock.js', 'utf8');
+  check('⭐⭐ التقسيم بسبب الحجم بيتقال للمستخدم',
+    /showPrintNotice\(/.test(restockSrc) && /هتتقسّم على/.test(restockSrc), null);
+  // ⚠️⚠️ ولازم يبقى تنبيه **مش موقّف**. الدرس اتاخد بالغالي في v0.34.1:
+  // `alert`/`confirm` بتجمّد خيط الجافاسكريبت كله، والجهاز اللي بيستقبل
+  // طباعة عن بُعد مافيش حد واقف عنده — فبيقف تمامًا وتقفل الطباعة عن
+  // بُعد كلها.
+  check('⭐⭐ ومفيش alert موقّف في مسار طباعة التزويد',
+    !/\balert\(/.test(restockSrc), (restockSrc.match(/.*\balert\(.*/) || [])[0]);
+
+  console.log('\n✅ نجح (' + pass.length + ')');
   if (fail.length) { console.log('\n❌ فشل (' + fail.length + '):'); fail.forEach(x => console.log('   ' + x)); }
   await b.close();
   process.exit(fail.length ? 1 : 0);

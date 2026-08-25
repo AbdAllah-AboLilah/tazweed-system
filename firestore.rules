@@ -129,16 +129,36 @@ service cloud.firestore {
             && request.resource.data.requestedQty <= resource.data.get('mainQty', 0));
     }
 
+    // ⚠️⚠️ نفس الفخ اللي فوق بالظبط: أي حقل جديد بيتكتب مع الحالة **لازم**
+    // يتضاف في قوايم `onlyChangedKeys` تحت، وإلا الكتابة بترفض **في صمت**.
+    //
+    // `manualRequest` بتفرّق بين طلب التزويد اللي إنسان عمله (مايتلغيش
+    // لوحده) واللي النظام عمله (يتلغي عادي). القيم المسموحة: true/false،
+    // أو null لما الطلب يتقفل.
+    function manualRequestOK() {
+      return !('manualRequest' in request.resource.data)
+        || request.resource.data.manualRequest == null
+        || request.resource.data.manualRequest is bool;
+    }
+
     function branchAction() {
-      return isBranchKeeper() && requestedQtyOK() && (
+      return isBranchKeeper() && requestedQtyOK() && manualRequestOK() && (
         onlyChangedKeys(['branchQty'])
         || (onlyChangedKeys(['status']) && oldStatus() == 'normal' && newStatus() == 'pending')
         || (onlyChangedKeys(['status']) && oldStatus() == 'pending' && newStatus() == 'normal')
-        // الطلب بكمية: الحالة والكمية المطلوبة مع بعض في كتابة واحدة
+        // الطلب بكمية: الحالة والكمية المطلوبة وعلامة "بشري" في كتابة واحدة
+        || (onlyChangedKeys(['status', 'requestedQty', 'manualRequest']) && oldStatus() == 'normal' && newStatus() == 'pending')
+        || (onlyChangedKeys(['status', 'requestedQty', 'manualRequest']) && oldStatus() == 'pending' && newStatus() == 'normal')
+        // ولسه بنقبل الشكل القديم (من غير manualRequest) — الأجهزة اللي
+        // لسه على نسخة قديمة لازم تفضل شغّالة لحد ما تتحدّث.
         || (onlyChangedKeys(['status', 'requestedQty']) && oldStatus() == 'normal' && newStatus() == 'pending')
         || (onlyChangedKeys(['status', 'requestedQty']) && oldStatus() == 'pending' && newStatus() == 'normal')
         // التغيير التلقائي: الكمية والحالة بيتغيّروا مع بعض في كتابة واحدة،
         // بشرط إن الحالة الجديدة مطابقة للأرقام.
+        || (
+          onlyChangedKeys(['branchQty', 'status', 'manualRequest'])
+          && statusMatchesQty(newBranchQty(), resource.data.get('mainQty', 0), newStatus())
+        )
         || (
           onlyChangedKeys(['branchQty', 'status'])
           && statusMatchesQty(newBranchQty(), resource.data.get('mainQty', 0), newStatus())
@@ -149,10 +169,13 @@ service cloud.firestore {
     // أمين المخزن الرئيسي: يعدّل mainQty، أو يرد على طلب معلّق (تزويد فعلي
     // بنقل كمية، أو تصفير كامل لو مفيش عنده حاجة)، أو يرجّع درجة خلصت لتبقى متاحة.
     function mainAction() {
-      return isMainKeeper() && (
+      return isMainKeeper() && manualRequestOK() && (
         onlyChangedKeys(['mainQty'])
         || (onlyChangedKeys(['status', 'mainQty', 'branchQty']) && oldStatus() == 'pending' && newStatus() == 'normal')
-        // ولمّا يقفل الطلب، الكمية المطلوبة بتتصفّر معاه
+        // ولمّا يقفل الطلب، الكمية المطلوبة وعلامة "بشري" بيتصفّروا معاه
+        || (onlyChangedKeys(['status', 'mainQty', 'branchQty', 'requestedQty', 'manualRequest'])
+            && oldStatus() == 'pending' && newStatus() == 'normal'
+            && request.resource.data.requestedQty == null)
         || (onlyChangedKeys(['status', 'mainQty', 'branchQty', 'requestedQty'])
             && oldStatus() == 'pending' && newStatus() == 'normal'
             && request.resource.data.requestedQty == null)
@@ -160,6 +183,10 @@ service cloud.firestore {
         || (onlyChangedKeys(['status']) && oldStatus() == 'out' && newStatus() == 'normal')
         // التغيير التلقائي من ناحية الرئيسي: نزّل الكمية لصفر فالدرجة
         // بتتحول "خلصت"، أو دخّل كمية وهي "خلصت" فبترجع "معلّقة".
+        || (
+          onlyChangedKeys(['mainQty', 'status', 'manualRequest'])
+          && statusMatchesQty(resource.data.get('branchQty', 0), newMainQty(), newStatus())
+        )
         || (
           onlyChangedKeys(['mainQty', 'status'])
           && statusMatchesQty(resource.data.get('branchQty', 0), newMainQty(), newStatus())

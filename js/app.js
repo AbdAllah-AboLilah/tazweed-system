@@ -181,7 +181,13 @@ const BASE_GRADES = [
   { key: 'offwhite', name: 'أوف وايت', number: -1 },
 ];
 
-const DEFAULT_BASE_CRITICAL_QTY = 3;
+// ⚠️ صفر = **من غير تنبيه**، وده الافتراضي عن قصد.
+//
+// كان 3، والنتيجة إن كل درجة أساسية بتتضاف بتبدأ **منبّهة** من غير ما حد
+// يطلب — فالدايرة البرتقالية بتظهر جنب اسم الفئة بعدد الدرجات الأساسية
+// وانت لسه مضفتهم دلوقتي. صاحب المحل هو اللي يقرر أنهي درجة تستاهل
+// تنبيه، مش النظام.
+const DEFAULT_BASE_CRITICAL_QTY = 0;
 
 function gradeDisplayName(g) {
   if (g && g.isBase && g.name) return g.name;
@@ -212,6 +218,17 @@ function gradeLabelText(g, withGroup) {
 //
 // 0 معناها "من غير تنبيه" وهي قيمة مقصودة — عشان كده بنفرّق بين الصفر
 // المكتوب وبين "مافيش قيمة أصلًا" بدل ما نستخدم || على طول.
+// ⚠️⚠️ **متستخدمش `Number(x) || DEFAULT` مع الحد الحرج.**
+//
+// الصفر هنا **قيمة صحيحة** معناها "من غير تنبيه"، و`||` بتبلعه وترجّع
+// الافتراضي. ده كان عطل حقيقي: المستخدم يحط صفر، والنظام يفهمها 3،
+// والدايرة البرتقالية تفضل ظاهرة وهو مش عارف ليه.
+function normalizeCriticalQty(value) {
+  if (value === undefined || value === null || value === '') return DEFAULT_BASE_CRITICAL_QTY;
+  const n = Number(value);
+  return isFinite(n) && n >= 0 ? n : DEFAULT_BASE_CRITICAL_QTY;
+}
+
 function gradeCriticalQty(g, cat) {
   const own = g ? g.criticalQty : undefined;
   if (own !== undefined && own !== null && own !== '') return Number(own) || 0;
@@ -1185,6 +1202,29 @@ function defaultRestockQty() {
 // دي بترجع لوحدها أول ما الرقم الصح يتسجّل.
 //
 // بترجع الحالة الجديدة، أو null لو مفيش تغيير مطلوب.
+// ============================================================
+// ⭐⭐ الطلب اللي إنسان عمله — إنسان بس يلغيه
+// ============================================================
+// الشكوى اللي أدّت للقاعدة دي: تطلب تزويد لدرجة، وبعدين ترفع كمية الفرع
+// (حتى من 2 لـ3) — **والطلب يموت في سكوت**. وأمين الرئيسي مايشوفهوش خالص.
+//
+// وكان فيه تناقض: النظام **بيسمحلك** تطلب تزويد والفرع فيه كمية (عندك 2
+// وعايز 10 كمان)، وبعدين بيهدّ الطلب ده بتعديل مالوش علاقة بيه.
+//
+// القاعدة دلوقتي بتفرّق بين نوعين من "معلّق":
+//
+//   بشري  → دوست "طلب تزويد" أو حطّيت كمية بإيدك
+//            ← **مايتلغيش** إلا بالتزويد أو الإلغاء أو إن الرئيسي يخلص
+//   تلقائي → النظام طلبه لوحده لما كمية الفرع بقت صفر
+//            ← يتلغي عادي لو رفعت الكمية (يعني اكتشفت إن الدرجة موجودة)
+//
+// ⚠️ والطلبات القديمة (اللي اتعملت قبل التحديث ده) مالهاش علامة —
+// بنعاملها **بشرية**. الأأمن: أسوأ حالة إنك تلغي طلب بإيدك، بدل إن طلب
+// مهم يضيع من غير ما تعرف.
+function isManualRequest(data) {
+  return (data || {}).manualRequest !== false;
+}
+
 function nextStatusFromQuantities(data, field, newValue) {
   const branch = field === 'branchQty' ? newValue : Number(data.branchQty) || 0;
   const main = field === 'mainQty' ? newValue : Number(data.mainQty) || 0;
@@ -1194,6 +1234,10 @@ function nextStatusFromQuantities(data, field, newValue) {
   if (branch > 0) target = 'normal';
   else if (main > 0) target = 'pending';
   else target = 'out';
+
+  // ⭐ الاستثناء الوحيد: طلب بشري معلّق + دخلت كمية للفرع → سيبه معلّق.
+  // (لو الرئيسي خلص، `out` بتعدّي عادي — الطلب مابقاش ينفّذ أصلًا.)
+  if (current === 'pending' && target === 'normal' && isManualRequest(data)) return null;
 
   return target === current ? null : target;
 }
@@ -1207,11 +1251,16 @@ function nextStatusFromQuantities(data, field, newValue) {
 // فالشارة بتقول العدد، وبتاخد شكل مميز (× والعدد) عشان تلفت النظر.
 function statusBadgeHTML(g) {
   const n = Number(g && g.requestedQty) || 0;
-  const extra =
-    g.status === 'pending' && n > 1
-      ? `<span class="badge-qty" title="مطلوب ${escapeHTML(n)} قطعة">×${escapeHTML(n)}</span>`
-      : '';
-  return `<span class="badge ${statusBadgeClass(g.status)}">${statusLabel(g.status)}${extra}</span>`;
+  const multi = g.status === 'pending' && n > 1;
+  const extra = multi
+    ? `<span class="badge-qty" title="مطلوب ${escapeHTML(n)} قطعة">×${escapeHTML(n)}</span>`
+    : '';
+  // ⭐ الطلب بكمية بياخد **لون مختلف**، مش شارة صغيرة وبس. أمين الرئيسي
+  // بيمرّ على 80 صف بسرعة، والشارة لوحدها بتعدّي — فبيزوّد واحدة والطلب
+  // كان بـ3. (ليه بنفسجي مش برتقالي: البرتقالي هو لون "معلّق" العادي
+  // أصلًا، فمش هيفرّق حاجة. الشرح في styles.css)
+  const cls = multi ? 'badge-pending-qty' : statusBadgeClass(g.status);
+  return `<span class="badge ${cls}">${statusLabel(g.status)}${extra}</span>`;
 }
 
 // 🖨️ رمز طباعة مسمّى الدرجة — جنب "طلب تزويد" بالظبط.
@@ -3035,7 +3084,7 @@ async function addGrade(categoryId, data) {
   if (data.isBase) {
     payload.isBase = true;
     payload.name = data.name;
-    payload.criticalQty = Number(data.criticalQty) || DEFAULT_BASE_CRITICAL_QTY;
+    payload.criticalQty = normalizeCriticalQty(data.criticalQty);
   }
   fireWrite(ref.set(payload), 'إضافة درجة');
   const categoryName = state.categories.find((c) => c.id === categoryId)?.name || '';
@@ -3107,7 +3156,7 @@ async function addCustomBaseGrade(categoryId, name, criticalQty, group) {
     number: nextCustomBaseNumber(rows),
     name: clean,
     isBase: true,
-    criticalQty: Number(criticalQty) || DEFAULT_BASE_CRITICAL_QTY,
+    criticalQty: normalizeCriticalQty(criticalQty),
     branchQty: DEFAULT_RESTOCK_QTY,
     mainQty: 0,
     status: 'normal',
@@ -3136,7 +3185,7 @@ async function addBaseGradesToCategory(categoryId, criticalQty, group) {
       number: base.number,
       name: base.name,
       isBase: true,
-      criticalQty: Number(criticalQty) || DEFAULT_BASE_CRITICAL_QTY,
+      criticalQty: normalizeCriticalQty(criticalQty),
       branchQty: DEFAULT_RESTOCK_QTY,
       mainQty: 0,
       status: 'normal',
@@ -3773,6 +3822,9 @@ async function openBaseGradesDialog(categoryId) {
       <div class="field">
         <label>الحد الحرج (تنبيه لما تنزل عنه)</label>
         <input class="input" type="number" id="base-critical" min="0" value="${DEFAULT_BASE_CRITICAL_QTY}" />
+        <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+          <strong>صفر = من غير تنبيه</strong> (الافتراضي). حطّ رقم لو عايز الدرجة تتعلّم "قرّبت تخلص".
+        </div>
       </div>
 
       <!-- ⭐ درجة أساسية باسم من عندك. التلاتة الجاهزين مش كفاية دايمًا —
@@ -3810,7 +3862,7 @@ async function openBaseGradesDialog(categoryId) {
   };
   document.getElementById('base-cancel').addEventListener('click', close);
   const statusEl = document.getElementById('base-status');
-  const critical = () => Number(document.getElementById('base-critical').value) || DEFAULT_BASE_CRITICAL_QTY;
+  const critical = () => normalizeCriticalQty(document.getElementById('base-critical').value);
   const chosenGroup = () => document.getElementById('base-group').value || '';
 
   document.getElementById('base-custom-add').addEventListener('click', () =>
@@ -4299,7 +4351,12 @@ async function requestShortage(gradeId, qty) {
   const gradeRef = gradeRefOf(categoryId, gradeId);
   // ⚠️ الطلب العادي (واحد) **مابيكتبش الحقل خالص** — عشان شكل البيانات
   // يفضل زي ما هو بالظبط في الحالة الغالبة.
-  const patch = want > 1 ? { status: 'pending', requestedQty: want } : { status: 'pending', requestedQty: null };
+  // ⭐ `manualRequest: true` = ده قرار إنسان، مايتلغيش لوحده لما كمية
+  // الفرع ترتفع. (الشرح الكامل عند nextStatusFromQuantities)
+  const patch =
+    want > 1
+      ? { status: 'pending', requestedQty: want, manualRequest: true }
+      : { status: 'pending', requestedQty: null, manualRequest: true };
   fireWrite(gradeRef.update(patch), 'طلب تزويد');
   pushUndo({
     label: `${gradeDisplayName(data)} — طلب تزويد${want > 1 ? ` (${want})` : ''}`,
@@ -4326,7 +4383,7 @@ async function cancelShortage(gradeId) {
   if (!data) return;
   const gradeRef = gradeRefOf(categoryId, gradeId);
   // الكمية المطلوبة بتتشال مع الإلغاء — الطلب اتلغى يعني مفيش كمية مطلوبة
-  fireWrite(gradeRef.update({ status: 'normal', requestedQty: null }), 'إلغاء طلب تزويد');
+  fireWrite(gradeRef.update({ status: 'normal', requestedQty: null, manualRequest: null }), 'إلغاء طلب تزويد');
   pushUndo({
     label: `${gradeDisplayName(data)} — إلغاء طلب التزويد`,
     categoryId,
@@ -4356,7 +4413,7 @@ async function fulfillShortage(gradeId, qty) {
   // ⚠️ الكمية المطلوبة بتتصفّر مع قفل الطلب — وإلا الطلب الجاي هيرث رقم
   // قديم ويظهر "×3" وهو أصلًا طلب عادي.
   fireWrite(
-    gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty, requestedQty: null }),
+    gradeRef.update({ status: 'normal', mainQty: newMainQty, branchQty: newBranchQty, requestedQty: null, manualRequest: null }),
     'تزويد'
   );
   pushUndo({
@@ -4534,7 +4591,12 @@ async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldVal
 
   // ⭐ الحالة بتتحدد من الكميات لوحدها (شرح القاعدة عند nextStatusFromQuantities)
   const nextStatus = nextStatusFromQuantities(data, field, newValue);
-  if (nextStatus) update.status = nextStatus;
+  if (nextStatus) {
+    update.status = nextStatus;
+    // ⭐ الطلب اللي النظام بيعمله لوحده بيتعلّم **تلقائي** — عشان يقدر
+    // يتلغي لوحده بعدين. وأي حالة تانية بتشيل العلامة خالص.
+    update.manualRequest = nextStatus === 'pending' ? false : null;
+  }
 
   fireWrite(gradeRef.update(update), 'تعديل كمية');
 

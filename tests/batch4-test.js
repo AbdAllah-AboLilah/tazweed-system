@@ -253,7 +253,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ حد الدرجة بيغلب حد الفئة', crit.ownWins === 9, crit);
   check('⭐ صفر معناها "من غير تنبيه" مش "ارجع لحد الفئة"', crit.zeroMeansOff === 0, crit);
   check('من غير حد: بتاخد حد الفئة (2)', crit.emptyFallsBack === 2 && crit.nullFallsBack === 2, crit);
-  check('الأساسية من غير حد: بتاخد الافتراضي (3)', crit.baseDefault === 3, crit);
+  // ⚠️ الفحص ده كان بيتأكد إن الافتراضي **3**. اتغيّر عن قصد في v0.55.0:
+  // الدرجة الأساسية كانت بتتضاف **منبّهة** من غير ما حد يطلب، فالدايرة
+  // البرتقالية بتظهر جنب اسم الفئة بعدد الأساسية وانت لسه مضفتهم دلوقتي.
+  // صاحب المحل هو اللي يقرر أنهي درجة تستاهل تنبيه، مش النظام.
+  check('⭐ الأساسية من غير حد: مفيش تنبيه (الافتراضي صفر)', crit.baseDefault === 0, crit);
 
   const critUI = await p.evaluate(async () => {
     state.gradeGroupFilter = 'كيوي'; state.gradeFilter = 'all'; render();
