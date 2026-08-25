@@ -2117,7 +2117,108 @@ function openCategory(categoryId) {
   subscribeGrades(categoryId);
 }
 
+// ============================================================
+// ⭐⭐⭐ مستمع واحد بدل ٢٤٠٠ — دي أكبر مشكلة سرعة في النظام
+// ============================================================
+// القياس اللي أدّى للتغيير (فئة 245 درجة على شاشة 390):
+//
+//   بناء نص الصفحة      =  16 مللي   ✅ سريع
+//   حط النص في الصفحة   = 252 مللي
+//   **ربط الأحداث**     = 277 مللي   ← أكبر بند لوحده
+//   ─────────────────────────────
+//   الرسمة الواحدة      = 577 مللي
+//
+// السبب: 2029 زرار و492 خانة في الشاشة، وكل واحد كان بياخد
+// addEventListener **لوحده** بعد كل رسمة. والعدد بيكبر مع عدد
+// الدرجات، فالفئة الكبيرة بتبقى أبطأ من الصغيرة أضعاف.
+//
+// الحل: مستمع **واحد** على #root بيسأل الضغطة "انت جاية من مين؟".
+// الحدث بيطلع من العنصر لفوق لحد ما يوصل لـ#root (event bubbling)،
+// فمستمع واحد هناك بيشوف كل الضغطات. العدد بقى ثابت مهما كانت
+// الدرجات 5 ولا 500.
+//
+// ⚠️⚠️ بتتربط **مرة واحدة في العمر** مش مع كل رسمة. #root نفسه
+// مابيتشالش — اللي بيتبدّل هو اللي جوّاه (innerHTML) — فالمستمع
+// بيفضل شغّال. لو اتربطت مع كل رسمة، كل ضغطة كانت هتتنفّذ مرتين
+// وتلاتة وعشرة (وده أوحش من البطء).
+//
+// ⚠️ الشرط الوحيد إن الهاندلر يقرا كل اللي محتاجه من **سمات العنصر**
+// (data-*) مش من متغيّر متقفل عليه وقت الربط. كل اللي تحت كده أصلًا.
+let gradeDelegatesReady = false;
+
+function setupGradeDelegates() {
+  if (gradeDelegatesReady) return;
+  const root = document.getElementById('root');
+  if (!root) return;
+  gradeDelegatesReady = true;
+
+  // بيدوّر على أقرب عنصر مطابق فوق نقطة الضغط
+  const on = (type, selector, fn) => {
+    root.addEventListener(type, (e) => {
+      const el = e.target.closest ? e.target.closest(selector) : null;
+      if (el && root.contains(el)) fn(el, e);
+    });
+  };
+
+  on('click', '.qty-btn', (btn) => {
+    const { categoryId, gradeId, field } = btn.dataset;
+    const delta = btn.dataset.action === 'inc' ? 1 : -1;
+    changeQuantity(categoryId, gradeId, field, delta);
+  });
+
+  on('change', '.qty-input', (input) => {
+    const { categoryId, gradeId, field } = input.dataset;
+    const newValue = Math.max(0, Number(input.value) || 0);
+    setQuantity(categoryId, gradeId, field, newValue);
+  });
+
+  on('click', '[data-delete-grade-id]', (btn) => {
+    safeAsync(async () => {
+      const gradeId = btn.dataset.deleteGradeId;
+      const gradeNumber = btn.dataset.deleteGradeNumber;
+      if (!confirm(`متأكد إنك عايز تمسح الدرجة رقم ${gradeNumber}؟`)) return;
+      await deleteGrade(state.activeCategoryId, gradeId, gradeNumber);
+    }, 'حذف درجة');
+  });
+
+  on('click', '[data-request-shortage-id]', (btn) => requestShortage(btn.dataset.requestShortageId, 1));
+  on('click', '[data-cancel-shortage-id]', (btn) => cancelShortage(btn.dataset.cancelShortageId));
+
+  on('click', '[data-request-qty-id]', (btn) => {
+    state.requestQtyGradeId = btn.dataset.requestQtyId;
+    render();
+    const el = document.getElementById('req-qty-' + btn.dataset.requestQtyId);
+    if (el) { el.focus(); el.select(); }
+  });
+
+  on('click', '[data-cancel-req-id]', () => {
+    state.requestQtyGradeId = null;
+    render();
+  });
+
+  on('submit', '[data-req-form-id]', (form, e) => {
+    e.preventDefault();
+    const id = form.dataset.reqFormId;
+    const raw = parseInt((document.getElementById('req-qty-' + id) || {}).value, 10);
+    state.requestQtyGradeId = null;
+    safeAsync(() => requestShortage(id, raw), 'طلب تزويد بكمية');
+  });
+
+  on('click', '[data-print-grade-id]', (btn) => {
+    state.printingGradeId = btn.dataset.printGradeId;
+    render();
+    const input = document.getElementById('grade-print-qty');
+    if (input) { input.focus(); input.select(); }
+  });
+
+  on('click', '[data-print-grade-cancel]', () => {
+    state.printingGradeId = null;
+    render();
+  });
+}
+
 function attachDashboardEvents() {
+  setupGradeDelegates();
   // حساب موظف الطباعة: شاشة واحدة بس، فمفيش داعي لباقي الربط.
   if (isPrintOperator(state.profile)) {
     const out = document.getElementById('logout-btn');
@@ -2812,21 +2913,7 @@ function attachDashboardEvents() {
     });
   }
 
-  document.querySelectorAll('.qty-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const { categoryId, gradeId, field } = btn.dataset;
-      const delta = btn.dataset.action === 'inc' ? 1 : -1;
-      changeQuantity(categoryId, gradeId, field, delta);
-    });
-  });
-
-  document.querySelectorAll('.qty-input').forEach((input) => {
-    input.addEventListener('change', () => {
-      const { categoryId, gradeId, field } = input.dataset;
-      const newValue = Math.max(0, Number(input.value) || 0);
-      setQuantity(categoryId, gradeId, field, newValue);
-    });
-  });
+  // ⚠️ اتنقلت لـsetupGradeDelegates — مستمع واحد بدل واحد لكل عنصر.
 
   const addCategoryTabBtn = document.getElementById('add-category-tab-btn');
   if (addCategoryTabBtn) {
@@ -3048,67 +3135,6 @@ function attachDashboardEvents() {
     });
   }
 
-  document.querySelectorAll('[data-delete-grade-id]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const gradeId = btn.dataset.deleteGradeId;
-      const gradeNumber = btn.dataset.deleteGradeNumber;
-      if (!confirm(`متأكد إنك عايز تمسح الدرجة رقم ${gradeNumber}؟`)) return;
-      await deleteGrade(state.activeCategoryId, gradeId, gradeNumber);
-    });
-  });
-
-  // -------- نظام النواقص --------
-  document.querySelectorAll('[data-request-shortage-id]').forEach((btn) => {
-    btn.addEventListener('click', () => requestShortage(btn.dataset.requestShortageId, 1));
-  });
-
-  document.querySelectorAll('[data-cancel-shortage-id]').forEach((btn) => {
-    btn.addEventListener('click', () => cancelShortage(btn.dataset.cancelShortageId));
-  });
-
-  // ---- ⭐ طلب تزويد بكمية أكتر من واحد ----
-  document.querySelectorAll('[data-request-qty-id]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.requestQtyGradeId = btn.dataset.requestQtyId;
-      render();
-      const el = document.getElementById('req-qty-' + btn.dataset.requestQtyId);
-      if (el) { el.focus(); el.select(); }
-    });
-  });
-  document.querySelectorAll('[data-cancel-req-id]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.requestQtyGradeId = null;
-      render();
-    });
-  });
-  document.querySelectorAll('[data-req-form-id]').forEach((form) => {
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const id = form.dataset.reqFormId;
-      const raw = parseInt((document.getElementById('req-qty-' + id) || {}).value, 10);
-      state.requestQtyGradeId = null;
-      safeAsync(() => requestShortage(id, raw), 'طلب تزويد بكمية');
-    });
-  });
-
-  // ---- 🖨️ طباعة مسمّى درجة واحدة من جوه الصف ----
-  document.querySelectorAll('[data-print-grade-id]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.printingGradeId = btn.dataset.printGradeId;
-      render();
-      const input = document.getElementById('grade-print-qty');
-      if (input) {
-        input.focus();
-        input.select();
-      }
-    });
-  });
-  document.querySelectorAll('[data-print-grade-cancel]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.printingGradeId = null;
-      render();
-    });
-  });
   document.querySelectorAll('[data-print-grade-go]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.printGradeGo;

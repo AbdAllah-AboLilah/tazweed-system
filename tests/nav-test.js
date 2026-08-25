@@ -209,6 +209,49 @@ const SETUP = () => {
   check('⭐⭐⭐ شريط الأوامر مش مخفي ورا الشريط التحت',
     bars.found && bars.actionVisible && !bars.overlapping, bars);
 
+  // ============================================================
+  // ٧) ⚠️⚠️ الأحداث بتتربط **مرة واحدة** مش مع كل رسمة
+  // ============================================================
+  // ده أهم فحص في الملف. لو المستمع اتربط مع كل رسمة، كل ضغطة هتتنفّذ
+  // مرتين وتلاتة وعشرة — يعني +1 تبقى +10 على كمية حقيقية في المخزن.
+  // والفحص ده بيمسك كمان لو حد رجّع الربط لكل عنصر (البطء).
+  const deleg = await p.evaluate(async () => {
+    const calls = [];
+    const orig = window.changeQuantity;
+    window.changeQuantity = function (c, g, f, d) { calls.push(d); return Promise.resolve(); };
+
+    render();
+    await new Promise((r) => setTimeout(r, 60));
+    const plus = [...document.querySelectorAll('.qty-btn')].find((b) => b.dataset.action === 'inc');
+    plus.click();
+    await new Promise((r) => setTimeout(r, 60));
+    const once = calls.length;
+
+    // ٢٠ رسمة كمان — لو الربط بيتكرّر، العدد هيتضاعف
+    calls.length = 0;
+    for (let i = 0; i < 20; i++) render();
+    await new Promise((r) => setTimeout(r, 60));
+    const plus2 = [...document.querySelectorAll('.qty-btn')].find((b) => b.dataset.action === 'inc');
+    plus2.click();
+    await new Promise((r) => setTimeout(r, 60));
+    const after20 = calls.length;
+
+    // وكام مستمع بيتضاف على #root فعلًا؟
+    const root = document.getElementById('root');
+    const origAdd = EventTarget.prototype.addEventListener;
+    let added = 0;
+    EventTarget.prototype.addEventListener = function (...a) { if (this === root) added++; return origAdd.apply(this, a); };
+    for (let i = 0; i < 10; i++) render();
+    EventTarget.prototype.addEventListener = origAdd;
+
+    window.changeQuantity = orig;
+    return { once, after20, addedOnRoot: added, qtyBtns: document.querySelectorAll('.qty-btn').length };
+  });
+  check('⭐⭐⭐ ضغطة واحدة = نداء واحد', deleg.once === 1, deleg);
+  check('⭐⭐⭐ وبعد ٢٠ رسمة لسه نداء واحد (مفيش مستمع مكرّر)', deleg.after20 === 1, deleg);
+  check('⭐⭐ ومفيش مستمعين بيتضافوا على #root مع كل رسمة',
+    deleg.addedOnRoot === 0, deleg);
+
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
 
   pass.filter((x) => x.includes('⭐')).forEach((x) => console.log('   ' + x));
