@@ -67,7 +67,9 @@
   --border: #ddd9d0;
   --text-primary: #1f1d1a;
   --text-secondary: #6b6558;
-  --text-muted: #9b9587;
+  /* ⚠️ التباين لازم يفضل فوق 4.5. كان #9b9587 = 2.69 وده باهت
+     على شاشة تليفون في محل فيه نور. */
+  --text-muted: #736d61;
   --accent: #185fa5;
   --accent-text: #ffffff;
 
@@ -84,6 +86,21 @@
   --dot-low: #d97706;
   --dot-out: #b03030;
   --gold: #b8860b;
+  /* ============================================================
+     ⚠️ نص الشارات — لون لكل شارة، مش لون واحد للكل
+     ============================================================
+     الأرقام دي مقيسة:
+       الأصفر  #e6a817: أبيض = 2.10 ❌  ·  غامق = 8.15 ✅
+       البرتقالي #d97706: أبيض = 3.19 ❌  ·  غامق = 5.38 ✅
+       الأحمر  #b03030: أبيض = 6.34 ✅  ·  غامق = 2.70 ❌
+     يعني مافيش لون واحد ينفع للتلاتة. */
+  --dot-text: #241a05;
+  --dot-out-text: #ffffff;
+  /* الشريحة/التاب المختار. في الفاتح: عكس الألوان (غامق على فاتح).
+     في الليلي: بيتغيّر لأزرق الثيم — الأبيض الساطع على الأسود بيوجع
+     العين وبيولّع البكسل بالكامل على AMOLED. */
+  --pick-bg: var(--text-primary);
+  --pick-text: var(--surface);
 
   --radius: 10px;
   --font-sans: 'Segoe UI', Tahoma, Arial, sans-serif;
@@ -101,7 +118,7 @@
   --border: #d3dae5;
   --text-primary: #16202e;
   --text-secondary: #5a6577;
-  --text-muted: #8b94a3;
+  --text-muted: #656e7d;
   --accent: #2b4c7e;
   --warning-bg: #f3edde;
   --warning-text: #7a5410;
@@ -118,7 +135,7 @@
   --border: #d9ddcd;
   --text-primary: #1d231a;
   --text-secondary: #5e6655;
-  --text-muted: #8f9683;
+  --text-muted: #696f61;
   --accent: #4a6b3f;
   --warning-bg: #f6eed9;
   --warning-text: #74540c;
@@ -135,7 +152,7 @@
   --border: #e3d3d5;
   --text-primary: #241a1c;
   --text-secondary: #6b585b;
-  --text-muted: #9b8a8d;
+  --text-muted: #726366;
   --accent: #7d2f3d;
   --warning-bg: #f7eeda;
   --warning-text: #7a530c;
@@ -148,28 +165,43 @@
 /* ⚠️ الليلي: كل متغيّر لازم يتعرّف هنا. اللي يتنسى بيفضل بلون النهار
    ويطلع نص فاتح على خلفية فاتحة (أو العكس) — والفحص بيمسكه. */
 :root[data-theme="night"] {
-  --bg: #14161a;
-  --surface: #1c1f25;
-  --surface-muted: #262a31;
-  --border: #2c313a;
-  --text-primary: #e8e6e1;
-  --text-secondary: #a9a49a;
-  --text-muted: #7d786f;
-  --accent: #6f9ede;
-  --accent-text: #10141a;
+  /* ============================================================
+     ⭐⭐ أسود **حقيقي** (#000000) — مش رمادي غامق
+     ============================================================
+     كان #14161a. على شاشات AMOLED (وده تليفون صاحب النظام) البكسل
+     بيطفي تمامًا عند الأسود الصافي بس — أي رمادي، حتى الغامق جدًا،
+     معناه إن البكسل **شغّال وبياكل بطارية**.
+     الكروت فوقه #0e1013 عشان تبان مرتفعة عن الخلفية من غير ما
+     الخلفية نفسها تولّع. */
+  --bg: #000000;
+  --surface: #0e1013;
+  --surface-muted: #16191e;
+  --border: #262b33;
+  --text-primary: #f1efec;
+  --text-secondary: #b5afa5;
+  /* ⚠️ كان #7d786f = تباين 3.76 على الأسود. الرقم ده لازم يفضل فوق 4.5 */
+  --text-muted: #928c83;
+  --accent: #7fb0ee;
+  --accent-text: #05080c;
 
   --warning-bg: #33280f;
-  --warning-text: #e0b866;
+  --warning-text: #e8c274;
   --danger-bg: #3a1e1e;
-  --danger-text: #e79a94;
+  --danger-text: #efa79f;
   --purple-bg: #23213f;
-  --purple-text: #b0aaf0;
+  --purple-text: #bcb6f5;
 
-  --ok: #6cc070;
-  --dot-pending: #d19a1c;
-  --dot-low: #c4700c;
-  --dot-out: #c05050;
-  --gold: #d4a63a;
+  --ok: #74c878;
+  --dot-pending: #e0a92a;
+  --dot-low: #d4820f;
+  /* غمّقناه من #cc5a5a عشان الأبيض عليه يعدّي 4.5 */
+  --dot-out: #b84545;
+  /* ⚠️ نص الشارات غامق: أبيض على الأصفر تباين 2.1 — مش مقروء */
+  --dot-text: #14100a;
+  --dot-out-text: #ffffff;
+  --gold: #ddaf44;
+  --pick-bg: #7fb0ee;
+  --pick-text: #05080c;
 }
 
 * {
@@ -188,9 +220,19 @@ button, input {
   font-size: 14px;
 }
 
+/* ============================================================
+   ⭐⭐⭐ كل زرار **لازم** يحدد لون خطه. اقرا قبل ما تشيل color.
+   ============================================================
+   ده اتكسر فعلًا في الثيم الليلي ووصل للمحل: .btn كانت بتحدد الخلفية
+   وبس ومافيش color خالص. الزرار من غير color بيقع على أسود المتصفح
+   الافتراضي (buttontext = أسود).
+   في الثيم الفاتح: أسود على أبيض = ماحدش لاحظ.
+   في الليلي:      أسود على #1c1f25 = **تباين 1.27** = مش باين خالص.
+   ⚠️ فحص theme-test.js بيقيس تباين كل نص في الشاشة ويقع لو نزل عن 4.5. */
 .btn {
   border: 1px solid var(--border);
   background: var(--surface);
+  color: var(--text-primary);
   border-radius: var(--radius);
   padding: 8px 16px;
   cursor: pointer;
@@ -715,12 +757,13 @@ html, body {
   background: var(--surface);
   cursor: pointer;
   font-size: 13px;
+  color: var(--text-primary);
 }
 
 .tab-active {
-  background: var(--text-primary);
-  color: var(--surface);
-  border-color: var(--text-primary);
+  background: var(--pick-bg);
+  color: var(--pick-text);
+  border-color: var(--pick-bg);
 }
 
 table {
@@ -826,6 +869,7 @@ th {
   font-size: 14px;
   line-height: 1;
   padding: 0;
+  color: var(--text-primary);
 }
 
 .qty-btn:hover {
@@ -1182,12 +1226,14 @@ th {
   }
 
   .filter-row::-webkit-scrollbar { display: none; }
-  .cat-chip { flex: 0 0 auto; }
+  .cat-chip { flex: 0 0 auto;   color: var(--text-primary);
+}
 }
 
 .cat-chip {
   border: 1px solid var(--border);
   background: var(--surface);
+  color: var(--text-primary);
   border-radius: 999px;
   padding: 5px 12px;
   font-size: 12px;
@@ -1196,9 +1242,9 @@ th {
 }
 
 .cat-chip-active {
-  background: var(--text-primary);
-  color: var(--surface);
-  border-color: var(--text-primary);
+  background: var(--pick-bg);
+  color: var(--pick-text);
+  border-color: var(--pick-bg);
 }
 
 .side-search {
@@ -1279,6 +1325,7 @@ th {
   font-size: 13px;
   line-height: 1;
   opacity: 0.55;
+  color: var(--text-primary);
 }
 
 .side-item-act:hover {
@@ -1295,6 +1342,7 @@ th {
   cursor: default;
   background: var(--surface-muted);
   gap: 6px;
+  color: var(--text-primary);
 }
 
 .side-item-order:hover {
@@ -1335,7 +1383,7 @@ th {
   min-width: 18px;
   height: 18px;
   border-radius: 999px;
-  color: #fff;
+  color: var(--dot-text);
   font-size: 10px;
   font-weight: 600;
   display: inline-flex;
@@ -1351,8 +1399,8 @@ th {
   min-width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: #e6a817;
-  color: #fff;
+  background: var(--dot-pending);
+  color: var(--dot-text);
   font-size: 10px;
   font-weight: 600;
   display: inline-flex;
@@ -1909,6 +1957,10 @@ tr.grade-base td:first-child {
    ============================================================ */
 .stat-tile-go {
   border: 1px solid var(--border);
+  background: var(--surface);
+  /* ⚠️ ده <button> — من غير color الرقم اللي جوّاه بيقع على أسود
+     المتصفح الافتراضي، وفي الليلي بيبقى تباينه 1.1 (مش باين خالص). */
+  color: var(--text-primary);
   font-family: inherit;
   text-align: start;
   cursor: pointer;
