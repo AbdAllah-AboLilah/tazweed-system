@@ -55,6 +55,33 @@ const HATCH_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hid
 // نفسها، فمش محتاجين preserveAspectRatio ولا أرقام. أقصر وأضمن.
 const HATCH_CELL = `<svg class="hatch"><rect width="100%" height="100%" fill="url(#${HATCH_ID})"/></svg>`;
 
+// ============================================================
+// ⭐⭐ الورقة **في نص** الصفحة — مش على حرفها (margin: 0 auto)
+// ============================================================
+// الطابعة الحرارية 80مم **مابتطبعش الـ80 كلهم**. رأس الطباعة بيغطي
+// 72.1مم في نص الورقة بس — عشان كده تعريف الطابعة نفسه اسمه
+// "80(72.1) x 297mm". يعني فيه ~4مم من كل ناحية ورق **مستحيل يتطبع
+// عليه**.
+//
+// الورقة عربي (dir=rtl)، فجسم الصفحة بعرض 66مم كان بيتلزق في **حرف
+// اليمين** (من 13.9 لـ79.9مم). ده كان ماشي طول ما إحنا مابنبعتش مقاس،
+// لأن QZ ساعتها بيرسم جوه المساحة المطبوعة (72.1مم) وخلاص.
+//
+// لكن من ساعة ما بقينا نبعت "size: {width: 80}" (عشان الورقة الطويلة
+// ماتصغّرش)، بقى بيرسم على الـ80 كلهم — فآخر 3.85مم من اليمين وقعوا
+// برّه رأس الطباعة، و**أرقام أول عمود اتاكلت** (الخانات بانت والأرقام
+// لأ)، وفضل فراغ فاضي واسع على الشمال.
+//
+// "margin: 0 auto" بتحط الـ66مم في النص بالظبط (من 7 لـ73مم)، يعني
+// جوه المساحة المطبوعة وفاضل 3مم أمان من كل ناحية — وبتشتغل صح في
+// الحالتين (سواء اترسمت على 80 أو على 72.1).
+//
+// ⚠️ فحص restock-print-test.js بيقيس ده فعليًا: بيرسم الورقة بعرض 80مم
+// ويتأكد إن مفيش أي رقم بيعدّي حدود الـ72.1.
+//
+// ⚠️⚠️ والشرح ده **برّه** الورقة عن قصد. أي كلام بيتحط جوه <style>
+// بيتبعت لـQZ مع الورقة ويتحسب في حجم الرسالة (حد التقسيم 44 كيلو) —
+// وكمان بيلخبط الفحوصات اللي بتدوّر على كلمات جوه الـHTML.
 // groupName: اسم مجموعة ألوان واحدة عشان تتطبع لوحدها، أو '' للورقة كلها.
 function buildRestockHTML(cat, grades, groupName, withBase) {
   const now = new Date().toLocaleString('ar-EG');
@@ -125,7 +152,7 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
       <style>
         @page { size: 80mm auto; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; box-sizing: border-box; }
-        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 1mm; margin: 0; width: 66mm; }
+        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 1mm; margin: 0 auto; width: 66mm; }
         .header { text-align: center; margin-bottom: 8px; }
         .header .tab-name { font-weight: bold; font-size: 16px; }
         .header .item-name { font-size: 14px; font-weight: bold; color: #000; margin-top: 2px; }

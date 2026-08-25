@@ -186,10 +186,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       widthMm: RESTOCK_PAGE_WIDTH_MM,
     };
   });
+  // ⚠️ الأرقام دي فيها **هامش أمان مقصود** (8% + 8مم). القياس بيحصل
+  // بمحرك كروم واللي بيطبع محرك QZ، والفرق بيتراكم على 400 صف. زيادة
+  // شوية ورق أبيض مالهاش أي أثر، ونقص شعرة = درجات ماتطبعش. (v0.55.2)
   check('⭐⭐ الورقة الطويلة بتاخد طولها الحقيقي (مش 297)',
-    sizing.long && sizing.long.height >= 395 && sizing.long.height <= 415, sizing.long);
+    sizing.long && sizing.long.height >= 425 && sizing.long.height <= 465, sizing.long);
   check('⭐ والقصيرة بتاخد طولها هي (مفيش ورق ضايع)',
-    sizing.short && sizing.short.height >= 38 && sizing.short.height <= 50, sizing.short);
+    sizing.short && sizing.short.height >= 45 && sizing.short.height <= 62, sizing.short);
+  check('⭐⭐ الطول المتبعت **أكبر** من المقيس دايمًا (هامش أمان)',
+    sizing.long && sizing.short && sizing.long.height > 400 && sizing.short.height > 40, sizing);
   check('⭐ والعرض 80مم زي الرول', sizing.long && sizing.long.width === 80, sizing);
   // ⚠️ أطول من كل المقاسات المتاحة؟ نسيب الطابعة تصغّر — **ومانقسّمش**،
   // لأن المستخدم طلب ورقة واحدة ومش من حقنا نغيّر شكل اللي طلبه.
@@ -214,6 +219,86 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   // بُعد كلها.
   check('⭐⭐ ومفيش alert موقّف في مسار طباعة التزويد',
     !/\balert\(/.test(restockSrc), (restockSrc.match(/.*\balert\(.*/) || [])[0]);
+
+  // ============================================================
+  // ⭐⭐ الورقة لازم تقع جوه **المساحة اللي الطابعة بتطبعها فعلًا**
+  // ============================================================
+  // الطابعة 80مم بتطبع 72.1مم في النص بس (اسم التعريف "80(72.1)")،
+  // يعني ~3.95مم من كل ناحية ورق مستحيل يتطبع عليه.
+  //
+  // اللي حصل على الورق فعلًا: الورقة عربي، فجسمها (66مم) كان بيتلزق في
+  // حرف اليمين ويوصل لـ79.9مم. أول ما بقينا نبعت مقاس عرضه 80، آخر
+  // 3.85مم وقعوا برّه رأس الطباعة و**أرقام أول عمود اتاكلت** — الخانات
+  // بانت والأرقام لأ، وفراغ أبيض واسع على الشمال.
+  //
+  // الفحص ده بيرسم ورقة حقيقية بعرض 80مم بالظبط ويقيس أبعد نقطة فيها.
+  const PRINTABLE_MM = 72.1;
+  const edge = (80 - PRINTABLE_MM) / 2; // 3.95مم من كل ناحية
+  const fit = await p.evaluate(async ([edgeMm]) => {
+    const PX_MM = 96 / 25.4;
+    const cat = { id: 'cf', name: 'مودال سفنجة', itemName: 'Hejap Kuwaiti 120', order: 1, colorGroups: ['سحاب', 'الوان'] };
+    const grades = [];
+    let id = 0;
+    const add = (n, group, out) => grades.push({ id: 'g' + (++id), number: String(n), group, status: out ? 'out' : 'pending', branchQty: 0, mainQty: 1 });
+    for (let n = 400; n <= 429; n++) add(n, 'سحاب', n % 3 === 0);
+    for (let n = 34; n <= 99; n++) add(n, 'سحاب', n % 5 === 0);
+    for (let n = 130; n <= 210; n++) add(n, 'الوان', n % 6 === 0);
+    const html = buildRestockHTML(cat, grades, '', false);
+
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:absolute;left:-9999px;top:0;border:0;width:' + (80 * PX_MM) + 'px;height:10px;';
+    document.body.appendChild(f);
+    f.contentDocument.open(); f.contentDocument.write(html); f.contentDocument.close();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const d = f.contentDocument;
+    f.style.height = d.body.scrollHeight + 'px';
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const nums = [...d.querySelectorAll('.row .num')];
+    const rows = [...d.querySelectorAll('.row')];
+    const box = d.body.getBoundingClientRect();
+    const res = {
+      rows: rows.length,
+      bodyLeftMm: +(box.left / PX_MM).toFixed(2),
+      bodyRightMm: +(box.right / PX_MM).toFixed(2),
+      numsRightMm: +(Math.max(...nums.map((n) => n.getBoundingClientRect().right)) / PX_MM).toFixed(2),
+      rowsRightMm: +(Math.max(...rows.map((n) => n.getBoundingClientRect().right)) / PX_MM).toFixed(2),
+      rowsLeftMm: +(Math.min(...rows.map((n) => n.getBoundingClientRect().left)) / PX_MM).toFixed(2),
+      hasAutoMargin: /margin:\s*0\s+auto/.test(html),
+    };
+    f.remove();
+    return res;
+  }, [edge]);
+
+  check('⭐⭐ جسم الورقة متظبّط في النص (margin: 0 auto)', fit.hasAutoMargin, fit);
+
+  // ⚠️⚠️ الشرح بتاع الكود لازم يفضل **برّه** الورقة.
+  // اللي حصل فعلًا وإحنا بنصلّح: حطينا شرح طويل جوه <style> — فراح
+  // مع الورقة لـQZ (بيتحسب في حجم الرسالة، وحد التقسيم 44 كيلو)،
+  // و**وقّع فحصين في batch5** كانوا بيدوّروا على كلمة "أبيض" جوه
+  // الـHTML ولقوها في التعليق. الشرح مكانه فوق الدالة في جافاسكريبت.
+  const sheetComments = await p.evaluate(() => {
+    const cat = { id: 'cc', name: 'فئة', order: 1, colorGroups: ['مج'] };
+    const grades = [{ id: 'x1', number: '1', group: 'مج', status: 'pending', branchQty: 0, mainQty: 1 }];
+    const html = buildRestockHTML(cat, grades, '', false);
+    const comments = html.match(/\/\*[\s\S]*?\*\//g) || [];
+    return {
+      bytes: new TextEncoder().encode(html).length,
+      longest: comments.reduce((m, c) => Math.max(m, c.length), 0),
+      count: comments.length,
+    };
+  });
+  check('⭐⭐ مفيش شرح طويل متبعت جوه الورقة (الشرح مكانه في الكود)',
+    sheetComments.longest <= 400, sheetComments);
+  check('⭐⭐ ولا رقم بيعدّي حد الطباعة اليمين (76.05مم)',
+    fit.numsRightMm <= 80 - edge, fit);
+  check('⭐⭐ ولا خانة بتعدّي حد الطباعة اليمين',
+    fit.rowsRightMm <= 80 - edge, fit);
+  check('⭐⭐ ولا خانة بتعدّي حد الطباعة الشمال (3.95مم)',
+    fit.rowsLeftMm >= edge, fit);
+  check('⭐ والورقة متوازنة: الفراغ يمين ≈ الفراغ شمال',
+    Math.abs((80 - fit.bodyRightMm) - fit.bodyLeftMm) < 0.5, fit);
+  check('⭐ والصفوف كلها اترسمت', fit.rows === 30 + 66 + 81, fit);
 
   console.log('\n✅ نجح (' + pass.length + ')');
   if (fail.length) { console.log('\n❌ فشل (' + fail.length + '):'); fail.forEach(x => console.log('   ' + x)); }
