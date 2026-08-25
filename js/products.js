@@ -293,33 +293,82 @@ async function saveProducts(list, onProgress) {
 const PRODUCT_FIELDS = [
   { key: 'name', label: 'اسم الصنف', required: true, hints: ['اسم الصنف', 'الصنف', 'اسم', 'صنف', 'name', 'item', 'product', 'description'] },
   { key: 'barcode', label: 'الباركود', required: false, hints: ['باركود', 'barcode', 'ean', 'upc', 'كود', 'code', 'sku'] },
-  // ترتيب التلميحات مهم: الأدق الأول. "بعد الخصم" هو سعر البيع الفعلي،
-  // و"سعر البيع" المجرد في ملفات كتير هو السعر قبل الخصم.
-  { key: 'price', label: 'سعر البيع (الفعلي)', required: false, hints: ['بعد الخصم', 'سعر البيع', 'بيع', 'price', 'sell', 'سعر'] },
-  { key: 'origPrice', label: 'السعر قبل الخصم', required: false, hints: ['قبل الخصم', 'قبل', 'اصلي', 'أصلي', 'original', 'old'] },
-  { key: 'dept', label: 'القسم الرئيسي', required: false, hints: ['القسم الرئيسي', 'رئيسي', 'قسم', 'مجموعة', 'category', 'dept', 'group'] },
-  { key: 'subDept', label: 'القسم الفرعي', required: false, hints: ['القسم الفرعي', 'فرعي', 'تحت', 'sub', 'subcategory'] },
+  // ============================================================
+  // ⚠️⚠️ أسماء الأعمدة في نظام الـERP بتاع المحل — **مش بديهية**
+  // ============================================================
+  // الأسماء دي اتأكدت من صاحب المحل، وهي عكس اللي أي حد هيتوقعه:
+  //
+  //   "السعر بعد الخصم"  →  السعر اللي المستهلك بيدفعه فعلًا (الغامق)
+  //   "سعر البيع"        →  السعر **قبل** الخصم (المشطوب)
+  //   "القسم"            →  القسم **الفرعي** (مش الرئيسي!)
+  //
+  // ⚠️ الفخ: "سعر البيع" كانت تلميح لـ`price` (السعر الفعلي)، وهي عند
+  // المستخدم معناها العكس بالظبط. فالاستيراد كان بياخد السعر المشطوب
+  // ويحطه سعر بيع — يعني **ملصقات بأسعار غلط**.
+  //
+  // ⚠️ وفخ تاني: "القسم" كانت تلميح لـ`dept` (الرئيسي)، وهي عنده الفرعي.
+  //
+  // 📌 لو ملف من نظام تاني جه بأسماء مختلفة، شاشة الاستيراد بتوري
+  //    العناوين الحقيقية وانت بتختار — التخمين ده راحة مش قيد.
+  { key: 'price', label: 'سعر البيع (الفعلي)', required: false, hints: ['بعد الخصم', 'السعر بعد الخصم', 'صافي', 'net', 'price', 'sell', 'سعر'] },
+  { key: 'origPrice', label: 'السعر قبل الخصم', required: false, hints: ['سعر البيع', 'قبل الخصم', 'قبل', 'اصلي', 'أصلي', 'بيع', 'original', 'old'] },
+  { key: 'dept', label: 'القسم الرئيسي', required: false, hints: ['القسم الرئيسي', 'رئيسي', 'مجموعة', 'category', 'dept', 'group'] },
+  { key: 'subDept', label: 'القسم الفرعي', required: false, hints: ['القسم الفرعي', 'فرعي', 'القسم', 'قسم', 'تحت', 'sub', 'subcategory'] },
 ];
 
 // used: أرقام الأعمدة اللي اتحجزت لحقول قبل كده.
 // ⚠️ الفحص ده كان ناقص، وده اللي خلّى "الباركود" و"كود الصنف" يتخمّنوا
 // **نفس العمود** — عمود واحد مايقدرش يكون معناه حاجتين.
-function guessColumn(headers, field, used) {
+// بتدوّر على عمود لحقل واحد. `exactOnly` بتخلّيها تجيب المطابقة الكاملة
+// بس — الشرح عند guessAllColumns تحت.
+function guessColumn(headers, field, used, exactOnly) {
   const norm = headers.map((h) => normalizeSearchText(h));
   const free = (i) => i !== -1 && !(used || []).includes(i);
 
-  // مطابقة كاملة الأول (الأدق)، وبعدين مطابقة جزئية
   for (const hint of field.hints) {
     const h = normalizeSearchText(hint);
     const i = norm.findIndex((x, idx) => x === h && free(idx));
     if (i !== -1) return i;
   }
+  if (exactOnly) return -1;
   for (const hint of field.hints) {
     const h = normalizeSearchText(hint);
     const i = norm.findIndex((x, idx) => x && x.indexOf(h) !== -1 && free(idx));
     if (i !== -1) return i;
   }
   return -1;
+}
+
+// ============================================================
+// ⚠️ المطابقة الكاملة لكل الحقول **الأول**، وبعدين الجزئية
+// ============================================================
+// العطل اللي بيمنعه ده: كل حقل كان بيعمل المطابقة الكاملة **والجزئية**
+// بتاعته قبل ما الحقل اللي بعده يشوف أي حاجة. فالحقل اللي بدري في
+// القايمة كان **بياخد بالجزئي** عمود الحقل اللي بعده — واللي بعده
+// كان هيطابقه **بالكامل**.
+//
+// مثال حقيقي من ملف المحل: عمودين اسمهم "القسم الرئيسي" و"القسم".
+//   `dept` بياخد "القسم الرئيسي" ✅
+//   وبعدين `subDept` بيدوّر على "القسم" — بس لو `dept` كان خد
+//   "القسم" بالجزئي بدل الرئيسي، الاتنين بيبوظوا.
+//
+// دلوقتي: كل الحقول بتاخد مطابقاتها **الكاملة** الأول (الأدق، ومحدش
+// بيزاحم حد)، وبعدين اللي فضل بيدوّر بالجزئي.
+function guessAllColumns(headers) {
+  const used = [];
+  const guesses = {};
+  PRODUCT_FIELDS.forEach((f) => {
+    const g = guessColumn(headers, f, used, true);
+    guesses[f.key] = g;
+    if (g !== -1) used.push(g);
+  });
+  PRODUCT_FIELDS.forEach((f) => {
+    if (guesses[f.key] !== -1) return;
+    const g = guessColumn(headers, f, used, false);
+    guesses[f.key] = g;
+    if (g !== -1) used.push(g);
+  });
+  return guesses;
 }
 
 function openProductsImportDialog(onDone) {
@@ -446,14 +495,9 @@ function openProductsImportDialog(onDone) {
       return;
     }
 
-    // بنخمّن الحقول بالترتيب، وكل حقل بيحجز عموده فمحدش ياخده تاني.
-    const usedCols = [];
-    const guesses = {};
-    PRODUCT_FIELDS.forEach((f) => {
-      const g = guessColumn(headers, f, usedCols);
-      guesses[f.key] = g;
-      if (g !== -1) usedCols.push(g);
-    });
+    // بنخمّن الحقول: المطابقة الكاملة لكلهم الأول، وبعدين الجزئية
+    // (الشرح عند guessAllColumns). وكل حقل بيحجز عموده فمحدش ياخده تاني.
+    const guesses = guessAllColumns(headers);
 
     mapEl.innerHTML = `
       <div style="font-size:13px; font-weight:500; margin:6px 0 8px;">كل عمود معناه إيه؟</div>
