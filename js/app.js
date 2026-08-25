@@ -387,9 +387,18 @@ function stickyContextHTML(cat, counts) {
 // ارتفاع اللي ملزوق فوق (الشريط العلوي + التابات) — بيتقاس من العناصر
 // نفسها مش برقم مكتوب، لأن الشريط بيكبر ويصغر حسب طول الاسم والشاشة.
 function topOffsetPx() {
-  const bar = document.querySelector('.topbar');
-  const tabs = document.querySelector('.tabs');
-  return (bar ? bar.offsetHeight : 0) + (tabs ? tabs.offsetHeight : 0);
+  // ⚠️⚠️ **كل عنصر ملزوق فوق لازم يتحسب هنا.** ده اتكسر في v0.57.0:
+  // التابات اتخبّت على الموبايل واتحطّ مكانها عنوان الشاشة، والدالة
+  // كانت لسه بتقيس التابات بس. النتيجة إن العنوان المرتفع (اسم
+  // المجموعة والحالة) بقى بيلزق **تحت** عنوان الشاشة ويختفي وراه،
+  // فباين إنه مش ثابت خالص.
+  // ⚠️ بنقيس offsetHeight — العنصر المخفي بـdisplay:none بيرجّع صفر
+  // لوحده، فنفس الكود شغّال على الموبايل والكمبيوتر.
+  const visible = (sel) => {
+    const el = document.querySelector(sel);
+    return el ? el.offsetHeight : 0;
+  };
+  return visible('.topbar') + visible('.tabs') + visible('.screen-title');
 }
 
 // ⚠️ ليه المقاس بيتكتب في متغيّر CSS بدل رقم ثابت في الملف؟
@@ -808,6 +817,31 @@ function totalPendingNow() {
 // والاسم كامل.
 // ⚠️ بيظهر على الموبايل بس (شوف .screen-title) — على الكمبيوتر التاب
 // نفسه بيكتب الاسم وفيه مساحة.
+// ============================================================
+// ⭐⭐⭐ الطريق الوحيد لتبديل الشاشة. **ماتبدّلش state.screen بإيدك.**
+// ============================================================
+// ⚠️⚠️ ده اتكسر فعلًا في v0.57.0 وطلع للمحل: الشريط التحت الجديد كان
+// بيعمل `state.screen = 'users'; render();` وبس — من غير ما ينادي
+// اللي بيحمّل البيانات. النتيجة إن شاشة الحسابات وشاشة الأصناف فضلوا
+// **"جارٍ التحميل..." للأبد**.
+//
+// السبب إن التحميل مربوط بالتنقّل مش بالرسم: الأصناف 46 ألف صنف
+// مابيتحمّلوش مع كل تسجيل دخول، والحسابات ليها اشتراك بيتفتح لما
+// تحتاجه. فأي طريق جديد للشاشة لازم يعدّي من هنا.
+function openScreen(screen) {
+  state.screen = screen;
+  state.sideMenuOpen = false;
+  state.moreOpen = false;
+  saveWorkState();
+  render();
+
+  // الأصناف بتتحمّل أول ما تحتاجها بس — مش مع كل تسجيل دخول.
+  if (screen === 'products' || screen === 'print') {
+    if (!productsCache) loadProducts().then(render).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
+  }
+  if (screen === 'users') subscribeUsers();
+}
+
 function screenTitleHTML(openCatName) {
   const titles = {
     home: '🏠 الرئيسية',
@@ -2099,17 +2133,7 @@ function attachDashboardEvents() {
 
   // ---- التنقّل بين الشاشات ----
   document.querySelectorAll('[data-screen]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const screen = btn.getAttribute('data-screen');
-      state.screen = screen;
-      state.sideMenuOpen = false;
-      render();
-      // الأصناف بتتحمّل أول ما تحتاجها بس — مش مع كل تسجيل دخول.
-      if (screen === 'products' || screen === 'print') {
-        if (!productsCache) loadProducts().then(render).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
-      }
-      if (screen === 'users') subscribeUsers();
-    });
+    btn.addEventListener('click', () => openScreen(btn.getAttribute('data-screen')));
   });
 
   // ---- قايمة الفئات الجانبية ----
@@ -2209,18 +2233,10 @@ function attachDashboardEvents() {
     }
   };
 
-  const goScreen = (screen) => {
-    state.screen = screen;
-    state.sideMenuOpen = false;
-    state.moreOpen = false;
-    saveWorkState();
-    render();
-  };
-
   const bnav = {
-    'bnav-home': () => goScreen('home'),
-    'bnav-sheets': () => goScreen('sheets'),
-    'bnav-print': () => goScreen('print'),
+    'bnav-home': () => openScreen('home'),
+    'bnav-sheets': () => openScreen('sheets'),
+    'bnav-print': () => openScreen('print'),
     'bnav-cats': () => {
       state.moreOpen = false;
       state.sideMenuOpen = !state.sideMenuOpen;
@@ -2262,9 +2278,9 @@ function attachDashboardEvents() {
   });
 
   const moreProducts = document.getElementById('more-products');
-  if (moreProducts) moreProducts.addEventListener('click', () => goScreen('products'));
+  if (moreProducts) moreProducts.addEventListener('click', () => openScreen('products'));
   const moreUsers = document.getElementById('more-users');
-  if (moreUsers) moreUsers.addEventListener('click', () => goScreen('users'));
+  if (moreUsers) moreUsers.addEventListener('click', () => openScreen('users'));
 
   // 🎨 المظهر — نافذة اللون والخط. مافيش نداء شبكة هنا خالص:
   // الاختيار بيتحفظ على الجهاز نفسه (شوف appearance.js).
