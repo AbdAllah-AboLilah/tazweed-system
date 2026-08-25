@@ -74,8 +74,46 @@ function usersScreenHTML() {
     })
     .join('');
 
+  const myProfile = users.find((u) => u.id === me) || state.profile || {};
+  const iAmOwner = isOwner(myProfile);
+
+  // ============================================================
+  // ⭐ كارت صاحب الحساب — فوق، مش سطر وسط الباقيين
+  // ============================================================
+  // رتبة "منشئ النظام" كانت ⭐ صغيرة جنب كلمة وسط الجدول، ومعرّف
+  // الحساب كارت رمادي تحت الشاشة خالص. الاتنين بقوا كارت واحد فوق:
+  // الرتبة واضحة، والمعرّف جوّاه مع زرار النسخ.
+  //
+  // ⚠️ ده **شكل بس**. الصلاحيات والرتب وطريقة إضافة/تعديل الحسابات
+  // زي ما هي بالحرف.
+  const ownerCardHTML = `
+    <div class="card owner-card">
+      <div class="owner-head">
+        <span class="owner-mark">${iAmOwner ? '👑' : '👤'}</span>
+        <span class="owner-who">
+          <b>${escapeHTML(myProfile.name || state.profile?.name || '')}</b>
+          <small>${escapeHTML(ROLE_LABELS_AR[myProfile.role] || myProfile.role || '')}</small>
+        </span>
+      </div>
+      ${
+        iAmOwner
+          ? `<div class="owner-protected">🔒 رتبة محمية — مش بتتغيّر من جوّه النظام</div>`
+          : ''
+      }
+      <div class="owner-uid-label">🔑 معرّف حسابك</div>
+      <div class="owner-uid-note">
+        الرقم ده هو اللي بيربط رتبة "منشئ النظام" بحسابك في قواعد الأمان،
+        فمحدش يقدر ينزّل رتبتك ولا يحذف حسابك.
+      </div>
+      <div class="owner-uid-row">
+        <code id="my-uid">${escapeHTML(me)}</code>
+        <button class="btn" id="copy-uid-btn">📋 نسخ</button>
+      </div>
+    </div>`;
+
   return `
     <div style="padding:1rem;">
+      ${ownerCardHTML}
       <div class="card" style="padding:12px; margin-bottom:12px;">
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <div style="flex:1; min-width:180px;">
@@ -105,19 +143,6 @@ function usersScreenHTML() {
           : `<div class="home-empty" style="padding:2rem; text-align:center;">جارٍ تحميل الحسابات...</div>`
       }
 
-      <div class="card" style="padding:12px; margin-top:12px;">
-        <div style="font-size:13px; font-weight:500; margin-bottom:6px;">🔑 معرّف حسابك</div>
-        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:8px; line-height:1.7;">
-          الرقم ده هو اللي بيربط رتبة "منشئ النظام" بحسابك في قواعد الأمان،
-          فمحدش يقدر ينزّل رتبتك ولا يحذف حسابك.
-        </div>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <code style="flex:1; min-width:180px; direction:ltr; text-align:start; font-size:12px;
-                       background:var(--surface-muted); padding:8px; border-radius:8px; overflow-wrap:anywhere;"
-                id="my-uid">${escapeHTML(me)}</code>
-          <button class="btn" id="copy-uid-btn">📋 نسخ</button>
-        </div>
-      </div>
     </div>`;
 }
 

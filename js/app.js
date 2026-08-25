@@ -21,6 +21,7 @@ const state = {
   //   products = قاعدة الأصناف | print = شاشة طباعة الباركود
   screen: 'home',
   sideMenuOpen: false, // قايمة الفئات الجانبية (على الموبايل بتفتح فوق الشاشة)
+  moreOpen: false,     // شاشة "⋯ المزيد" (الموبايل بس — على الكمبيوتر القايمة ☰ زي ما هي)
   categorySearch: '', // بحث جوه قايمة الفئات
   categoryFilter: 'all', // all | pending | out | low — فلترة قايمة الفئات
   gradeFilter: 'all', // all | pending | out | low | base — فلترة الدرجات جوه الفئة
@@ -644,11 +645,17 @@ function loginHTML() {
   return `
     <div class="login-wrap">
       <form class="card login-card" id="login-form">
-        <h1 style="font-size:18px; font-weight:500; margin-bottom:4px;">
-          ${escapeHTML(APP_NAME)}
-          <span style="font-size:12px; color:var(--text-muted); font-weight:400;">v${escapeHTML(APP_VERSION)}</span>
-        </h1>
-        <div style="font-size:13px; color:var(--text-secondary); margin-bottom:20px;">تسجيل الدخول</div>
+        <!-- ============================================================
+             ⭐ الهوية — الشعار واسم النظام وسطر المطوّر
+             ============================================================
+             ⚠️ **مافيش اسم محل هنا** عن قصد وبطلب صاحب النظام. الشعار
+             واسم النظام وسطر "تطوير وإنشاء" وبس. -->
+        <div class="login-brand">
+          <div class="login-mark" aria-hidden="true">🧣</div>
+          <h1 class="login-name">${escapeHTML(APP_NAME)}</h1>
+          <div class="login-by">تطوير وإنشاء · ${escapeHTML(APP_AUTHOR)}</div>
+          <div class="login-ver">v${escapeHTML(APP_VERSION)}</div>
+        </div>
 
         ${state.loginError ? `<div class="error-text">${escapeHTML(state.loginError)}</div>` : ''}
 
@@ -793,6 +800,87 @@ function totalPendingNow() {
 //
 // ليه الصفرا بس (مش التلاتة)؟ لأن التلاتة في مكان صغير زي ده بتبقى زحمة
 // وبتبطّل تلاحظها. و"خلصت" و"قرّبت تخلص" ليهم مكانهم في لوحة التحكم.
+// ============================================================
+// ⭐ عنوان الشاشة — اسم الفئة المفتوحة، كامل من غير قص
+// ============================================================
+// التاب القديم كان بيكتب اسم الفئة و**بيقصّه عند 20 حرف**، وفي الشريط
+// التحت العرض أضيق فمكانش هيدخل أصلًا. فالاسم اتنقل هنا: مكان أوسع،
+// والاسم كامل.
+// ⚠️ بيظهر على الموبايل بس (شوف .screen-title) — على الكمبيوتر التاب
+// نفسه بيكتب الاسم وفيه مساحة.
+function screenTitleHTML(openCatName) {
+  const titles = {
+    home: '🏠 الرئيسية',
+    print: '🏷️ الطباعة',
+    products: '📦 الأصناف',
+    users: '👥 الحسابات',
+    activity: '📋 سجل العمليات',
+  };
+  const t = state.screen === 'sheets' ? (openCatName ? '📄 ' + openCatName : '📄 الشيت') : titles[state.screen];
+  if (!t) return '';
+  return `<div class="screen-title" id="screen-title">${escapeHTML(t)}</div>`;
+}
+
+// ============================================================
+// ⭐⭐ شاشة "⋯ المزيد" — الموبايل بس
+// ============================================================
+// نفس اللي في قايمة ☰ بالظبط + الأصناف والحسابات. **ولا زرار بيتشال**
+// ولا اسم بيتغيّر — بس ليهم مكان محترم بدل قايمة صغيرة بتتفتح من ركن
+// الشاشة وبتتقفل لو دوست جنبها بالغلط.
+//
+// ⚠️ الزراير هنا **بتنادي نفس الـid بتاع قايمة ☰** لو موجود، عشان
+// مانكرّرش منطق. اللي مالوش نظير (الأصناف/الحسابات) بيبدّل الشاشة.
+//
+// ⚠️ على الكمبيوتر مابيظهرش خالص — القايمة ☰ زي ما هي.
+function moreSheetHTML() {
+  const item = (id, label, danger) => `
+    <button class="more-item ${danger ? 'more-danger' : ''}" id="${id}">
+      <span>${escapeHTML(label)}</span><span class="more-chev">›</span>
+    </button>`;
+  const group = (title, rows) =>
+    rows.filter(Boolean).length ? `<div class="more-group">${escapeHTML(title)}</div>${rows.filter(Boolean).join('')}` : '';
+
+  return `
+    <div class="more-sheet ${state.moreOpen ? 'open' : ''}" id="more-sheet">
+      <div class="side-head">
+        <span>⋯ المزيد</span>
+        <button class="btn side-close" id="more-close-btn" aria-label="إغلاق">✕</button>
+      </div>
+      <div class="more-body">
+        ${group('شاشات', [
+          can(state.profile, 'viewProducts') ? item('more-products', '📦 الأصناف') : '',
+          canManageUsers(state.profile) ? item('more-users', '👥 الحسابات') : '',
+          can(state.profile, 'viewActivity') ? item('more-activity', '📋 سجل العمليات') : '',
+        ])}
+        ${group('أدوات', [
+          isBarcodeScanSupported() ? item('more-scan', '📷 مسح باركود') : '',
+          can(state.profile, 'excelTools') ? item('more-import', '📥 استيراد من إكسل') : '',
+          can(state.profile, 'excelTools') ? item('more-export', '📤 تصدير نسخة احتياطية') : '',
+        ])}
+        ${group('إعدادات', [
+          item('more-appearance', '🎨 المظهر'),
+          restockNotifyMoreItemHTML(),
+          state.canInstallApp ? item('more-install', '⬇️ تثبيت التطبيق') : '',
+        ])}
+        <div class="more-group">&nbsp;</div>
+        ${item('more-logout', '🚪 تسجيل خروج', true)}
+      </div>
+    </div>`;
+}
+
+// زرار الإشعارات في "المزيد" — بيقرا نفس حالة الزرار اللي في ☰ عشان
+// النص يفضل واحد في المكانين (مفتوح/مقفول/مش مدعوم).
+function restockNotifyMoreItemHTML() {
+  const raw = typeof restockNotifyButtonHTML === 'function' ? restockNotifyButtonHTML() : '';
+  if (!raw) return '';
+  const m = raw.match(/>([^<]+)</);
+  const label = m ? m[1].trim() : '🔔 إشعارات التزويد';
+  return `
+    <button class="more-item" id="more-notify">
+      <span>${escapeHTML(label)}</span><span class="more-chev">›</span>
+    </button>`;
+}
+
 function pendingDotHTML(clickable) {
   const n = totalPendingNow();
   if (!n) return '';
@@ -801,6 +889,17 @@ function pendingDotHTML(clickable) {
     ? ' id="pending-dot-btn" title="اعرض الفئات اللي مطلوب تزويدها" style="cursor:pointer;"'
     : '';
   return `<${tag} class="pending-dot"${extra}>${escapeHTML(n)}</${tag}>`;
+}
+
+// نفس شرط الأسهم بالظبط: الترتيب بيتحرّك في القايمة الكاملة بس. لو فيه
+// فلتر أو بحث، اللي فوق/تحت على الشاشة مش هو اللي فوق/تحت في الحقيقة.
+function canReorderNow() {
+  return (
+    can(state.profile, 'manageCategories') &&
+    !!state.categoryOrderMode &&
+    (state.categoryFilter || 'all') === 'all' &&
+    !normalizeArabic(state.categorySearch || '')
+  );
 }
 
 function categoryDotsHTML(flags) {
@@ -900,7 +999,10 @@ function sideMenuHTML() {
                     const held = state.catMoving === cat.id;
                     const moving = !!state.catMoving;
                     return `
-            <div class="side-item side-item-order ${held ? 'side-item-held' : ''}">
+            <div class="side-item side-item-order ${held ? 'side-item-held' : ''}"
+                 data-cat-row="${escapeHTML(cat.id)}">
+              <span class="cat-drag-handle" data-cat-drag="${escapeHTML(cat.id)}"
+                    title="امسك واسحب" aria-hidden="true">⠿</span>
               <button class="side-item-grab" data-cat-pick="${escapeHTML(cat.id)}"
                       title="${held ? 'دوس تاني عشان تسيبها' : moving ? 'حطها هنا' : 'امسك الفئة دي'}">
                 <span class="side-item-name">${escapeHTML(cat.name)}</span>
@@ -1053,6 +1155,36 @@ function dashboardHTML() {
     </div>
     ${state.screen === 'sheets' ? addCategoryFormHTML : ''}`;
 
+  // ============================================================
+  // ⭐⭐ الشريط التحت — للموبايل بس
+  // ============================================================
+  // شريط التابات القديم كان عرضه 629 بكسل في شاشة 390، فدايمًا فيه
+  // تابين مقصوصين برّه الشاشة وانت مش شايفهم عشان تعرف إنهم موجودين.
+  //
+  // ⚠️ **خمس بنود مش ستة** عن قصد. "الأصناف" و"الحسابات" بيتفتحوا مرة
+  // كل كام يوم، وكمان **مربوطين بالصلاحيات** — يعني الشريط كان هيبقى
+  // ٤ بنود عند حد و٦ عند حد تاني. دلوقتي خمسة عند الكل، وشكل النظام
+  // واحد لأي مستخدم، والاتنين دول جوّه "المزيد".
+  //
+  // ⚠️ الشريط ده **مخفي على الكمبيوتر** (شوف .bottom-nav في styles.css).
+  // الكمبيوتر عنده مساحة، وشريط التابات الفوقاني بيدخل فيه من غير قص —
+  // وده جهاز الطباعة اللي شغله متظبّط عليه، فمش هنغيّر عليه.
+  const bottomBtn = (id, icon, label, active, dot) => `
+    <button class="bnav-item ${active ? 'on' : ''}" id="${id}">
+      <span class="bnav-icon">${icon}</span>${escapeHTML(label)}${dot || ''}
+    </button>`;
+
+  const bottomNavHTML = `
+    <nav class="bottom-nav" id="bottom-nav">
+      ${bottomBtn('bnav-cats', '📂', 'الفئات', state.sideMenuOpen, pendingDotHTML(false))}
+      ${bottomBtn('bnav-home', '🏠', 'الرئيسية', state.screen === 'home' && !state.sideMenuOpen && !state.moreOpen)}
+      ${bottomBtn('bnav-sheets', '📄', 'الشيت', state.screen === 'sheets' && !state.sideMenuOpen && !state.moreOpen)}
+      ${canUsePrintScreen(state.profile)
+        ? bottomBtn('bnav-print', '🏷️', 'طباعة', state.screen === 'print' && !state.sideMenuOpen && !state.moreOpen)
+        : ''}
+      ${bottomBtn('bnav-more', '⋯', 'المزيد', state.moreOpen)}
+    </nav>`;
+
   return `
     <div>
       <div class="topbar">
@@ -1085,6 +1217,7 @@ function dashboardHTML() {
           </div>
         </div>
       </div>
+      ${screenTitleHTML(openCatName)}
       ${navRowHTML}
       <button class="to-top" id="to-top-btn" title="ارجع لفوق" aria-label="ارجع لفوق">▲</button>
       <div class="app-body">
@@ -1092,6 +1225,8 @@ function dashboardHTML() {
         <div class="main-area">${bodyHTML}</div>
       </div>
       <div class="side-backdrop ${state.sideMenuOpen ? 'open' : ''}" id="side-backdrop"></div>
+      ${moreSheetHTML()}
+      ${bottomNavHTML}
     </div>`;
 }
 
@@ -2040,6 +2175,97 @@ function attachDashboardEvents() {
   });
 
   // ---- ترتيب الفئات ----
+  // ⭐ مربعات الرئيسية بتوديك على القايمة مفلترة — نفس منطق الشارة
+  // اللي جنب اسمك، ونفس السلسلة (فلتر ← فئة ← الدرجات المطلوبة بس).
+  document.querySelectorAll('[data-stat-filter]').forEach((tile) => {
+    tile.addEventListener('click', () => {
+      state.categoryFilter = tile.getAttribute('data-stat-filter');
+      state.sideMenuOpen = true;
+      state.moreOpen = false;
+      render();
+    });
+  });
+
+  // ============================================================
+  // ⭐⭐ الشريط التحت و"المزيد"
+  // ============================================================
+  // ⚠️⚠️ زراير "المزيد" **بتضغط على زراير قايمة ☰ نفسها** بدل ما
+  // تكرّر منطقها. السبب: أي منطق متكرّر بيفضل متطابق أسبوع وبعدين
+  // واحد فيهم يتعدّل والتاني لأ — ويبقى عندك زرارين بنفس الاسم
+  // بيعملوا حاجتين مختلفتين. الضغطة المرحّلة مافيهاش الخطر ده.
+  const clickTwin = (twinId) => {
+    const el = document.getElementById(twinId);
+    if (el) el.click();
+  };
+
+  const closeMore = (rerender) => {
+    state.moreOpen = false;
+    if (rerender) render();
+    else {
+      const sheet = document.getElementById('more-sheet');
+      if (sheet) sheet.classList.remove('open');
+      const nav = document.getElementById('bnav-more');
+      if (nav) nav.classList.remove('on');
+    }
+  };
+
+  const goScreen = (screen) => {
+    state.screen = screen;
+    state.sideMenuOpen = false;
+    state.moreOpen = false;
+    saveWorkState();
+    render();
+  };
+
+  const bnav = {
+    'bnav-home': () => goScreen('home'),
+    'bnav-sheets': () => goScreen('sheets'),
+    'bnav-print': () => goScreen('print'),
+    'bnav-cats': () => {
+      state.moreOpen = false;
+      state.sideMenuOpen = !state.sideMenuOpen;
+      render();
+    },
+    'bnav-more': () => {
+      state.sideMenuOpen = false;
+      state.moreOpen = !state.moreOpen;
+      render();
+    },
+  };
+  Object.keys(bnav).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', bnav[id]);
+  });
+
+  const moreClose = document.getElementById('more-close-btn');
+  if (moreClose) moreClose.addEventListener('click', () => closeMore(true));
+
+  // ⚠️ الترتيب مهم: بنقفل "المزيد" **قبل** ما ندوس على التوأم، عشان
+  // اللي بيفتح نافذة (زي المظهر أو الباركود) ماتفتحش وراها لوح مفتوح.
+  const moreTwins = {
+    'more-scan': 'scan-barcode-btn',
+    'more-import': 'import-btn',
+    'more-export': 'export-btn',
+    'more-appearance': 'appearance-btn',
+    'more-install': 'install-app-btn',
+    'more-notify': 'restock-notify-btn',
+    'more-activity': 'activity-log-btn',
+    'more-logout': 'logout-btn',
+  };
+  Object.keys(moreTwins).forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', () => {
+      closeMore(false);
+      clickTwin(moreTwins[id]);
+    });
+  });
+
+  const moreProducts = document.getElementById('more-products');
+  if (moreProducts) moreProducts.addEventListener('click', () => goScreen('products'));
+  const moreUsers = document.getElementById('more-users');
+  if (moreUsers) moreUsers.addEventListener('click', () => goScreen('users'));
+
   // 🎨 المظهر — نافذة اللون والخط. مافيش نداء شبكة هنا خالص:
   // الاختيار بيتحفظ على الجهاز نفسه (شوف appearance.js).
   const appearanceBtn = document.getElementById('appearance-btn');
@@ -2125,6 +2351,68 @@ function attachDashboardEvents() {
       }, 'حذف الفئة')
     );
   });
+
+  // ============================================================
+  // ⭐⭐ سحب الفئة بالصباع
+  // ============================================================
+  // الأسهم ▲▼ بتحرّك خانة واحدة. عندك 25 فئة وعايز تنزّل واحدة من فوق
+  // لتحت = 24 ضغطة. والمسك-والحط (دوس على الفئة، دوس على مكانها) أسرع
+  // بس محتاج تفتكر إنك ماسك حاجة.
+  //
+  // ⚠️ **pointer events مش drag-and-drop بتاع HTML**: الأخيرة مابتشتغلش
+  // بالصباع على الموبايل خالص — والشغل من الموبايل.
+  //
+  // ⚠️ **الأسهم والمسك-والحط سايبينهم زي ما هم**. السحب إضافة مش بديل:
+  // اللي اتعوّد على طريقة يفضل يستخدمها، ولو السحب اتلغبط في متصفح
+  // معيّن مافيش حاجة اتكسرت.
+  //
+  // ⚠️ والحفظ بيمشي على **نفس moveCategoryTo** اللي المسك-والحط بيستخدمها
+  // — نفس حقل order ونفس الكتابة. مافيش تكويد بيانات جديد خالص.
+  (() => {
+    const listEl = document.querySelector('.side-list');
+    if (!listEl) return;
+    const rows = () => [...listEl.querySelectorAll('[data-cat-row]')];
+    let fromId = null;
+    let overId = null;
+
+    const clearMarks = () => {
+      rows().forEach((r) => r.classList.remove('cat-drag-over', 'cat-dragging'));
+    };
+
+    listEl.querySelectorAll('[data-cat-drag]').forEach((handle) => {
+      handle.addEventListener('pointerdown', (e) => {
+        // ⚠️ الترتيب بيتحرّك في القايمة الكاملة بس — نفس شرط الأسهم.
+        if (!canReorderNow()) return;
+        fromId = handle.getAttribute('data-cat-drag');
+        overId = null;
+        const row = handle.closest('[data-cat-row]');
+        if (row) row.classList.add('cat-dragging');
+        handle.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+
+      handle.addEventListener('pointermove', (e) => {
+        if (!fromId) return;
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const row = el && el.closest ? el.closest('[data-cat-row]') : null;
+        const id = row ? row.getAttribute('data-cat-row') : null;
+        if (id === overId) return;
+        overId = id;
+        rows().forEach((r) => r.classList.toggle('cat-drag-over', r.getAttribute('data-cat-row') === id && id !== fromId));
+      });
+
+      const finish = () => {
+        const from = fromId;
+        const to = overId;
+        fromId = null;
+        overId = null;
+        clearMarks();
+        if (from && to && from !== to) safeAsync(() => moveCategoryTo(from, to), 'ترتيب الفئات');
+      };
+      handle.addEventListener('pointerup', finish);
+      handle.addEventListener('pointercancel', finish);
+    });
+  })();
 
   document.querySelectorAll('[data-cat-move-up]').forEach((btn) => {
     btn.addEventListener('click', () => safeAsync(() => moveCategory(btn.getAttribute('data-cat-move-up'), -1), 'ترتيب الفئات'));
@@ -3331,6 +3619,7 @@ function openColorGroupsDialog(categoryId) {
             <div class="home-row-sub">${escapeHTML(state.grades.filter((g) => g.group === name).length)} درجة</div>
           </div>
           <button class="btn" style="padding:3px 9px; font-size:11px;" data-group-up="${i}" ${i === 0 ? 'disabled' : ''}>▲</button>
+          <button class="btn" style="padding:3px 9px; font-size:11px;" data-group-down="${i}" ${i === groups.length - 1 ? 'disabled' : ''}>▼</button>
           <button class="btn" style="padding:3px 9px; font-size:11px;" data-group-rename="${escapeHTML(name)}">تعديل</button>
           <button class="btn" style="padding:3px 9px; font-size:11px; color:var(--danger-text);" data-group-del="${escapeHTML(name)}">حذف</button>
         </div>`
@@ -3358,6 +3647,18 @@ function openColorGroupsDialog(categoryId) {
         const i = Number(btn.getAttribute('data-group-up'));
         const next = currentGroups();
         [next[i - 1], next[i]] = [next[i], next[i - 1]];
+        saveGroups(next);
+        setTimeout(draw, 120);
+      });
+    });
+
+    // ⚠️ كان فيه ▲ بس. يعني عشان تنزّل مجموعة، لازم تطلّع اللي تحتها —
+    // ده شغّال بس بيخلّي أبسط حركة تحتاج تفكير. ▼ بتخلّي الاتنين متناظرين.
+    listEl.querySelectorAll('[data-group-down]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const i = Number(btn.getAttribute('data-group-down'));
+        const next = currentGroups();
+        [next[i], next[i + 1]] = [next[i + 1], next[i]];
         saveGroups(next);
         setTimeout(draw, 120);
       });

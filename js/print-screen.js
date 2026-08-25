@@ -122,12 +122,27 @@ function printScreenHTML() {
           <span class="home-hint">${cart.length} صنف — ${totalLabels} ملصق</span>
         </div>
         <div data-keep-scroll="print-cart" style="max-height:38vh; overflow:auto;">${cartHTML}</div>
-        <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
-          <button class="btn btn-primary" id="print-cart-btn" ${totalLabels ? '' : 'disabled'}>🖨️ اطبع المحدّد (${totalLabels})</button>
-          <button class="btn" id="print-clear-btn" ${cart.length ? '' : 'disabled'}>تفريغ السلة</button>
+        <!-- ============================================================
+             ⭐ زرار واحد بطل، والباقي أخف
+             ============================================================
+             كانوا ٦ زراير بنفس الحجم واللون ورا بعض: اطبع · فرّغ ·
+             أضف مسمّى · إعدادات · الكاميرا · حدّث الأصناف. عينك مش
+             عارفة تبدأ منين، مع إن واحد بس منهم هو اللي بتيجي عشانه.
+             ⚠️ **ولا زرار اتشال** — الإعدادات وتحديث الأصناف اتلمّوا
+             تحت ⚙️، وهو زرار بيفتح/يقفل صف الإعدادات تحته. -->
+        <button class="btn btn-primary print-go" id="print-cart-btn" ${totalLabels ? '' : 'disabled'}>🖨️ اطبع المحدّد (${totalLabels})</button>
+        <div class="print-second-row">
           <button class="btn" id="print-screen-custom-btn">✍️ أضف مسمّى</button>
+          ${isBarcodeScanSupported() ? `<button class="btn" id="print-camera-btn">🎥 الكاميرا</button>` : ''}
+          <button class="btn" id="print-clear-btn" ${cart.length ? '' : 'disabled'}>تفريغ السلة</button>
+          ${
+            can(state.profile, 'printerSetup') || canManageProducts(state.profile)
+              ? `<button class="btn print-gear" id="print-tools-btn" title="إعدادات" aria-label="إعدادات">⚙️</button>`
+              : ''
+          }
+        </div>
+        <div class="print-tools" id="print-tools-row" hidden>
           ${can(state.profile, 'printerSetup') ? `<button class="btn" id="print-settings-btn">⚙️ إعدادات الطابعة</button>` : ''}
-          ${isBarcodeScanSupported() ? `<button class="btn" id="print-camera-btn">🎥 اختيار الكاميرا</button>` : ''}
           ${/* ⭐ تحديث ملف الأصناف من شاشة الطباعة نفسها.
 
                 ⚠️ المفتاح `importProducts` كان موجود في الإعدادات وبتفتحه
@@ -374,6 +389,17 @@ function attachPrintScreenEvents() {
 
   const settingsBtn = document.getElementById('print-settings-btn');
   if (settingsBtn) settingsBtn.addEventListener('click', () => safeAsync(() => openPrinterSettings(), 'فتح إعدادات الطابعة'));
+
+  // ⚙️ بيفتح/يقفل صف الإعدادات. مافيش نافذة ولا شاشة جديدة — الزراير
+  // اللي كانت ظاهرة على طول بقت مخبّية لحد ما تطلبها.
+  const toolsBtn = document.getElementById('print-tools-btn');
+  const toolsRow = document.getElementById('print-tools-row');
+  if (toolsBtn && toolsRow) {
+    toolsBtn.addEventListener('click', () => {
+      toolsRow.hidden = !toolsRow.hidden;
+      toolsBtn.classList.toggle('on', !toolsRow.hidden);
+    });
+  }
 
   // ملصق النص الحر متاح من هنا كمان، مش من جوه الفئة بس. الموظف الواقف
   // عند الطابعة هو أكتر واحد بيحتاجه، وحسابه مابيشوفش شاشة الفئات أصلًا.
