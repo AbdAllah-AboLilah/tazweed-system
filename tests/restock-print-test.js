@@ -166,41 +166,48 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   pass.filter(x => x.includes('⭐')).forEach(x => console.log('   ' + x));
 
   // ============================================================
-  // ⭐⭐ ورقة التزويد بتتبعت بطولها الحقيقي (مش تصغّر)
+  // ⭐⭐⭐ الورقة اللي أطول من ورقة التعريف: **مانبعتش مقاس**
   // ============================================================
-  // القياس اللي أدّى للتعديل: تعريف الطابعة عند صاحب المحل افتراضيه
-  // `80(72.1) x 297mm`، وورقة الفئة الكبيرة بتطلع 403مم — فبتتزنق في
-  // 297 و**تصغّر لـ74%**. وده اللي اتصوّر على الورق.
+  // ده اتقاس على ورق حقيقي، مش تخمين. ورقة 324.1مم اتبعت للطابعة
+  // بطول 359مم — و**اتطبع منها 294.4مم بس** (آخر صف كامل قبل 297،
+  // وهو المقاس الافتراضي في تعريف الطابعة). ونفس الورقة اتطبعت مرتين
+  // بطولين مختلفين واتقصّت في **نفس الصف بالظبط** — يعني الطول اللي
+  // بنبعته مالوش أي أثر.
   //
-  // ⚠️ والقياس **لازم يتم على جهاز الطباعة** مش اللي بيبعت (درس v0.43.0:
-  // خطوط الموبايل أضيق، فالطول يطلع غلط والورقة تتقص).
+  // اللي بيحصل فعلًا: لما نبعت مقاس، إحنا بنوقّف **التصغير التلقائي**
+  // بتاع الدرايفر. فالورقة الطويلة بدل ما تصغّر وتخلص كاملة، بتتطبع
+  // بحجمها وتتقص عند 297.
+  //
+  // فالقاعدة: بتدخل في الفورم → نبعت مقاسها. أطول منه → null (يعني
+  // مانبعتش مقاس) والدرايفر يصغّرها. صغيرة وكاملة > كبيرة ومقصوصة.
+  //
+  // ⚠️ والقياس **لازم يتم على جهاز الطباعة** مش اللي بيبعت (درس v0.43.0).
   const sizing = await p.evaluate(async () => {
-    const short = '<html><body style="margin:0"><div style="height:40mm">قصيرة</div></body></html>';
-    const long = '<html><body style="margin:0"><div style="height:400mm">طويلة</div></body></html>';
-    const huge = '<html><body style="margin:0"><div style="height:4000mm">أطول من أي مقاس</div></body></html>';
+    const mk = (mm) => `<html><body style="margin:0"><div style="height:${mm}mm">و</div></body></html>`;
     return {
-      short: await restockPageSize(short),
-      long: await restockPageSize(long),
-      huge: await restockPageSize(huge),
-      maxMm: RESTOCK_MAX_HEIGHT_MM,
+      short: await restockPageSize(mk(40)),
+      fits: await restockPageSize(mk(280)),      // جوّه الفورم بالعافية
+      over: await restockPageSize(mk(295)),      // +الهامش بيعدّي 297
+      long: await restockPageSize(mk(400)),      // أطول بكتير
+      formMm: RESTOCK_FORM_HEIGHT_MM,
       widthMm: RESTOCK_PAGE_WIDTH_MM,
     };
   });
-  // ⚠️ الأرقام دي فيها **هامش أمان مقصود** (8% + 8مم). القياس بيحصل
-  // بمحرك كروم واللي بيطبع محرك QZ، والفرق بيتراكم على 400 صف. زيادة
-  // شوية ورق أبيض مالهاش أي أثر، ونقص شعرة = درجات ماتطبعش. (v0.55.2)
-  check('⭐⭐ الورقة الطويلة بتاخد طولها الحقيقي (مش 297)',
-    sizing.long && sizing.long.height >= 425 && sizing.long.height <= 465, sizing.long);
-  check('⭐ والقصيرة بتاخد طولها هي (مفيش ورق ضايع)',
-    sizing.short && sizing.short.height >= 45 && sizing.short.height <= 62, sizing.short);
-  check('⭐⭐ الطول المتبعت **أكبر** من المقيس دايمًا (هامش أمان)',
-    sizing.long && sizing.short && sizing.long.height > 400 && sizing.short.height > 40, sizing);
-  check('⭐ والعرض 80مم زي الرول', sizing.long && sizing.long.width === 80, sizing);
-  // ⚠️ أطول من كل المقاسات المتاحة؟ نسيب الطابعة تصغّر — **ومانقسّمش**،
-  // لأن المستخدم طلب ورقة واحدة ومش من حقنا نغيّر شكل اللي طلبه.
-  check('⭐⭐ أطول من أطول مقاس (3276مم) → نرجع للتصغير، مش للتقسيم',
-    sizing.huge === null, sizing);
-  check('⭐ والحد مطابق لأطول مقاس في تعريف الطابعة', sizing.maxMm === 3276, sizing);
+  check('⭐ القصيرة بتاخد طولها هي (مفيش ورق ضايع)',
+    sizing.short && sizing.short.height >= 42 && sizing.short.height <= 48, sizing.short);
+  check('⭐ واللي بتدخل في الفورم بتاخد مقاسها',
+    sizing.fits && sizing.fits.height <= 297 && sizing.fits.height >= 282, sizing.fits);
+  check('⭐⭐ واللي بتعدّي الفورم → مافيش مقاس (الدرايفر يصغّرها)',
+    sizing.over === null, sizing);
+  check('⭐⭐ والورقة الطويلة (400مم) → مافيش مقاس، مش تتقص',
+    sizing.long === null, sizing);
+  check('⭐ والعرض 80مم زي الرول', sizing.short && sizing.short.width === 80, sizing);
+  check('⭐ والحد مطابق للمقاس الافتراضي في تعريف الطابعة',
+    sizing.formMm === 297, sizing);
+  // ⚠️ الهامش لازم يفضل صغير: القياس طلع مطابق للورق في حدود صف واحد،
+  // فأي هامش كبير = ورق أبيض ضايع في آخر كل ورقة.
+  check('⭐ وهامش الطول صغير (≤ 6مم)',
+    sizing.short && sizing.short.height - 40 <= 6, sizing.short);
 
   // ⚠️ ولازم القياس يبقى جوه tryPrintViaQZ (يعني على جهاز الطباعة)
   const coreSrc = require('fs').readFileSync(__dirname + '/../js/print-core.js', 'utf8');
