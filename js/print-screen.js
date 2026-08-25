@@ -128,6 +128,17 @@ function printScreenHTML() {
           <button class="btn" id="print-screen-custom-btn">✍️ أضف مسمّى</button>
           ${can(state.profile, 'printerSetup') ? `<button class="btn" id="print-settings-btn">⚙️ إعدادات الطابعة</button>` : ''}
           ${isBarcodeScanSupported() ? `<button class="btn" id="print-camera-btn">🎥 اختيار الكاميرا</button>` : ''}
+          ${/* ⭐ تحديث ملف الأصناف من شاشة الطباعة نفسها.
+
+                ⚠️ المفتاح `importProducts` كان موجود في الإعدادات وبتفتحه
+                للحساب ده **ومايحصلش حاجة**. السبب: زرار الاستيراد كان في
+                شاشة "الأصناف" بس، وحساب موظف الطباعة **مقفول على شاشة
+                واحدة** (dashboardHTML بترجع بدري ومعاها شاشة الطباعة بس،
+                من غير شريط تنقّل أصلًا). فمكانش فيه أي طريقة يوصلها.
+
+                الحل إن الزرار ييجي **له**، مش إنه يروح للشاشة — عشان
+                الحساب ده مقصود إنه مايشوفش المخزن. */ ''}
+          ${canManageProducts(state.profile) ? `<button class="btn" id="print-products-import-btn">📥 حدّث ملف الأصناف</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -281,6 +292,15 @@ function attachPrintScreenEvents() {
 
   const cameraBtn = document.getElementById('print-camera-btn');
   if (cameraBtn) cameraBtn.addEventListener('click', () => safeAsync(() => openCameraChooser(), 'اختيار الكاميرا'));
+
+  // ⭐ بعد الاستيراد بنرسم الشاشة من جديد عشان نتايج البحث تتحدّث فورًا
+  // بالأصناف الجديدة — من غير ده المستخدم بيستورد ومايشوفش أي فرق.
+  const importBtn = document.getElementById('print-products-import-btn');
+  if (importBtn) {
+    importBtn.addEventListener('click', () =>
+      safeAsync(() => openProductsImportDialog(() => render()), 'استيراد ملف الأصناف')
+    );
+  }
 
   attachPrintResultEvents();
 
