@@ -141,6 +141,7 @@ node tests/html-label-test.js
 node tests/topbar-typing-test.js
 node tests/appearance-test.js
 node tests/nav-test.js
+node tests/theme-test.js
 node tests/restock-print-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js

@@ -937,12 +937,17 @@ function canReorderNow() {
 }
 
 function categoryDotsHTML(flags) {
-  const dot = (color, title, n) =>
-    `<span title="${escapeHTML(title)}" class="cat-dot" style="background:${color};">${escapeHTML(n)}</span>`;
+  // ⚠️ لون النص مع كل شارة مش لون واحد للكل: الأبيض على الأصفر تباينه
+  // 2.1 (مش مقروء)، والغامق على الأحمر 2.7 (مش مقروء). الشرح والأرقام
+  // عند --dot-text في styles.css.
+  const dot = (color, title, n, textVar) =>
+    `<span title="${escapeHTML(title)}" class="cat-dot" style="background:${color};${
+      textVar ? `color:${textVar};` : ''
+    }">${escapeHTML(n)}</span>`;
   return [
     flags.pending ? dot('var(--dot-pending)', 'طلبات تزويد معلّقة', flags.pending) : '',
     flags.low ? dot('var(--dot-low)', 'قرّبت تخلص', flags.low) : '',
-    flags.out ? dot('var(--dot-out)', 'خلصت نهائيًا', flags.out) : '',
+    flags.out ? dot('var(--dot-out)', 'خلصت نهائيًا', flags.out, 'var(--dot-out-text)') : '',
   ].join('');
 }
 
