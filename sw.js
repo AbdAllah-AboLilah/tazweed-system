@@ -7,7 +7,7 @@
 // ببايت مع النسخة القديمة المسجّلة عنده. لازم نغيّر رقم SW_VERSION هنا في
 // كل مرة نرفع فيها تحديث فعلي (حتى لو التحديث نفسه في app.js مش هنا) —
 // وإلا المتصفح مش هيحس إن فيه حاجة اتغيّرت، والإشعار مش هيظهر خالص.
-const SW_VERSION = '0.55.4';
+const SW_VERSION = '0.56.0';
 
 const CACHE_NAME = 'tazweed-' + SW_VERSION;
 
@@ -41,6 +41,7 @@ const APP_SHELL = [
   './js/app-info.js',
   './js/vendor/qrcode-generator.js',
   './js/vendor/jsqr.js',
+  './js/appearance.js',
   './js/local-store.js',
   './js/permissions.js',
   './js/qz-signing.js',
@@ -145,6 +146,37 @@ self.addEventListener('fetch', (event) => {
   // ------------------------------------------------------------
   // عكس ملفات النظام. السبب: الروابط دي برقم نسخة ثابت فمستحيل تتغيّر،
   // فمفيش داعي نسأل الشبكة عنها كل مرة — والأهم إنها تبقى متاحة من غير نت.
+  // ============================================================
+  // ⭐⭐ ملفات الخط: **المحفوظ الأول**، مش الشبكة الأول
+  // ============================================================
+  // باقي ملفات النظام بتتسأل عن الشبكة في كل فتحة (بقصد: عشان التحديث
+  // يوصل فورًا). لكن ملفات الخط:
+  //
+  //   • **مستحيل تتغيّر** — اسم الملف نفسه فيه الوزن والمقطع، وأي خط
+  //     جديد بياخد اسم جديد.
+  //   • تقيلة نسبيًا (96 كيلو للاتنين).
+  //
+  // فلو ساببناها على "الشبكة الأول"، هتبقى **نداءين زيادة في كل فتحة**
+  // على تليفون بيشتغل على بيانات — وده عكس الهدف من التحديث كله.
+  // بالقاعدة دي: نداءين مرة واحدة في العمر، وبعدها صفر.
+  if (url.origin === self.location.origin && /\/fonts\/.+\.woff2$/.test(url.pathname)) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request)
+          .then((res) => {
+            if (res && res.ok) {
+              const copy = res.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
+            }
+            return res;
+          })
+          .catch(() => Response.error());
+      })
+    );
+    return;
+  }
+
   if (url.origin !== self.location.origin) {
     if (!CDN_LIBS.includes(url.href)) return; // أي طلب خارجي تاني يتساب على طبيعته
     event.respondWith(

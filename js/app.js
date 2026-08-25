@@ -807,9 +807,9 @@ function categoryDotsHTML(flags) {
   const dot = (color, title, n) =>
     `<span title="${escapeHTML(title)}" class="cat-dot" style="background:${color};">${escapeHTML(n)}</span>`;
   return [
-    flags.pending ? dot('#e6a817', 'طلبات تزويد معلّقة', flags.pending) : '',
-    flags.low ? dot('#d97706', 'قرّبت تخلص', flags.low) : '',
-    flags.out ? dot('#b03030', 'خلصت نهائيًا', flags.out) : '',
+    flags.pending ? dot('var(--dot-pending)', 'طلبات تزويد معلّقة', flags.pending) : '',
+    flags.low ? dot('var(--dot-low)', 'قرّبت تخلص', flags.low) : '',
+    flags.out ? dot('var(--dot-out)', 'خلصت نهائيًا', flags.out) : '',
   ].join('');
 }
 
@@ -863,7 +863,7 @@ function sideMenuHTML() {
           ? `<div style="font-size:11px; color:var(--text-secondary); padding:0 4px 8px; line-height:1.7;">
                ${
                  state.catMoving
-                   ? `<strong style="color:var(--primary,#1565c0);">ماسك: ${escapeHTML((state.categories.find((c) => c.id === state.catMoving) || {}).name || '')}</strong>
+                   ? `<strong style="color:var(--accent);">ماسك: ${escapeHTML((state.categories.find((c) => c.id === state.catMoving) || {}).name || '')}</strong>
                       <br>دوس على المكان اللي عايزها فيه.`
                    : 'دوس على الفئة عشان "تمسكها"، وبعدين دوس على المكان اللي عايزها فيه.'
                }
@@ -1077,6 +1077,7 @@ function dashboardHTML() {
             ${can(state.profile, 'excelTools') ? `<button class="btn" id="import-btn">📥 استيراد من إكسل</button>` : ''}
             ${can(state.profile, 'excelTools') ? `<button class="btn" id="export-btn">📤 تصدير نسخة احتياطية</button>` : ''}
             ${canManageUsers(state.profile) ? `<button class="btn" id="users-btn">👥 الحسابات</button>` : ''}
+            <button class="btn" id="appearance-btn">🎨 المظهر</button>
             ${state.canInstallApp ? `<button class="btn" id="install-app-btn">⬇️ تثبيت التطبيق</button>` : ''}
             ${restockNotifyButtonHTML()}
             ${can(state.profile, 'viewActivity') ? `<button class="btn" id="activity-log-btn">${state.screen === 'activity' ? '📋 رجوع' : '📋 سجل العمليات'}</button>` : ''}
@@ -1692,7 +1693,7 @@ function gradeTableHTML() {
     <div class="card" style="margin-bottom:0.75rem; padding:1rem;">
       ${
         lastAdded
-          ? `<div style="font-size:12px; color:#2e7d32; margin-bottom:8px;">
+          ? `<div style="font-size:12px; color:var(--ok); margin-bottom:8px;">
                ✅ اتضافت درجة ${escapeHTML(lastAdded.number)}${lastAdded.group ? ` في "${escapeHTML(lastAdded.group)}"` : ''} — كمّل
              </div>`
           : ''
@@ -2039,6 +2040,17 @@ function attachDashboardEvents() {
   });
 
   // ---- ترتيب الفئات ----
+  // 🎨 المظهر — نافذة اللون والخط. مافيش نداء شبكة هنا خالص:
+  // الاختيار بيتحفظ على الجهاز نفسه (شوف appearance.js).
+  const appearanceBtn = document.getElementById('appearance-btn');
+  if (appearanceBtn) {
+    appearanceBtn.addEventListener('click', () => {
+      const panel = document.getElementById('menu-panel');
+      if (panel) panel.classList.remove('open');
+      openAppearanceDialog();
+    });
+  }
+
   const catOrderBtn = document.getElementById('cat-order-btn');
   if (catOrderBtn) {
     // الخروج من وضع الترتيب بيسيب أي فئة ماسكها
@@ -3880,7 +3892,7 @@ async function openBaseGradesDialog(categoryId) {
         categoryName: state.categories.find((c) => c.id === categoryId)?.name || '',
         newValue: nameEl.value.trim(),
       });
-      statusEl.style.color = '#2e7d32';
+      statusEl.style.color = 'var(--ok)';
       statusEl.textContent = `✅ اتضافت "${nameEl.value.trim()}" مع الدرجات الأساسية.`;
       // ⚠️ الشاشة بتفضل مفتوحة والخانة بتتفضّى — الناس بتضيف كذا واحدة ورا بعض
       nameEl.value = '';
@@ -4099,7 +4111,7 @@ function choosePrintTarget() {
             </button>
             ${
               stale
-                ? `<div style="font-size:10px; color:#8a6d1f; margin-top:-4px;">
+                ? `<div style="font-size:10px; color:var(--warning-text); margin-top:-4px;">
                      الجهاز ده لسه على نسخة ${escapeHTML(s.appVersion)} — يفضّل تحدّث صفحته
                    </div>`
                 : ''
@@ -4258,7 +4270,7 @@ function openAddGradeRangeDialog(categoryId) {
         return;
       }
       const where = group ? ` في "${group}"` : '';
-      statusEl.style.color = '#2e7d32';
+      statusEl.style.color = 'var(--ok)';
       statusEl.textContent = `✅ اتضافت ${res.added} درجة${where}${res.skipped ? ` (${res.skipped} كانوا موجودين)` : ''}.`;
       setTimeout(close, 1200);
     } catch (err) {
@@ -4938,11 +4950,11 @@ function connectionDotHTML() {
     label = 'غير متصل بالإنترنت';
     short = 'مفصول';
   } else if (state.hasPendingWrites) {
-    colorVar = '#b8860b';
+    colorVar = 'var(--gold)';
     label = 'جارٍ رفع البيانات...';
     short = 'بيرفع';
   } else {
-    colorVar = '#2e7d32';
+    colorVar = 'var(--ok)';
     label = 'متصل';
     short = 'متصل';
   }

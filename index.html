@@ -8,6 +8,26 @@
     <link rel="icon" href="./icon-192.png" />
     <meta name="theme-color" content="#185fa5" />
     <link rel="stylesheet" href="./styles.css" />
+    <!-- ============================================================
+         ⭐⭐ المظهر بيتحط **قبل أول رسمة**. ماتنقلوش لملف تاني.
+         ============================================================
+         لو الاختيار اتطبّق من appearance.js (اللي بيتحمّل في آخر
+         الصفحة)، الشاشة كانت هتفتح بلون وتتبدّل قدام عين المستخدم.
+         السطر ده بيقراه من الجهاز ويحطه على <html> قبل ما المتصفح
+         يرسم أي حاجة — فمافيش وميض.
+         ⚠️ صغير ومتزنق عن قصد: أي حاجة هنا بتتنفّذ قبل الرسم، فأي
+         سطر زيادة = تأخير لكل فتحة. -->
+    <script>
+      (function () {
+        try {
+          var a = JSON.parse(localStorage.getItem('tazweed-appearance') || '{}');
+          if (a.theme && a.theme !== 'paper') document.documentElement.setAttribute('data-theme', a.theme);
+          document.documentElement.setAttribute('data-font', a.font || 'plex');
+        } catch (e) {
+          document.documentElement.setAttribute('data-font', 'plex');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root">جارٍ التحميل...</div>
@@ -131,6 +151,7 @@
          ومفيش أي أداة تحويل — بالظبط زي أي نظام HTML عادي. -->
     <script src="./firebase-config.js"></script>
     <script src="./js/app-info.js"></script>
+    <script src="./js/appearance.js"></script>
     <script src="./js/local-store.js"></script>
     <script src="./js/permissions.js"></script>
     <script src="./js/qz-signing.js"></script>

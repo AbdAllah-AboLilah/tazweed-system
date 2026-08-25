@@ -488,8 +488,8 @@ function stockTotalsHTML() {
   const when = t.at.toLocaleString('ar-EG', { hour: '2-digit', minute: '2-digit' });
   return `
     <div class="stat-row" style="margin-bottom:8px;">
-      ${statTileHTML(t.branch, 'قطعة في مخزن الفرع', '#2e7d32')}
-      ${statTileHTML(t.main, 'قطعة في المخزن الرئيسي', '#1565c0')}
+      ${statTileHTML(t.branch, 'قطعة في مخزن الفرع', 'var(--ok)')}
+      ${statTileHTML(t.main, 'قطعة في المخزن الرئيسي', 'var(--accent)')}
       ${statTileHTML(t.branch + t.main, 'الإجمالي', 'var(--text-secondary)')}
     </div>
     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -524,7 +524,7 @@ function presenceHTML() {
       (u) => `
       <div class="home-row">
         <span style="width:9px; height:9px; border-radius:50%; flex:0 0 9px;
-                     background:${u.online ? '#2e7d32' : 'var(--text-muted)'};"></span>
+                     background:${u.online ? 'var(--ok)' : 'var(--text-muted)'};"></span>
         <div style="flex:1; min-width:0;">
           <div class="home-row-title">${escapeHTML(u.name || '؟')}</div>
           <div class="home-row-sub">${escapeHTML(ROLE_LABELS_AR[u.role] || u.role || '')}</div>
