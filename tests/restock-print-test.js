@@ -166,55 +166,43 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   pass.filter(x => x.includes('⭐')).forEach(x => console.log('   ' + x));
 
   // ============================================================
-  // ⭐⭐⭐ الورقة اللي أطول من ورقة التعريف: **مانبعتش مقاس**
+  // ⭐⭐⭐ ورقة التزويد **مابيتبعتش معاها مقاس**. ماترجّعهاش.
   // ============================================================
-  // ده اتقاس على ورق حقيقي، مش تخمين. ورقة 324.1مم اتبعت للطابعة
-  // بطول 359مم — و**اتطبع منها 294.4مم بس** (آخر صف كامل قبل 297،
-  // وهو المقاس الافتراضي في تعريف الطابعة). ونفس الورقة اتطبعت مرتين
-  // بطولين مختلفين واتقصّت في **نفس الصف بالظبط** — يعني الطول اللي
-  // بنبعته مالوش أي أثر.
-  //
-  // اللي بيحصل فعلًا: لما نبعت مقاس، إحنا بنوقّف **التصغير التلقائي**
-  // بتاع الدرايفر. فالورقة الطويلة بدل ما تصغّر وتخلص كاملة، بتتطبع
-  // بحجمها وتتقص عند 297.
-  //
-  // فالقاعدة: بتدخل في الفورم → نبعت مقاسها. أطول منه → null (يعني
-  // مانبعتش مقاس) والدرايفر يصغّرها. صغيرة وكاملة > كبيرة ومقصوصة.
-  //
-  // ⚠️ والقياس **لازم يتم على جهاز الطباعة** مش اللي بيبعت (درس v0.43.0).
-  const sizing = await p.evaluate(async () => {
-    const mk = (mm) => `<html><body style="margin:0"><div style="height:${mm}mm">و</div></body></html>`;
-    return {
-      short: await restockPageSize(mk(40)),
-      fits: await restockPageSize(mk(280)),      // جوّه الفورم بالعافية
-      over: await restockPageSize(mk(295)),      // +الهامش بيعدّي 297
-      long: await restockPageSize(mk(400)),      // أطول بكتير
-      formMm: RESTOCK_FORM_HEIGHT_MM,
-      widthMm: RESTOCK_PAGE_WIDTH_MM,
-    };
-  });
-  check('⭐ القصيرة بتاخد طولها هي (مفيش ورق ضايع)',
-    sizing.short && sizing.short.height >= 42 && sizing.short.height <= 48, sizing.short);
-  check('⭐ واللي بتدخل في الفورم بتاخد مقاسها',
-    sizing.fits && sizing.fits.height <= 297 && sizing.fits.height >= 282, sizing.fits);
-  check('⭐⭐ واللي بتعدّي الفورم → مافيش مقاس (الدرايفر يصغّرها)',
-    sizing.over === null, sizing);
-  check('⭐⭐ والورقة الطويلة (400مم) → مافيش مقاس، مش تتقص',
-    sizing.long === null, sizing);
-  check('⭐ والعرض 80مم زي الرول', sizing.short && sizing.short.width === 80, sizing);
-  check('⭐ والحد مطابق للمقاس الافتراضي في تعريف الطابعة',
-    sizing.formMm === 297, sizing);
-  // ⚠️ الهامش لازم يفضل صغير: القياس طلع مطابق للورق في حدود صف واحد،
-  // فأي هامش كبير = ورق أبيض ضايع في آخر كل ورقة.
-  check('⭐ وهامش الطول صغير (≤ 6مم)',
-    sizing.short && sizing.short.height - 40 <= 6, sizing.short);
-
-  // ⚠️ ولازم القياس يبقى جوه tryPrintViaQZ (يعني على جهاز الطباعة)
+  // جرّبناها ورجعنا عنها بعد تلات طبعات على ورق:
+  //   • العرض 80 → أرقام أول عمود اتاكلت (رأس الطباعة 72.1 بس)
+  //   • ظبطنا العرض → الورقة اتقصّت من تحت عند 297 بالظبط
+  //   • نفس الورقة بطولين مختلفين اتقصّت في نفس الصف → الطابعة أصلًا
+  //     مابتاخدش الطول اللي بنبعتهولها
+  // بعت المقاس مابيدّيش ورقة أطول، هو بس بيوقّف التصغير التلقائي.
+  // وصاحب النظام قرّر: "نرجّع الطباعة زي الأول وانا استحمل التصغير".
   const coreSrc = require('fs').readFileSync(__dirname + '/../js/print-core.js', 'utf8');
-  const inQZ = coreSrc.indexOf('async function tryPrintViaQZ');
-  const useIdx = coreSrc.indexOf("size = await restockPageSize(");
-  check('⭐⭐ القياس بيتم جوه tryPrintViaQZ (على جهاز الطباعة)',
-    useIdx > inQZ && useIdx !== -1, { inQZ, useIdx });
+  const qzStart = coreSrc.indexOf('async function tryPrintViaQZ');
+  const qzBody = coreSrc.slice(qzStart);
+  check('⭐⭐⭐ مافيش أي مقاس بيتحسب لورقة التزويد',
+    !/restockPageSize/.test(coreSrc), (coreSrc.match(/.*restockPageSize.*/) || [])[0]);
+  check('⭐⭐ ومافيش قياس لطول الورقة أصلًا',
+    !/measureHTMLHeightMm/.test(coreSrc), (coreSrc.match(/.*measureHTMLHeightMm.*/) || [])[0]);
+  // المقاس الوحيد اللي بيتبعت هو اللي جاي من الملصق (sizeOptions)
+  check('⭐ المقاس بيجي من الملصق بس (sizeOptions)',
+    /sizeOptions && sizeOptions\.pageWidthMm/.test(qzBody), null);
+  // ⚠️ والسبب لازم يفضل مكتوب في الكود عشان ماترجعش الفكرة
+  check('⭐ والسبب متسجّل في الكود (294.4 / 297)',
+    /294\.4/.test(coreSrc) && /مابنبعتش مقاس/.test(coreSrc), null);
+
+  // ============================================================
+  // ⭐⭐ الرجوع لنافذة المتصفح لازم يتقال، مش يحصل في سكوت
+  // ============================================================
+  // نافذة طباعة ويندوز فتحت على الكمبيوتر فجأة ولازم حد يدوس "طباعة"،
+  // والمستخدم افتكر إن النظام باظ. السبب كان متسجّل في lastPrintOutcome
+  // بس محدش بيشوفه.
+  const deliverSrc = coreSrc.slice(coreSrc.indexOf('async function deliverPrint'),
+                                   coreSrc.indexOf('async function sendPrintJob'));
+  check('⭐⭐ الرجوع لنافذة المتصفح بيتقال للمستخدم',
+    /showPrintNotice\(/.test(deliverSrc), null);
+  check('⭐⭐ والسبب بيتقال معاه (lastPrintOutcome)',
+    /lastPrintOutcome/.test(deliverSrc), null);
+  check('⭐⭐ والتنبيه مش موقّف (مافيش alert قبل فتح النافذة)',
+    deliverSrc.indexOf('showPrintNotice(') < deliverSrc.indexOf("window.open("), null);
 
   // ⚠️ والتقسيم بسبب الحجم لازم **يتقال** مش يحصل في سكوت
   const restockSrc = require('fs').readFileSync(__dirname + '/../js/print-restock.js', 'utf8');
