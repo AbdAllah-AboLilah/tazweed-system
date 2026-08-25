@@ -1,3 +1,65 @@
+/* ============================================================
+   ⭐⭐ الخط: محفوظ **جوّه المشروع**، مش من جوجل. اقرا قبل ما تغيّر.
+   ============================================================
+   لو جبناه من fonts.googleapis.com، كل فتحة للنظام بتبقى:
+     • نداء لملف التنسيقات بتاع جوجل
+     • + لحد ٨ ملفات خط (٤ أوزان × وزنين مقاطع)
+     • و**بيفشل وانت من غير نت** — والنظام ده بيشتغل من غير نت أصلًا
+   محفوظ عندنا = نداءين مرة واحدة في العمر، وبعدها صفر (الـservice
+   worker بيخدمه من المحفوظ، شوف قاعدة /fonts/ في sw.js).
+
+   ⚠️ وزنين بس (400 و600) عن قصد. التلاتة كانت ١٤٣ كيلو، الاتنين ٩٦.
+   الـ700 بيتحوّل لـ600 تلقائيًا والفرق مش باين على الشاشة.
+
+   ⚠️ font-display: swap لازم يفضل — بيخلي الكلام يظهر فورًا بخط
+   الجهاز وبعدين يتبدّل. من غيره الشاشة بتفضل فاضية لحد ما الخط ينزل.
+
+   ⚠️⚠️ الخط ده **للشاشة بس**. الملصقات وورق التزويد على Tahoma
+   وهيفضلوا — دي اتظبطت على الطابعة بالمليمتر. */
+@font-face {
+  font-family: 'Plex Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/plex-ar-arabic-400.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1,
+                 U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+                 U+FE70-FE74, U+FE76-FEFC;
+}
+@font-face {
+  font-family: 'Plex Arabic';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/plex-ar-latin-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Plex Arabic';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/plex-ar-arabic-600.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1,
+                 U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF,
+                 U+FE70-FE74, U+FE76-FEFC;
+}
+@font-face {
+  font-family: 'Plex Arabic';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/plex-ar-latin-600.woff2') format('woff2');
+}
+
+/* ============================================================
+   ⭐ الثيم: كله متغيّرات. مافيش لون مكتوب بالإيد تحت.
+   ============================================================
+   ١٢١ مكان في الملف ده ماشي على المتغيّرات دي، فتبديل الثيم = تبديل
+   الأرقام هنا وبس. مافيش ملف بيتحمّل ومافيش نداء شبكة.
+
+   ⚠️ أي لون جديد لازم يبقى متغيّر هنا. لو كتبته بالإيد جوّه قاعدة،
+   هيفضل ثابت في كل الثيمات و**هيبوظ الثيم الليلي** (نص فاتح على
+   خلفية فاتحة). فحص appearance-test.js بيمسك ده. */
 :root {
   --bg: #f4f3ef;
   --surface: #ffffff;
@@ -16,8 +78,98 @@
   --purple-bg: #eeedfe;
   --purple-text: #3c3489;
 
+  /* ألوان الحالة — كانت مكتوبة بالإيد في app.js وdashboard.js */
+  --ok: #2e7d32;
+  --dot-pending: #e6a817;
+  --dot-low: #d97706;
+  --dot-out: #b03030;
+  --gold: #b8860b;
+
   --radius: 10px;
   --font-sans: 'Segoe UI', Tahoma, Arial, sans-serif;
+}
+
+/* الخط المختار — بيتحط على <html> قبل أول رسمة (شوف index.html) */
+:root[data-font="plex"] {
+  --font-sans: 'Plex Arabic', 'Segoe UI', Tahoma, Arial, sans-serif;
+}
+
+:root[data-theme="indigo"] {
+  --bg: #eef1f6;
+  --surface: #ffffff;
+  --surface-muted: #e2e7f0;
+  --border: #d3dae5;
+  --text-primary: #16202e;
+  --text-secondary: #5a6577;
+  --text-muted: #8b94a3;
+  --accent: #2b4c7e;
+  --warning-bg: #f3edde;
+  --warning-text: #7a5410;
+  --danger-bg: #f8e9e9;
+  --danger-text: #7a2323;
+  --purple-bg: #e9e8f8;
+  --purple-text: #3c3489;
+}
+
+:root[data-theme="olive"] {
+  --bg: #f2f3ec;
+  --surface: #ffffff;
+  --surface-muted: #e6e9dc;
+  --border: #d9ddcd;
+  --text-primary: #1d231a;
+  --text-secondary: #5e6655;
+  --text-muted: #8f9683;
+  --accent: #4a6b3f;
+  --warning-bg: #f6eed9;
+  --warning-text: #74540c;
+  --danger-bg: #f8e8e6;
+  --danger-text: #7a2820;
+  --purple-bg: #eae9f6;
+  --purple-text: #3c3489;
+}
+
+:root[data-theme="wine"] {
+  --bg: #f6f0f0;
+  --surface: #ffffff;
+  --surface-muted: #efe2e3;
+  --border: #e3d3d5;
+  --text-primary: #241a1c;
+  --text-secondary: #6b585b;
+  --text-muted: #9b8a8d;
+  --accent: #7d2f3d;
+  --warning-bg: #f7eeda;
+  --warning-text: #7a530c;
+  --danger-bg: #f7e5e5;
+  --danger-text: #7a1f1f;
+  --purple-bg: #ece9f6;
+  --purple-text: #3c3489;
+}
+
+/* ⚠️ الليلي: كل متغيّر لازم يتعرّف هنا. اللي يتنسى بيفضل بلون النهار
+   ويطلع نص فاتح على خلفية فاتحة (أو العكس) — والفحص بيمسكه. */
+:root[data-theme="night"] {
+  --bg: #14161a;
+  --surface: #1c1f25;
+  --surface-muted: #262a31;
+  --border: #2c313a;
+  --text-primary: #e8e6e1;
+  --text-secondary: #a9a49a;
+  --text-muted: #7d786f;
+  --accent: #6f9ede;
+  --accent-text: #10141a;
+
+  --warning-bg: #33280f;
+  --warning-text: #e0b866;
+  --danger-bg: #3a1e1e;
+  --danger-text: #e79a94;
+  --purple-bg: #23213f;
+  --purple-text: #b0aaf0;
+
+  --ok: #6cc070;
+  --dot-pending: #d19a1c;
+  --dot-low: #c4700c;
+  --dot-out: #c05050;
+  --gold: #d4a63a;
 }
 
 * {
@@ -1389,3 +1541,72 @@ tr.grade-base td:first-child {
   /* النص بلون الخلفية عشان يبان مقلوب — أوضح حاجة على شاشة صغيرة */
   color: var(--surface, #fff);
 }
+
+/* ============================================================
+   نافذة المظهر
+   ============================================================ */
+.appearance-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 12px;
+}
+
+.appearance-card {
+  max-width: 360px;
+  width: 100%;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.appearance-title { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+.appearance-sub { font-size: 12px; color: var(--text-secondary); margin-bottom: 14px; }
+
+.appearance-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.appearance-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+/* ⚠️ الارتفاع 44 بكسل مقصود — ده أصغر مقاس الصباع مابيغلطش عليه. */
+.appearance-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.appearance-opt small { color: var(--text-muted); font-size: 11px; }
+.appearance-opt.on { border-color: var(--accent); border-width: 2px; padding: 5px 9px; }
+
+.appearance-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.appearance-actions { display: flex; gap: 8px; }
+.appearance-actions .btn { flex: 1; }

@@ -280,7 +280,7 @@ function openAddUserDialog() {
       await secondaryAuth.signOut();
       await logActivity({ action: 'add_user', categoryName: name, newValue: role });
 
-      statusEl.style.color = '#2e7d32';
+      statusEl.style.color = 'var(--ok)';
       statusEl.textContent = `✅ اتعمل حساب "${name}". اسم الدخول: ${emailToUsername(email)} — والباسورد اللي كتبته.`;
       document.getElementById('add-user-form').reset();
       wireRoleVisibility('nu-role', 'nu-access-wrap');
