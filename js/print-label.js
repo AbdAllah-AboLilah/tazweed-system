@@ -281,11 +281,42 @@ function fitCanvasFont(ctx, text, maxW, maxLines, weight, family, capPx) {
 }
 
 // بترسم نص متعدد السطور في النص أفقيًا، وبترجّع الارتفاع اللي أخده.
+//
+// ============================================================
+// ⭐⭐⭐ `ctx.direction = 'rtl'` — **متشيلهاش**
+// ============================================================
+// ⚠️ العطل اللي خلّاها تتكتب: اسم زي `الCopy` كان بيتطبع `لاCopy` —
+// الحتة العربي بتقع على الناحية الغلط من الكلمة الإنجليزي.
+//
+// السبب: الـcanvas ده **مش موجود في الصفحة** (بنرسم فيه في الخفا وبعدين
+// ناخد الصورة). و`ctx.direction` قيمته الافتراضية `inherit`، وبما إن
+// العنصر مش في الصفحة فمفيش منه إيه يورّث — فبيرجع لـ`ltr`. يعني
+// `<html dir="rtl">` اللي فوق التطبيق **مابيوصلش هنا خالص**.
+//
+// والنتيجة إن أي اسم فيه **عربي وإنجليزي مخلوطين** بيترتب بقواعد
+// الإنجليزي. الأسماء العربي الصافية والأرقام لوحدها مابتتأثرش — عشان كده
+// العطل فضل مستخبي طول الوقت ده.
+//
+// القياس (اتقارن الرسم بالـHTML اللي التطبيق نفسه بيعرضه):
+//   الCopy — درجة 56       → غلط دلوقتي، صح بـrtl
+//   شيفون Chiffon          → غلط دلوقتي، صح بـrtl
+//   قطن 100%               → غلط دلوقتي، صح بـrtl
+//   ساده A1                → غلط دلوقتي، صح بـrtl
+//   حجاب (Copy)            → غلط دلوقتي، صح بـrtl
+//   كريب سادة لوكس         → نفسه بالظبط في الحالتين
+//   6221055123456          → نفسه بالظبط في الحالتين
+// يعني الـrtl بتصلّح المكسور ومابتلمسش الشغّال.
+//
+// ⚠️ وبنرجّع القيمة زي ما كانت في الآخر، عشان **السعر** اللي بيترسم بعد
+// كده يفضل إنجليزي: `140 L.E` بتبقى `L.E 140` لو ساب الاتجاه عربي.
 function drawLines(ctx, lines, size, weight, family, centerX, topY, lineH) {
   ctx.font = `${weight} ${size}px ${family}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  const prevDir = ctx.direction;
+  ctx.direction = 'rtl';
   lines.forEach((line, i) => ctx.fillText(line, centerX, topY + lineH * (i + 0.5)));
+  ctx.direction = prevDir;
   return lineH * lines.length;
 }
 
@@ -472,6 +503,9 @@ function renderLabelPNG(cat, sizeOptions) {
       const gap = mmToDots(0.8);
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
+      // ⚠️ السعر **إنجليزي** صراحةً: `140 L.E` بتتقلب لـ`L.E 140` لو
+      // الاتجاه بقى عربي. (drawLines بترجّع الاتجاه، ودي حزام أمان تاني)
+      ctx.direction = 'ltr';
 
       ctx.font = `normal ${oldPriceSize}px ${FAMILY}`;
       const origW = orig ? ctx.measureText(orig).width : 0;
@@ -743,7 +777,7 @@ function buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
       <div class="cell">
         ${qrDataUrl ? `<img class="q" src="${qrDataUrl}" alt="">` : '<div class="q"></div>'}
         <div class="t">
-          <div class="n">${escapeHTML(name)}</div>
+          <div class="n" dir="rtl">${escapeHTML(name)}</div>
           <div class="c">${escapeHTML(code)}</div>
           ${showPrice ? `<div class="p">${escapeHTML(priceText)}</div>` : ''}
         </div>
@@ -1085,7 +1119,7 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
       <div class="half">
         ${qrHTML}
         <div class="txt">
-          <div class="name">${escapeHTML(name)}</div>
+          <div class="name" dir="rtl">${escapeHTML(name)}</div>
           <div class="code">${escapeHTML(cat.barcodeNumber || '')}</div>
           ${priceHTML}
         </div>
