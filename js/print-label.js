@@ -423,18 +423,32 @@ function renderLabelPNG(cat, sizeOptions) {
   const gapX = mmToDots(0.8);
   const contentH = halfH - outer - inner;
 
-  // ⭐ الـQR بمربعات من عدد صحيح من النقط — ده اللي بيخلّيه يتقرا بسرعة.
-  const best = buildBestQR(code || name);
+  // ============================================================
+  // ⭐⭐⭐ مافيش رقم باركود = **مافيش كود**. متحطّش الاسم فيه.
+  // ============================================================
+  // ⚠️ العطل اللي خلّى السطر ده يتغيّر — واتأكد من ملصق حقيقي اتطبع:
+  // الكود كان `code || name`، يعني الصنف اللي ملوش رقم باركود بياخد
+  // **اسمه العربي** جوّه الكود. فككنا كود من ملصق فعلي وطلع مكتوب فيه
+  // `خمار اسدال بكم` بترميز عربي قديم — الماسح بيقرا حروف مش رقم،
+  // فمش لاقي الصنف.
+  //
+  // وأوحش حاجة إنه بيغلط **في صمت**: الملصق شكله سليم والمعاينة سليمة،
+  // ومحدش بيكتشف غير لما الكاشير يجرب يمسح بعد ما الملصقات اتوزّعت.
+  //
+  // دلوقتي: مافيش رقم → مافيش كود خالص، والاسم بياخد المساحة كلها.
+  // والتحذير بيظهر قبل الطباعة (شوف missingBarcodeNames).
+  const best = code ? buildBestQR(code) : null;
   const qrAvail = Math.min(contentH, mmToDots(11));
-  let qrSize = Math.floor(qrAvail);
+  let qrSize = 0;
   let modulePx = 0;
   if (best) {
     modulePx = Math.max(1, Math.floor(qrAvail / best.count));
     qrSize = modulePx * best.count;
   }
 
-  const textW = W - qrSize - padX * 2 - gapX;
-  const textCx = padX + qrSize + gapX + textW / 2;
+  const gap = qrSize ? gapX : 0;
+  const textW = W - qrSize - padX * 2 - gap;
+  const textCx = padX + qrSize + gap + textW / 2;
 
   const LINE = 1.2;
   const otherLines = 1 + (showPrice ? 1 : 0);
@@ -860,7 +874,7 @@ async function buildQuarterLabel(cat, sizeOptions, copies) {
   }
   // مربع الباركود صغير هنا (ربع اللاصقة)، فبنطلبه بدقة تكفي من غير تضخيم
   const qrPx = Math.round(mmToDots(dotsToMm(QUARTER_QR_DOTS_PER_MODULE * 21)) * 3);
-  const qrDataUrl = await generateQRDataURL(cat.barcodeNumber || cat.name, qrPx);
+  const qrDataUrl = cat.barcodeNumber ? await generateQRDataURL(cat.barcodeNumber, qrPx) : '';
   const jobHTML = buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, 1);
   return {
     previewHTML: jobHTML,
@@ -1113,7 +1127,10 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
   const priceSize = priceNat * best.factor;
   const oldPriceSize = priceSize * 0.8;
 
-  const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '<div class="qr"></div>';
+  // مافيش كود → العنصر يختفي خالص والنص ياخد العرض كله (مش مربع فاضي).
+  // القياس اتحسب على العرض الأضيق، فالاسم بيطلع أصغر شوية من اللازم —
+  // وده **آمن**: بيقل عن المتاح، مابيزيدش عنه، فمفيش قص.
+  const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '';
 
   const halfHTML = `
       <div class="half">
@@ -1213,7 +1230,7 @@ async function buildItemLabel(cat, sizeOptions, copies) {
     }
   }
   const qrPx = Math.round((sizeOptions.pageHeightMm / (sizeOptions.halves || 1)) * 16);
-  const qrDataUrl = await generateQRDataURL(cat.barcodeNumber || cat.name, qrPx);
+  const qrDataUrl = cat.barcodeNumber ? await generateQRDataURL(cat.barcodeNumber, qrPx) : '';
   return {
     previewHTML: buildLabelHTML(cat, sizeOptions, qrDataUrl, 1),
     jobHTML: buildLabelHTML(cat, sizeOptions, qrDataUrl, 1),
@@ -1265,7 +1282,34 @@ function buildTextLabel(text, sizeOptions, copies) {
   };
 }
 
+// ============================================================
+// تحذير: الأصناف اللي ملهاش رقم باركود
+// ============================================================
+// الملصق بتاعها بيطلع **من غير كود** (شوف الشرح في renderLabelPNG).
+// بنقولها للمستخدم قبل الطباعة عشان يعرف قبل ما يوزّع الملصقات، مش بعد
+// ما الكاشير يجرب يمسح.
+function missingBarcodeNames(cats) {
+  const list = Array.isArray(cats) ? cats : [cats];
+  return list
+    .filter((c) => c && !String(c.barcodeNumber || '').trim())
+    .map((c) => String(c.itemName || c.name || '—'));
+}
+
+// بترجّع true لو نكمّل طباعة. بتسأل مرة واحدة بس لو فيه أصناف ناقصة.
+function confirmMissingBarcode(cats) {
+  const names = missingBarcodeNames(cats);
+  if (!names.length) return true;
+  const shown = names.slice(0, 8).join('\n• ');
+  const more = names.length > 8 ? `\n... و${names.length - 8} كمان` : '';
+  return confirm(
+    `⚠️ ${names.length === 1 ? 'الصنف ده ملوش' : `${names.length} أصناف ملهمش`} رقم باركود:\n\n• ${shown}${more}\n\n` +
+      'الملصق هيطلع **من غير كود** — الكاشير مش هيقدر يمسحه.\n' +
+      'تحب تكمّل طباعة برضه؟'
+  );
+}
+
 async function printLabel(cat, sizeOptions) {
+  if (!confirmMissingBarcode(cat)) return;
   const copies = sizeOptions.copies || 1;
   const built = await buildItemLabel(cat, sizeOptions, copies);
 

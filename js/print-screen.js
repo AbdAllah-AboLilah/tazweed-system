@@ -452,6 +452,16 @@ async function printCartLabels(sizeOptions) {
   const cart = (state.printCart || []).filter((it) => it.qty > 0);
   if (!cart.length) return;
 
+  // ⚠️ تحذير الأصناف اللي ملهاش رقم باركود — ملصقها بيطلع من غير كود.
+  // (الشرح المطوّل في renderLabelPNG جوه js/print-label.js)
+  // الملصق النصّي (مسمّى) مالوش كود أصلًا، فمش داخل في الحسبة.
+  if (typeof confirmMissingBarcode === 'function') {
+    const sources = cart
+      .filter((it) => !it.custom && it.mode !== 'quarter')
+      .map((it) => productAsLabelSource(it.product));
+    if (!confirmMissingBarcode(sources)) return;
+  }
+
   // كل صنف بيتحوّل لوظيفة طباعة مستقلة بعدد نسخه. الملصق بيترسم عندنا
   // كصورة جاهزة (buildItemLabel) قبل ما يتبعت لأي طابعة — فشكله مضمون
   // مايتغيّرش على أي جهاز.
