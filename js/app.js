@@ -840,6 +840,11 @@ function openScreen(screen) {
     if (!productsCache) loadProducts().then(render).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
   }
   if (screen === 'users') subscribeUsers();
+  // أرقام الحركة بتتقرا **مرة** أول ما الشاشة تتفتح — مافيش اشتراك دايم
+  // على آلاف المستندات شغّال في الخلفية على الفاضي.
+  if (screen === 'movement' && typeof loadMovementStats === 'function') {
+    loadMovementStats().then(renderFromData).catch((err) => console.warn('تعذّر تحميل حركة المخزون:', err));
+  }
 }
 
 function screenTitleHTML(openCatName) {
@@ -849,6 +854,7 @@ function screenTitleHTML(openCatName) {
     products: '📦 الأصناف',
     users: '👥 الحسابات',
     activity: '📋 سجل العمليات',
+    movement: '📈 حركة المخزون',
   };
   const t = state.screen === 'sheets' ? (openCatName ? '📄 ' + openCatName : '📄 الشيت') : titles[state.screen];
   if (!t) return '';
@@ -885,6 +891,7 @@ function moreSheetHTML() {
           can(state.profile, 'viewProducts') ? item('more-products', '📦 الأصناف') : '',
           canManageUsers(state.profile) ? item('more-users', '👥 الحسابات') : '',
           can(state.profile, 'viewActivity') ? item('more-activity', '📋 سجل العمليات') : '',
+          can(state.profile, 'viewReports') ? item('more-movement', '📈 حركة المخزون') : '',
         ])}
         ${group('أدوات', [
           isBarcodeScanSupported() ? item('more-scan', '📷 مسح باركود') : '',
@@ -1158,6 +1165,10 @@ function dashboardHTML() {
   } else if (state.screen === 'users') {
     bodyHTML = can(state.profile, 'manageUsers')
       ? usersScreenHTML()
+      : `<div class="home-empty" style="padding:2rem; text-align:center;">مالكش صلاحية على الشاشة دي.</div>`;
+  } else if (state.screen === 'movement') {
+    bodyHTML = can(state.profile, 'viewReports')
+      ? movementScreenHTML()
       : `<div class="home-empty" style="padding:2rem; text-align:center;">مالكش صلاحية على الشاشة دي.</div>`;
   } else if (state.categories.length === 0) {
     bodyHTML = `
@@ -2080,7 +2091,8 @@ function activityLogHTML() {
         </div>`;
       })
       .join('');
-    return `<div style="padding:1rem;"><div class="grade-cards">${cards}</div></div>`;
+    // ⚠️ من غير غلاف هامش هنا — اللي بينده الدالة بيلفّها في padding:1rem
+    return `<div class="grade-cards">${cards}</div>`;
   }
 
   const rows = state.activityLog
@@ -2275,6 +2287,7 @@ function attachDashboardEvents() {
   if (state.screen === 'products') attachProductsEvents();
   if (state.screen === 'print') attachPrintScreenEvents();
   if (state.screen === 'users') attachUsersScreenEvents();
+  if (state.screen === 'movement') attachMovementEvents();
 
   // ---- التنقّل بين الشاشات ----
   document.querySelectorAll('[data-screen]').forEach((btn) => {
@@ -2426,6 +2439,8 @@ function attachDashboardEvents() {
   if (moreProducts) moreProducts.addEventListener('click', () => openScreen('products'));
   const moreUsers = document.getElementById('more-users');
   if (moreUsers) moreUsers.addEventListener('click', () => openScreen('users'));
+  const moreMovement = document.getElementById('more-movement');
+  if (moreMovement) moreMovement.addEventListener('click', () => openScreen('movement'));
 
   // 🎨 المظهر — نافذة اللون والخط. مافيش نداء شبكة هنا خالص:
   // الاختيار بيتحفظ على الجهاز نفسه (شوف appearance.js).
@@ -4833,6 +4848,18 @@ async function fulfillShortage(gradeId, qty) {
     gradeNumber: data.number,
     transferredQty: transferQty,
   });
+
+  // التزويد **حركة مش بيع**: الفرع بيزيد مش يقل، فـsoldQty صفر.
+  if (typeof recordMovement === 'function') {
+    recordMovement({
+      categoryId,
+      categoryName,
+      gradeId,
+      gradeNumber: data.number,
+      gradeName: data.name,
+      soldQty: 0,
+    });
+  }
 }
 
 async function markOutOfStock(gradeId) {
@@ -5023,6 +5050,21 @@ async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldVal
     oldValue,
     newValue,
   });
+
+  // ⭐ حركة الدرجة — مستند منفصل في gradeStats، **مش** جوّه الدرجة.
+  // (الشرح المطوّل في js/movement.js: قواعد الأمان بتقفل حقول الدرجة
+  // بـ17 تركيبة، فأي حقل جديد هناك كان هيمنع تعديل الكميات خالص.)
+  // "بيع" = كمية الفرع قلّت. النقل من الرئيسي مش بيع.
+  if (typeof recordMovement === 'function') {
+    recordMovement({
+      categoryId,
+      categoryName,
+      gradeId,
+      gradeNumber: data.number,
+      gradeName: data.name,
+      soldQty: field === 'branchQty' ? Math.max(0, (Number(oldValue) || 0) - (Number(newValue) || 0)) : 0,
+    });
+  }
 
   // نسجّل تغيير الحالة التلقائي كسطر مستقل في السجل، عشان يبان مين
   // العملية اللي سبّبته ومتى — مش يحصل في الخفاء.

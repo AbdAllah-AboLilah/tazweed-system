@@ -104,6 +104,9 @@ const PERMISSION_GROUPS = [
       { key: 'manageUsers', label: 'إدارة الحسابات', hint: 'إنشاء حسابات وتغيير صلاحيات', danger: true },
       { key: 'excelTools', label: 'تصدير واستيراد إكسل' },
       { key: 'viewActivity', label: 'سجل العمليات' },
+      // ⭐ مقفول لكل الرتب غير منشئ النظام — اتطلب كده صراحةً.
+      // تقدر تفتحه لشخص بعينه من نفس الشاشة لو احتجت.
+      { key: 'viewReports', label: 'تقرير حركة المخزون', hint: 'اللي بيسحب بسرعة واللي راكد' },
     ],
   },
 ];
@@ -123,6 +126,8 @@ const ROLE_PRESETS = {
 
   [ROLES.BRANCH_MANAGER]: {
     ...ALL_ON,
+    // تقرير الحركة لصاحب المحل بس (زي إعدادات الطابعة).
+    viewReports: false,
     // إدارة الحسابات مقفولة افتراضيًا، وتتفتح لشخص بعينه لو احتجت حد
     // يقدر يدير الحسابات وانت مش موجود.
     manageUsers: false,
@@ -148,6 +153,7 @@ const ROLE_PRESETS = {
     manageUsers: false,
     excelTools: true,
     viewActivity: true,
+    viewReports: false,
   },
 
   // أمين المخزن: المخزن اللي متحدّد له في خانة "المخزن" بس (تحت).
@@ -168,6 +174,7 @@ const ROLE_PRESETS = {
     manageUsers: false,
     excelTools: false,
     viewActivity: true,
+    viewReports: false,
   },
 
   [ROLES.PRINT_OPERATOR]: {
@@ -186,6 +193,7 @@ const ROLE_PRESETS = {
     manageUsers: false,
     excelTools: false,
     viewActivity: false,
+    viewReports: false,
   },
 
   [ROLES.USER]: {
@@ -204,6 +212,7 @@ const ROLE_PRESETS = {
     manageUsers: false,
     excelTools: false,
     viewActivity: true,
+    viewReports: false,
   },
 };
 

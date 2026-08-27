@@ -185,6 +185,9 @@ function subscribeOverview() {
         const g = d.data();
         return {
           catId: categoryIdOfGrade(d),
+          // ⭐ معرّف الدرجة — تقرير حركة المخزون بيربط بيه مع gradeStats.
+          // من غيره كان لازم استعلام تاني على كل الدرجات.
+          gradeId: d.id,
           status: g.status,
           isBase: !!g.isBase,
           name: g.name,
