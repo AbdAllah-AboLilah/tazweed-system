@@ -689,15 +689,49 @@ html, body {
   line-height: 1;
 }
 
+/* ============================================================
+   ⭐⭐ قايمة ☰ منسدلة على **كل** المقاسات
+   ============================================================
+   ⚠️ قبل كده كانت منسدلة على الموبايل بس، وعلى الكمبيوتر صف أزرار
+   جوّه الشريط العلوي. ده كان شغّال وهي 7 أزرار، وكل بند جديد كان
+   بيقرّبها من الحافة لحد ما خرجت.
+   القياس على شاشة 1280: عرض القايمة **1176 بكسل** وبادئة عند **-200**،
+   يعني 200 بكسل منها بره الشاشة ومفيش طريقة توصلهم — والاسم اتزنق
+   لعرض **صفر** فبان كإن كلمة "متصل" غطّت عليه.
+   المنسدلة مابتزنقش حاجة ومابتخرجش بره مهما زادت البنود. */
 .menu-toggle {
-  display: none;
+  display: inline-block;
+  padding: 8px 14px;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .menu-panel {
+  display: none;
+  position: absolute;
+  top: calc(100% - 4px);
+  inset-inline-end: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  z-index: 900;
+  min-width: 210px;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+.menu-panel.open {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+}
+
+.menu-panel .btn {
+  text-align: start;
+  width: 100%;
 }
 
 /* ============================================================
@@ -1531,40 +1565,7 @@ tr.grade-base td:first-child {
    الشاشات الصغيرة — لازم تفضل في آخر الملف عشان تغلب القواعد فوق
    ============================================================ */
 @media (max-width: 900px) {
-  .menu-toggle {
-    display: inline-block;
-    padding: 8px 14px;
-    font-size: 18px;
-    line-height: 1;
-  }
-
-  .menu-panel {
-    display: none;
-    position: absolute;
-    top: calc(100% - 4px);
-    inset-inline-end: 12px;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 10px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
-    z-index: 900;
-    min-width: 190px;
-    max-height: 75vh;
-    overflow-y: auto;
-  }
-
-  .menu-panel.open {
-    display: flex;
-  }
-
-  .menu-panel .btn {
-    text-align: start;
-    width: 100%;
-  }
+  /* قواعد القايمة اتنقلت فوق — بقت واحدة لكل المقاسات */
 }
 
 /* القايمة الجانبية بتتحوّل لدرج بيفتح فوق الشاشة على الأجهزة الصغيرة —
