@@ -1263,6 +1263,7 @@ function dashboardHTML() {
             ${state.canInstallApp ? `<button class="btn" id="install-app-btn">⬇️ تثبيت التطبيق</button>` : ''}
             ${restockNotifyButtonHTML()}
             ${can(state.profile, 'viewActivity') ? `<button class="btn" id="activity-log-btn">${state.screen === 'activity' ? '📋 رجوع' : '📋 سجل العمليات'}</button>` : ''}
+            ${can(state.profile, 'viewReports') ? `<button class="btn" id="movement-btn">📈 حركة المخزون</button>` : ''}
             <button class="btn" id="logout-btn">🚪 تسجيل خروج</button>
           </div>
         </div>
@@ -2441,6 +2442,15 @@ function attachDashboardEvents() {
   if (moreUsers) moreUsers.addEventListener('click', () => openScreen('users'));
   const moreMovement = document.getElementById('more-movement');
   if (moreMovement) moreMovement.addEventListener('click', () => openScreen('movement'));
+  // نفس البند في قايمة ☰ (الكمبيوتر) — نفس الدالة، فمستحيل يفترقوا
+  const movementBtn = document.getElementById('movement-btn');
+  if (movementBtn) {
+    movementBtn.addEventListener('click', () => {
+      const panel = document.getElementById('menu-panel');
+      if (panel) panel.classList.remove('open');
+      openScreen('movement');
+    });
+  }
 
   // 🎨 المظهر — نافذة اللون والخط. مافيش نداء شبكة هنا خالص:
   // الاختيار بيتحفظ على الجهاز نفسه (شوف appearance.js).
