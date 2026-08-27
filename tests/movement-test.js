@@ -27,10 +27,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const M = movementMonthKey();
 
     allGradesCache = [
-      { catId: 'c1', gradeId: 'g1', name: '56', branchQty: 4 },  // اتحركت امبارح، باعت 20
-      { catId: 'c1', gradeId: 'g2', name: '12', branchQty: 0 },  // واقفة من 40 يوم
-      { catId: 'c2', gradeId: 'g3', name: '3', branchQty: 9 },   // اتحركت من يومين، باعت 5
-      { catId: 'c2', gradeId: 'g4', name: '7', branchQty: 2 },   // مامتحركتش خالص
+      { catId: 'c1', gradeId: 'g1', name: '56', branchQty: 4, mainQty: 0 },  // اتحركت امبارح، باعت 20
+      { catId: 'c1', gradeId: 'g2', name: '12', branchQty: 3, mainQty: 0 },  // واقفة من 40 يوم وفيها بضاعة
+      { catId: 'c2', gradeId: 'g3', name: '3', branchQty: 9, mainQty: 0 },   // اتحركت من يومين، باعت 5
+      { catId: 'c2', gradeId: 'g4', name: '7', branchQty: 2, mainQty: 0 },   // مامتحركتش خالص
+      { catId: 'c2', gradeId: 'g5', name: '9', branchQty: 0, mainQty: 0 },   // خلصانة — مش راكدة
     ];
     movementStats = {
       c1__g1: { gradeNumber: '56', lastMovedAt: mk(now - 1 * day), soldByMonth: { [M]: 20 }, soldTotal: 20, moves: 9 },
@@ -39,18 +40,24 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     };
 
     setMovementDays(15);
+    setMovementSpan('1');
     const a = computeMovementReport();
-    out.fastOrder = a.fast.map((x) => x.qty);
-    out.fastCount = a.fast.length;
-    out.idle15 = a.idle.length;
-    out.neverFirst = a.idle[0] && a.idle[0].daysIdle === null;
+    // ⭐ الصفوف بقت متجمّعة تحت فئتها
+    out.fastGroups = a.fast.map((g) => g.name);
+    out.fastOrder = a.fast.flatMap((g) => g.rows.map((r) => r.qty));
+    out.fastCount = a.fastCount;
+    out.idle15 = a.idleCount;
+    out.idleGroups = a.idle.map((g) => g.name);
+    out.soldOut = a.soldOut;
+    // اللي عمره مااتحرك بيطلع أول صف في مجموعته
+    out.neverFirst = a.idle.some((g) => g.rows[0] && g.rows[0].daysIdle === null);
     out.tracked = a.tracked;
     out.total = a.total;
 
     setMovementDays(60);
-    out.idle60 = computeMovementReport().idle.length;
+    out.idle60 = computeMovementReport().idleCount;
     setMovementDays(1);
-    out.idle1 = computeMovementReport().idle.length;
+    out.idle1 = computeMovementReport().idleCount;
 
     localStorage.removeItem('tazweed_movement_days');
     out.defaultDays = getMovementDays();
@@ -73,6 +80,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     state.user = { uid: 'u1' };
     recordMovement({ categoryId: 'c1', categoryName: 'كريب', gradeId: 'g1', gradeNumber: '56', soldQty: 3 });
     recordMovement({ categoryId: 'c1', categoryName: 'كريب', gradeId: 'g2', gradeNumber: '12', soldQty: 0 });
+    recordMovement({ categoryId: 'c1', categoryName: 'كريب', gradeId: 'g3', gradeNumber: '9', soldQty: 0, newCycle: true });
     window.db = realDb; window.firebase = realFb; state.user = realUser;
 
     out.writeCollections = writes.map((w) => w.c);
@@ -83,6 +91,8 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.noSoldWhenZero = !writes[1].data.soldByMonth && !writes[1].data.lastSoldAt;
     out.bothHaveLastMoved = writes.every((w) => !!w.data.lastMovedAt);
     out.merged = writes.every((w) => w.opt && w.opt.merge === true);
+    out.cycleWritten = !!writes[2].data.cycleStartedAt;
+    out.noCycleNormally = !writes[0].data.cycleStartedAt && !writes[1].data.cycleStartedAt;
 
     // ---- تحويل سطر السجل لحركة ----
     const t = { toDate: () => new Date(now) };
@@ -108,6 +118,21 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.hasDaysInput = html.includes('id="mv-days-input"');
     out.hasBothSections = html.includes('data-mv="fast"') && html.includes('data-mv="idle"');
     out.hasBackfill = html.includes('id="mv-backfill"');
+    out.hasSpan = html.includes('id="mv-span"');
+    out.hasRepeat = html.includes('id="mv-repeat"');
+
+    // ---- الفترة ----
+    setMovementSpan('3');
+    out.span3 = getMovementSpan().months === 3;
+    setMovementSpan('حاجة غلط');
+    out.badSpanIgnored = getMovementSpan().months === 3;
+    setMovementSpan('1');
+    out.monthKeys3 = movementMonthKeys(3).length === 3 && new Set(movementMonthKeys(3)).size === 3;
+
+    // ---- الدورة الجديدة ----
+    out.newCycleDefault = isNewCycleGrade({ id: 'c1' }, { name: '5' }) === true;
+    out.baseNoCycle = isNewCycleGrade({ id: 'c1' }, { name: '5', isBase: true }) === false;
+    out.repeatCatNoCycle = isNewCycleGrade({ id: 'c1', repeatGrades: true }, { name: '5' }) === false;
     return out;
   });
 
@@ -119,20 +144,24 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
   check('الأسرع مرتّبة تنازلي', JSON.stringify(r.fastOrder) === '[20,5]', r.fastOrder);
   check('اللي مابعتش مش في قايمة الأسرع', r.fastCount === 2, r.fastCount);
+  check('⭐ الصفوف متجمّعة تحت فئتها', r.fastGroups.length === 2 && r.idleGroups.length >= 1, [r.fastGroups, r.idleGroups]);
   check('الراكد عند ١٥ يوم = اتنين', r.idle15 === 2, r.idle15);
-  check('اللي عمره مااتحرك بيطلع الأول', r.neverFirst);
+  check('⭐ الدرجة الخلصانة مش في الراكد', r.soldOut === 1, r.soldOut);
+  check('اللي عمره مااتحرك بيطلع أول مجموعته', r.neverFirst);
   check('مدة أطول = راكد أقل', r.idle60 === 1, r.idle60);
-  // عند يوم واحد: الأربعة كلهم راكدين (أقربهم حركة من يوم بالظبط)
+  // عند يوم واحد: الأربعة اللي فيهم بضاعة راكدين (الخلصانة مستثناة)
   check('مدة أقصر = راكد أكتر', r.idle1 === 4, r.idle1);
-  check('عدّاد المتتبَّع والإجمالي', r.tracked === 3 && r.total === 4, [r.tracked, r.total]);
+  check('عدّاد المتتبَّع والإجمالي', r.tracked === 3 && r.total === 5, [r.tracked, r.total]);
 
-  check('⭐ الحركة بتتكتب في gradeStats مش في الدرجة', JSON.stringify(r.writeCollections) === '["gradeStats","gradeStats"]', r.writeCollections);
-  check('معرّف المستند فئة__درجة', JSON.stringify(r.writeIds) === '["c1__g1","c1__g2"]', r.writeIds);
+  check('⭐ الحركة بتتكتب في gradeStats مش في الدرجة', JSON.stringify(r.writeCollections) === '["gradeStats","gradeStats","gradeStats"]', r.writeCollections);
+  check('معرّف المستند فئة__درجة', JSON.stringify(r.writeIds) === '["c1__g1","c1__g2","c1__g3"]', r.writeIds);
   check('الكمية المباعة بتتزوّد بالرقم الصح', r.soldInc);
   check('عدّاد الحركات بيزيد واحد', r.movesInc);
   check('مفيش بيع لما الكمية ماقلّتش', r.noSoldWhenZero);
   check('كل حركة بتحدّث lastMovedAt', r.bothHaveLastMoved);
   check('الكتابة merge (مافيش قراءة زيادة)', r.merged);
+  check('⭐ الدورة الجديدة بتتسجّل', r.cycleWritten);
+  check('ومابتتسجّلش في الحركة العادية', r.noCycleNormally);
 
   check('السجل: نقص الفرع = بيع', r.logDecSold);
   check('السجل: زيادة الفرع مش بيع', r.logIncNotSold);
@@ -149,6 +178,14 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('الشاشة فيها عدّاد الأيام', r.hasDaysInput);
   check('الشاشة فيها القسمين', r.hasBothSections);
   check('الشاشة فيها زرار الحساب من السجل', r.hasBackfill);
+  check('الشاشة فيها اختيار الفترة', r.hasSpan);
+  check('الشاشة فيها زرار الفئات المتكررة', r.hasRepeat);
+  check('الفترة بتتحفظ', r.span3);
+  check('فترة غلط بتتتجاهل', r.badSpanIgnored);
+  check('مفاتيح الشهور مختلفة ومتسلسلة', r.monthKeys3);
+  check('⭐ الدرجة اللي ترجع = درجة جديدة (الافتراضي)', r.newCycleDefault);
+  check('⭐ الأساسية مش درجة جديدة', r.baseNoCycle);
+  check('⭐ الفئة المعلّم عليها مش درجة جديدة', r.repeatCatNoCycle);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
   await b.close();
 

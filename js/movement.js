@@ -24,6 +24,12 @@
 const MOVEMENT_DEFAULT_DAYS = 15;
 const MOVEMENT_DAYS_KEY = 'tazweed_movement_days';
 const MOVEMENT_OPEN_KEY = 'tazweed_movement_open';
+const MOVEMENT_SPAN_KEY = 'tazweed_movement_span';   // فترة "بتسحب بسرعة"
+const MOVEMENT_SPANS = [
+  { key: '1', label: 'الشهر ده', months: 1 },
+  { key: '2', label: 'شهرين', months: 2 },
+  { key: '3', label: '٣ شهور', months: 3 },
+];
 const MOVEMENT_MAX_STATS = 4000;
 const MOVEMENT_LIST_CAP = 100;
 
@@ -113,6 +119,16 @@ function writeMovement(FV, info) {
   const now = FV.serverTimestamp();
   const inc = FV.increment;
 
+  // ============================================================
+  // ⭐ الدرجة اللي خلصت ورجعت = **درجة جديدة**
+  // ============================================================
+  // في محل القماش، الدرجة اللي خلصت من الفرع والرئيسي ورجعت تاني مش
+  // نفس الدرجة — صبغة تانية وشحنة تانية. فعدّاد "راكدة من إمتى" لازم
+  // يبدأ من أول يوم رجعت فيه، مش من تاريخ الشحنة اللي قبلها.
+  //
+  // ⚠️ استثناءين مقصودين (شوف isNewCycleGrade):
+  //   • الدرجات الأساسية — الأبيض بيخلص وبيجي أبيض غيره، نفس الدرجة
+  //   • الفئات اللي صاحب المحل علّم عليها "درجاتها بتتكرر"
   const payload = {
     categoryId: info.categoryId,
     categoryName: info.categoryName || '',
@@ -128,6 +144,9 @@ function writeMovement(FV, info) {
     payload.soldTotal = inc(sold);
     payload.soldByMonth = { [movementMonthKey()]: inc(sold) };
   }
+
+  // رجعت بعد ما خلصت → ساعة "راكدة" تبدأ من أول
+  if (info.newCycle) payload.cycleStartedAt = now;
 
   // merge:true عشان المستند يتعمل أول مرة ويتحدّث بعد كده من غير ما
   // نقراه الأول — ولا قراءة زيادة على أي تعديل كمية.
@@ -168,48 +187,127 @@ function movementToDate(v) {
 // ============================================================
 // allGradesCache بيتحدّث لايف من subscribeOverview (اشتراك موجود من زمان
 // عشان الشارات)، فمافيش أي قراءة زيادة عشان نجيب قايمة الدرجات.
+// الدرجة دي بتبدأ دورة جديدة لما ترجع بعد ما تخلص؟
+// ⚠️ لأ في حالتين: الدرجات الأساسية (الأبيض بيخلص وبيجي أبيض غيره)،
+// والفئات اللي صاحب المحل علّم عليها إن درجاتها بتتكرر.
+function isNewCycleGrade(cat, grade) {
+  if (grade && grade.isBase) return false;
+  if (cat && cat.repeatGrades) return false;
+  return true;
+}
+
+// الفترة اللي بيتحسب عليها "بتسحب بسرعة"
+function getMovementSpan() {
+  const raw = localStorage.getItem(MOVEMENT_SPAN_KEY);
+  return MOVEMENT_SPANS.find((s) => s.key === raw) || MOVEMENT_SPANS[0];
+}
+
+function setMovementSpan(key) {
+  if (MOVEMENT_SPANS.some((s) => s.key === key)) localStorage.setItem(MOVEMENT_SPAN_KEY, key);
+}
+
+// مفاتيح آخر N شهر (الشهر الحالي أولًا)
+function movementMonthKeys(n) {
+  const out = [];
+  const d = new Date();
+  for (let i = 0; i < n; i++) {
+    out.push(movementMonthKey(new Date(d.getFullYear(), d.getMonth() - i, 1)));
+  }
+  return out;
+}
+
+// ============================================================
+// الحساب — الدرجات جاهزة في الذاكرة أصلًا
+// ============================================================
+// allGradesCache بيتحدّث لايف من subscribeOverview (اشتراك موجود من زمان
+// عشان الشارات)، فمافيش أي قراءة زيادة عشان نجيب قايمة الدرجات.
 function computeMovementReport() {
   const stats = movementStats || {};
   const days = getMovementDays();
+  const span = getMovementSpan();
+  const months = movementMonthKeys(span.months);
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const month = movementMonthKey();
-  const catName = {};
-  (state.categories || []).forEach((c) => (catName[c.id] = c.name));
+
+  const cats = {};
+  (state.categories || []).forEach((c) => (cats[c.id] = c));
 
   const grades = typeof allGradesCache !== 'undefined' && allGradesCache ? allGradesCache : null;
   if (!grades) return null;
 
-  const fast = [];
-  const idle = [];
+  const fast = {};   // catId → صفوف
+  const idle = {};
+  let fastCount = 0;
+  let idleCount = 0;
+  let soldOut = 0;
 
   grades.forEach((g) => {
     if (!g.catId || !g.gradeId) return;
     const st = stats[gradeStatsId(g.catId, g.gradeId)] || null;
-    const name = catName[g.catId] || (st && st.categoryName) || '';
-    const label = `${name}${name ? ' — ' : ''}درجة ${g.name || g.number || ''}`;
+    const cat = cats[g.catId] || null;
+    const catName = (cat && cat.name) || (st && st.categoryName) || 'بدون فئة';
+    const label = `درجة ${g.name || g.number || ''}`;
 
-    const soldMonth = st && st.soldByMonth ? Number(st.soldByMonth[month]) || 0 : 0;
-    if (soldMonth > 0) fast.push({ label, qty: soldMonth, catId: g.catId });
+    // ---- بتسحب بسرعة ----
+    const soldSpan = st && st.soldByMonth
+      ? months.reduce((sum, m) => sum + (Number(st.soldByMonth[m]) || 0), 0)
+      : 0;
+    if (soldSpan > 0) {
+      (fast[catName] = fast[catName] || []).push({ label, qty: soldSpan });
+      fastCount++;
+    }
+
+    // ---- راكدة ----
+    // ⚠️⚠️ **الدرجة اللي مافيهاش بضاعة مش راكدة — هي خلصانة.**
+    // أول نسخة كانت بتعدّها راكدة، وده كان بيغرق القايمة بدرجات مالهاش
+    // أي كمية أصلًا — والمفروض القايمة دي تقول لك **فلوسك واقفة فين**.
+    const branch = Number(g.branchQty) || 0;
+    const main = Number(g.mainQty) || 0;
+    const onHand = branch + main;
+    if (onHand <= 0) {
+      soldOut++;
+      return;
+    }
 
     const moved = st ? movementToDate(st.lastMovedAt) : null;
-    const movedMs = moved ? moved.getTime() : 0;
-    if (movedMs < cutoff) {
-      idle.push({
+    // ⭐ ساعة الركود بتبدأ من **أحدث** حاجة: آخر حركة، أو أول يوم في
+    // الدورة دي (الدرجة رجعت بعد ما خلصت = درجة جديدة).
+    const cycle = st ? movementToDate(st.cycleStartedAt) : null;
+    const fromMs = Math.max(moved ? moved.getTime() : 0, cycle ? cycle.getTime() : 0);
+
+    if (fromMs < cutoff) {
+      (idle[catName] = idle[catName] || []).push({
         label,
-        catId: g.catId,
-        since: moved,
-        // من غير أي حركة مسجّلة خالص = مامتحركتش من ساعة ما اتعملت
-        daysIdle: moved ? Math.floor((Date.now() - movedMs) / 86400000) : null,
-        branchQty: Number(g.branchQty) || 0,
+        daysIdle: fromMs ? Math.floor((Date.now() - fromMs) / 86400000) : null,
+        onHand,
+        fresh: !!(cycle && moved && cycle.getTime() >= moved.getTime()),
       });
+      idleCount++;
     }
   });
 
-  fast.sort((a, b) => b.qty - a.qty);
-  // الأقدم الأول — دي اللي واقفة من أطول مدة
-  idle.sort((a, b) => (b.daysIdle == null ? 1 : a.daysIdle == null ? -1 : b.daysIdle - a.daysIdle));
+  // ⭐ ترتيب المجموعات مش أبجدي — **الأهم فوق**:
+  //   • بتسحب بسرعة  → الفئة اللي باعت أكتر
+  //   • راكدة        → الفئة اللي فيها أكتر قطع واقفة (فلوسك واقفة فين)
+  const sortGroups = (map, rank, cmp) =>
+    Object.keys(map)
+      .map((name) => ({ name, rows: map[name].sort(cmp) }))
+      .sort((a, b) => rank(b.rows) - rank(a.rows) || a.name.localeCompare(b.name, 'ar'));
 
-  return { days, month, fast, idle, total: grades.length, tracked: Object.keys(stats).length };
+  const sumQty = (rows) => rows.reduce((n, r) => n + (r.qty || 0), 0);
+  const sumOnHand = (rows) => rows.reduce((n, r) => n + (r.onHand || 0), 0);
+
+  return {
+    days,
+    span,
+    fast: sortGroups(fast, sumQty, (a, b) => b.qty - a.qty),
+    idle: sortGroups(idle, sumOnHand,
+      (a, b) => (b.daysIdle == null ? 1 : a.daysIdle == null ? -1 : b.daysIdle - a.daysIdle)),
+    fastCount,
+    idleCount,
+    soldOut,
+    total: grades.length,
+    tracked: Object.keys(stats).length,
+  };
 }
 
 
@@ -232,35 +330,58 @@ function movementSectionHTML(key, icon, title, count, hint, bodyHTML, open) {
     </div>`;
 }
 
-function movementRowsHTML(list, kind) {
-  if (!list.length) {
+// ⭐ الصفوف **متجمّعة تحت فئتها** — مش قايمة واحدة سايحة.
+// من غير ده، 20 درجة من 5 فئات بتبقى كومة مالهاش معنى: مش عارف تقرا
+// منها "أنهي فئة اللي واقفة"، وده أهم سؤال في الشاشة.
+function movementRowsHTML(groups, kind) {
+  if (!groups.length) {
     return `<div class="home-empty" style="padding:1rem; text-align:center;">${
-      kind === 'fast' ? 'مفيش حاجة اتباعت الشهر ده لسه.' : 'مفيش درجات راكدة بالمدة دي — كله بيتحرك. 👌'
+      kind === 'fast' ? 'مفيش حاجة اتباعت في الفترة دي.' : 'مفيش درجات راكدة بالمدة دي — كله بيتحرك. 👌'
     }</div>`;
   }
-  const rows = list
-    .slice(0, MOVEMENT_LIST_CAP)
-    .map((r) => {
-      const right =
-        kind === 'fast'
-          ? `<span class="mv-qty">${escapeHTML(r.qty)}</span>`
-          : `<span class="mv-idle">${r.daysIdle == null ? 'من غير حركة' : `${escapeHTML(r.daysIdle)} يوم`}</span>`;
-      return `
-      <div class="grade-card mv-row">
-        <span class="mv-label">${escapeHTML(r.label)}</span>
-        ${right}
-      </div>`;
-    })
-    .join('');
-  const more =
-    list.length > MOVEMENT_LIST_CAP
-      ? `<div class="mv-more">وفيه ${escapeHTML(list.length - MOVEMENT_LIST_CAP)} كمان — دي أول ${escapeHTML(MOVEMENT_LIST_CAP)}</div>`
-      : '';
-  return `<div class="grade-cards">${rows}</div>${more}`;
+  let shown = 0;
+  const out = [];
+  for (const grp of groups) {
+    if (shown >= MOVEMENT_LIST_CAP) break;
+    const rows = grp.rows.slice(0, MOVEMENT_LIST_CAP - shown);
+    shown += rows.length;
+    out.push(`
+      <div class="mv-group">
+        <div class="mv-group-head">
+          <span>${escapeHTML(grp.name)}</span>
+          <span class="mv-count">${escapeHTML(grp.rows.length)}</span>
+        </div>
+        <div class="grade-cards">
+          ${rows
+            .map((r) => {
+              const right =
+                kind === 'fast'
+                  ? `<span class="mv-qty">${escapeHTML(r.qty)}</span>`
+                  : `<span class="mv-idle">${r.daysIdle == null ? 'من غير حركة' : `${escapeHTML(r.daysIdle)} يوم`}</span>`;
+              const extra =
+                kind === 'idle'
+                  ? `<span class="mv-onhand">${escapeHTML(r.onHand)} قطعة</span>`
+                  : '';
+              return `
+              <div class="grade-card mv-row">
+                <span class="mv-label">${escapeHTML(r.label)}${
+                  r.fresh ? '<span class="mv-fresh" title="رجعت بعد ما خلصت — بتتحسب درجة جديدة">جديدة</span>' : ''
+                }</span>
+                <span class="mv-right">${extra}${right}</span>
+              </div>`;
+            })
+            .join('')}
+        </div>
+      </div>`);
+  }
+  const total = groups.reduce((n, g) => n + g.rows.length, 0);
+  if (total > shown) out.push(`<div class="mv-more">وفيه ${escapeHTML(total - shown)} كمان — دي أول ${escapeHTML(shown)}</div>`);
+  return out.join('');
 }
 
 function movementScreenHTML() {
   const days = getMovementDays();
+  const span = getMovementSpan();
   const open = getMovementOpen();
 
   if (movementBackfill) {
@@ -290,8 +411,8 @@ function movementScreenHTML() {
       <div class="card" style="padding:12px; margin-bottom:12px;">
         <div style="font-size:15px; font-weight:600;">📈 حركة المخزون</div>
         <div style="font-size:12px; color:var(--text-secondary); margin-top:4px; line-height:1.7;">
-          إيه اللي بيسحب بسرعة، وإيه اللي واقف. الأرقام بتتجمّع لوحدها مع كل
-          تعديل كمية — مافيش حاجة بتتحسب دلوقتي.
+          إيه اللي بيسحب بسرعة، وإيه اللي فلوسك واقفة فيه. الأرقام بتتجمّع
+          لوحدها مع كل تعديل كمية — مافيش حاجة بتتحسب دلوقتي.
         </div>
 
         <div class="mv-days">
@@ -300,26 +421,105 @@ function movementScreenHTML() {
                  inputmode="numeric" value="${escapeHTML(days)}" />
           <span>يوم</span>
         </div>
-        <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">
-          غيّر الرقم وهو بيتحفظ لوحده. مثال: ١٥ يوم، أو ٣٠، أو ٩٠.
+
+        <div class="mv-days" style="border-top:none; padding-top:0; margin-top:8px;">
+          <label for="mv-span">"بتسحب بسرعة" بتحسب</label>
+          <select class="input" id="mv-span" style="width:auto; min-width:110px;">
+            ${MOVEMENT_SPANS.map(
+              (sp) => `<option value="${sp.key}" ${sp.key === span.key ? 'selected' : ''}>${escapeHTML(sp.label)}</option>`
+            ).join('')}
+          </select>
         </div>
 
         <div class="mv-tools">
           <button class="btn" id="mv-refresh">🔄 حدّث الأرقام</button>
+          <button class="btn" id="mv-repeat">🔁 فئات درجاتها بتتكرر</button>
           <button class="btn" id="mv-backfill">📥 احسب من السجل القديم</button>
         </div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.7;">
-          متتبّع منها <strong>${escapeHTML(rep.tracked)}</strong> درجة من <strong>${escapeHTML(rep.total)}</strong>.
-          لو الرقم قليل، دوس "احسب من السجل القديم" مرة واحدة عشان تاريخك كله يتحسب.
+          متتبّع <strong>${escapeHTML(rep.tracked)}</strong> درجة من <strong>${escapeHTML(rep.total)}</strong>.
+          ${rep.soldOut ? `و<strong>${escapeHTML(rep.soldOut)}</strong> درجة خلصانة (مش محسوبة في الراكد).` : ''}
+          <br>لو الرقم قليل، دوس "احسب من السجل القديم" مرة واحدة عشان تاريخك كله يتحسب.
         </div>
       </div>
 
-      ${movementSectionHTML('fast', '🔥', 'بتسحب بسرعة', rep.fast.length,
-        `الأكتر بيعًا في شهر ${rep.month}`, movementRowsHTML(rep.fast, 'fast'), open.fast)}
+      ${movementSectionHTML('fast', '🔥', 'بتسحب بسرعة', rep.fastCount,
+        `الأكتر بيعًا خلال ${span.label}`, movementRowsHTML(rep.fast, 'fast'), open.fast)}
 
-      ${movementSectionHTML('idle', '🧊', 'راكدة', rep.idle.length,
-        `مامتحركتش من ${days} يوم أو أكتر`, movementRowsHTML(rep.idle, 'idle'), open.idle)}
+      ${movementSectionHTML('idle', '🧊', 'راكدة', rep.idleCount,
+        `فيها بضاعة ومامتحركتش من ${days} يوم أو أكتر`, movementRowsHTML(rep.idle, 'idle'), open.idle)}
     </div>`;
+}
+
+// ============================================================
+// فئات درجاتها بتتكرر
+// ============================================================
+// القاعدة الافتراضية: الدرجة اللي خلصت ورجعت = **درجة جديدة** (صبغة
+// وشحنة تانية)، فساعة "راكدة" بتبدأ من أول.
+//
+// بس فيه فئات درجاتها ثابتة فعلًا — بتخلص وبتيجي **زيها بالظبط**.
+// الشاشة دي بتخلّي صاحب المحل يعلّم عليها، وساعتها الدرجة بتفضل نفسها.
+//
+// ⚠️ الدرجات الأساسية **دايمًا** بتتعامل كده من غير ما تعلّم على حاجة —
+// الأبيض بيخلص وبيجي أبيض غيره، ودي نفس الدرجة بالمنطق ده.
+function openRepeatGradesDialog() {
+  const cats = (state.categories || []).slice();
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:400px; width:100%; max-height:88vh; display:flex; flex-direction:column;">
+      <div style="font-size:15px; font-weight:600; margin-bottom:6px;">🔁 فئات درجاتها بتتكرر</div>
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
+        افتراضيًا: الدرجة اللي تخلص وترجع بتتحسب <strong>درجة جديدة</strong>،
+        وعدّاد "راكدة" بيبدأ من أول.
+        <br>علّم على الفئة اللي درجاتها <strong>بتتكرر زي ما هي</strong> —
+        ساعتها الدرجة تفضل نفسها والعدّاد يكمّل.
+        <br>⚠️ الدرجات الأساسية بتتعامل كده دايمًا من غير ما تعلّم.
+      </div>
+      <div style="flex:1; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:6px;">
+        ${
+          cats.length
+            ? cats
+                .map(
+                  (c) => `
+          <label class="mv-cat-row">
+            <input type="checkbox" data-repeat-cat="${escapeHTML(c.id)}" ${c.repeatGrades ? 'checked' : ''} />
+            <span>${escapeHTML(c.name)}</span>
+          </label>`
+                )
+                .join('')
+            : '<div class="home-empty" style="padding:1rem; text-align:center;">مفيش فئات.</div>'
+        }
+      </div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button class="btn btn-primary" id="mv-repeat-save" style="flex:1;">حفظ</button>
+        <button class="btn" id="mv-repeat-cancel" style="flex:1;">إلغاء</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.parentNode && document.body.removeChild(overlay);
+  overlay.querySelector('#mv-repeat-cancel').addEventListener('click', close);
+  overlay.querySelector('#mv-repeat-save').addEventListener('click', () =>
+    safeAsync(async () => {
+      // ⚠️ بنكتب **اللي اتغيّر بس** — مش كل الفئات. الحفظ على 39 فئة
+      // وإنت غيّرت واحدة معناه 39 كتابة في السحابة على الفاضي.
+      const boxes = overlay.querySelectorAll('[data-repeat-cat]');
+      const changed = [];
+      boxes.forEach((b) => {
+        const id = b.getAttribute('data-repeat-cat');
+        const cat = cats.find((c) => c.id === id);
+        const was = !!(cat && cat.repeatGrades);
+        if (b.checked !== was) changed.push({ id, on: b.checked });
+      });
+      for (const ch of changed) {
+        await db.collection('categories').doc(ch.id).update({ repeatGrades: ch.on });
+      }
+      close();
+      renderFromData();
+    }, 'حفظ الفئات')
+  );
 }
 
 function attachMovementEvents() {
@@ -357,6 +557,17 @@ function attachMovementEvents() {
       setMovementOpen(map);
     });
   });
+
+  const spanEl = document.getElementById('mv-span');
+  if (spanEl) {
+    spanEl.addEventListener('change', () => {
+      setMovementSpan(spanEl.value);
+      renderFromData();
+    });
+  }
+
+  const repeat = document.getElementById('mv-repeat');
+  if (repeat) repeat.addEventListener('click', () => openRepeatGradesDialog());
 
   const refresh = document.getElementById('mv-refresh');
   if (refresh) {
