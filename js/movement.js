@@ -385,15 +385,20 @@ function movementScreenHTML() {
   const open = getMovementOpen();
 
   if (movementBackfill) {
-    const pct = movementBackfill.total ? Math.round((movementBackfill.done / movementBackfill.total) * 100) : 0;
+    const known = movementBackfill.total > 0;
+    const pct = known ? Math.min(100, Math.round((movementBackfill.done / movementBackfill.total) * 100)) : 0;
     return `
       <div style="padding:1rem;">
         <div class="card" style="padding:16px; text-align:center;">
           <div style="font-size:15px; font-weight:600; margin-bottom:8px;">📈 بيقرا السجل القديم…</div>
           <div style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">
-            ${escapeHTML(movementBackfill.done)} من ${escapeHTML(movementBackfill.total)} عملية — ${escapeHTML(pct)}%
+            ${
+              known
+                ? `${escapeHTML(movementBackfill.done)} من ${escapeHTML(movementBackfill.total)} عملية — ${escapeHTML(pct)}%`
+                : `${escapeHTML(movementBackfill.done)} عملية…`
+            }
           </div>
-          <div class="mv-bar"><span style="width:${pct}%"></span></div>
+          ${known ? `<div class="mv-bar"><span style="width:${pct}%"></span></div>` : '<div class="mv-bar mv-bar-wait"><span></span></div>'}
           <div style="font-size:12px; color:var(--text-muted); margin-top:10px;">
             سيب الشاشة مفتوحة لحد ما يخلص. بيحصل مرة واحدة بس.
           </div>
@@ -594,8 +599,14 @@ function attachMovementEvents() {
 // بيتقرا على صفحات بدل قراءة واحدة: السجل ممكن يكون عشرات الآلاف،
 // وقراءة واحدة كبيرة بتوقّع التليفون. وبيتكتب على دفعات بـbatch عشان
 // الكتابة تبقى ذرّية ومش ألف طلب منفصل.
-const MOVEMENT_PAGE = 500;
+// ⚠️ الصفحة 1000 مش 500: عدد المستندات اللي بتتقرا هو هو، بس عدد
+// الرحلات للسحابة بينص. على بيانات الموبايل الرحلة بتاخد وقت أكتر من
+// البيانات نفسها.
+const MOVEMENT_PAGE = 1000;
 const MOVEMENT_WRITE_BATCH = 400;
+// أقل وقت بين رسمتين لشريط التقدم — من غيره الشاشة بتتعاد رسمها مع كل
+// صفحة والتقدم نفسه بيبقى أبطأ من الشغل الحقيقي.
+const MOVEMENT_TICK_MS = 500;
 
 // سطر السجل → حركة. "بيع" = كمية الفرع قلّت، وبس.
 function movementFromLogEntry(e) {
@@ -639,12 +650,25 @@ async function backfillMovementFromLog() {
   const acc = {}; // key → الملخص المتجمّع
   let last = null;
   let scanned = 0;
+  let lastTick = 0;
 
   try {
-    // بنعدّ الأول عشان شريط التقدم يبقى ليه معنى
+    // ============================================================
+    // ⭐⭐ العدّ بـcount() — مش بقراءة السجل كله
+    // ============================================================
+    // ⚠️ أول نسخة كانت بتعمل `.get()` على المجموعة كلها **عشان تعرف
+    // العدد بس**، وبعدين تقراها تاني على صفحات. يعني السجل بيتقرا
+    // **مرتين**: 12,554 عملية بقت 25,108 قراءة.
+    //
+    // ده مش بطء وبس — الحد المجاني 50,000 قراءة في اليوم، فالتشغيلة
+    // الواحدة كانت بتاكل **نص اليوم**.
+    //
+    // count() بترجّع الرقم من السيرفر بقراءة واحدة تقريبًا. ولو مش
+    // متاحة لأي سبب، بنكمّل من غير نسبة مئوية — التقدم بيعرض العدد
+    // اللي اتقرا وبس، والشغل بيمشي عادي.
     try {
-      const countSnap = await db.collection('activityLog').get();
-      movementBackfill.total = countSnap.size;
+      const agg = await db.collection('activityLog').count().get();
+      movementBackfill.total = Number(agg.data().count) || 0;
     } catch (err) {
       movementBackfill.total = 0;
     }
@@ -684,7 +708,12 @@ async function backfillMovementFromLog() {
       });
 
       movementBackfill.done = scanned;
-      renderFromData();
+      // الرسم مرة كل نص ثانية بالكتير — مش مع كل صفحة
+      const now = Date.now();
+      if (now - lastTick > MOVEMENT_TICK_MS) {
+        lastTick = now;
+        renderFromData();
+      }
 
       last = snap.docs[snap.docs.length - 1];
       if (snap.size < MOVEMENT_PAGE) break;

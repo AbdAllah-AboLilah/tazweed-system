@@ -2279,3 +2279,19 @@ tr.grade-base td:first-child {
 
 .mv-cat-row:hover { background: var(--surface-muted); }
 .mv-cat-row input { width: 18px; height: 18px; flex: 0 0 auto; }
+
+/* شريط تقدم من غير نسبة معروفة — بيتحرك عشان يقول إن الشغل ماشي */
+.mv-bar-wait span {
+  width: 35%;
+  animation: mv-wait 1.2s ease-in-out infinite;
+}
+
+@keyframes mv-wait {
+  0% { margin-inline-start: 0; }
+  50% { margin-inline-start: 65%; }
+  100% { margin-inline-start: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mv-bar-wait span { animation: none; width: 100%; }
+}

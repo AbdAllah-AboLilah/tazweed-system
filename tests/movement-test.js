@@ -187,6 +187,57 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ الأساسية مش درجة جديدة', r.baseNoCycle);
   check('⭐ الفئة المعلّم عليها مش درجة جديدة', r.repeatCatNoCycle);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
+  // ---- الملء من السجل: بيقرا السجل **مرة واحدة** ----
+  // ⚠️ أول نسخة كانت بتقرا المجموعة كلها عشان تعرف العدد، وبعدين تقراها
+  // تاني على صفحات — يعني السجل بيتقرا مرتين. على 12,554 عملية ده كان
+  // 25,108 قراءة، والحد المجاني 50,000 في اليوم.
+  const bf = await p.evaluate(async () => {
+    const calls = [];
+    const TOTAL = 2300;
+    const makeDoc = (i) => ({
+      id: 'L' + i,
+      data: () => ({
+        categoryId: 'c1', gradeId: 'g' + (i % 7), action: 'edit', field: 'branchQty',
+        oldValue: 5, newValue: 4, gradeNumber: String(i % 7), categoryName: 'كريب',
+        timestamp: { toDate: () => new Date(Date.now() - i * 1000) },
+      }),
+    });
+    let cursor = 0;
+    const q = (lim) => ({
+      orderBy: () => q(lim),
+      limit: (n) => q(n),
+      startAfter: () => q(lim),
+      count: () => ({ get: async () => { calls.push('count'); return { data: () => ({ count: TOTAL }) }; } }),
+      get: async () => {
+        calls.push('page');
+        const n = Math.min(lim || 1000, TOTAL - cursor);
+        const docs = [];
+        for (let i = 0; i < n; i++) docs.push(makeDoc(cursor + i));
+        cursor += n;
+        return { docs, size: docs.length, empty: docs.length === 0 };
+      },
+    });
+    const realDb = window.db, realFb = window.firebase;
+    const realConfirm = window.confirm, realAlert = window.alert;
+    let batches = 0;
+    window.db = { collection: () => Object.assign(q(1000), { doc: (id) => ({ id }) }),
+                  batch: () => ({ set() {}, commit: async () => { batches++; } }) };
+    window.firebase = { firestore: { Timestamp: { fromDate: (d) => d } } };
+    window.confirm = () => true;
+    window.alert = () => {};
+    await backfillMovementFromLog();
+    window.db = realDb; window.firebase = realFb;
+    window.confirm = realConfirm; window.alert = realAlert;
+    return {
+      counts: calls.filter((c) => c === 'count').length,
+      pages: calls.filter((c) => c === 'page').length,
+      batches,
+    };
+  });
+  check('⭐ الملء بيستخدم count() مرة واحدة بس', bf.counts === 1, bf);
+  check('⭐ السجل بيتقرا مرة واحدة (٣ صفحات لـ2300 + قراءة الملخّص)', bf.pages === 4, bf);
+  check('الكتابة على دفعات', bf.batches >= 1, bf);
+
   await b.close();
 
   // ---- القواعد لازم تفضل متطابقة مع permissions.js ----
