@@ -25,6 +25,7 @@ const MOVEMENT_DEFAULT_DAYS = 15;
 const MOVEMENT_DAYS_KEY = 'tazweed_movement_days';
 const MOVEMENT_OPEN_KEY = 'tazweed_movement_open';
 const MOVEMENT_SPAN_KEY = 'tazweed_movement_span';   // فترة "بتسحب بسرعة"
+const MOVEMENT_GROUPS_KEY = 'tazweed_movement_groups'; // الفئات المقفولة
 const MOVEMENT_SPANS = [
   { key: '1', label: 'الشهر ده', months: 1 },
   { key: '2', label: 'شهرين', months: 2 },
@@ -71,6 +72,36 @@ function getMovementOpen() {
   } catch (err) {
     return { fast: true, idle: true, unknown: false };
   }
+}
+
+// ============================================================
+// الفئات المقفولة جوّه الأقسام
+// ============================================================
+// بنخزّن **المقفول** مش المفتوح: الافتراضي إن الفئة مفتوحة، فالقايمة
+// بتفضل فاضية لحد ما المستخدم يقفل حاجة بنفسه.
+//
+// ⚠️ المفتاح فيه اسم الفئة، والاسم بيتحط في خاصية HTML. `escapeHTML`
+// **مابتهربش علامة التنصيص** (بتستخدم textContent)، فاسم فيه `"` كان
+// هيكسر الخاصية. بنستخدم encodeURIComponent — مافيهوش تنصيص ولا مسافات.
+function getClosedGroups() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MOVEMENT_GROUPS_KEY));
+    return Array.isArray(raw) ? new Set(raw) : new Set();
+  } catch (err) {
+    return new Set();
+  }
+}
+
+function setClosedGroups(set) {
+  try {
+    localStorage.setItem(MOVEMENT_GROUPS_KEY, JSON.stringify([...set]));
+  } catch (err) {
+    /* التخزين مقفول — الفئات هتفضل مفتوحة وبس */
+  }
+}
+
+function groupKey(kind, name) {
+  return kind + '::' + name;
 }
 
 function setMovementOpen(map) {
@@ -370,19 +401,29 @@ function movementRowsHTML(groups, kind) {
     };
     return `<div class="home-empty" style="padding:1rem; text-align:center;">${empty[kind]}</div>`;
   }
+  // ⭐ كل فئة ليها زرار قفل لوحدها — نفس فكرة الأقسام الكبيرة.
+  // من غيره لازم تنزل تحت الفئة كلها عشان توصل للي بعدها، والفئة ممكن
+  // تكون فيها 69 درجة.
+  const closed = getClosedGroups();
   let shown = 0;
   const out = [];
   for (const grp of groups) {
     if (shown >= MOVEMENT_LIST_CAP) break;
     const rows = grp.rows.slice(0, MOVEMENT_LIST_CAP - shown);
     shown += rows.length;
+    const shut = closed.has(groupKey(kind, grp.name));
     out.push(`
       <div class="mv-group">
-        <div class="mv-group-head">
-          <span>${escapeHTML(grp.name)}</span>
-          <span class="mv-count">${escapeHTML(grp.rows.length)}</span>
-        </div>
-        <div class="grade-cards">
+        <button type="button" class="mv-group-head ${shut ? 'shut' : ''}"
+                data-mv-group="${encodeURIComponent(groupKey(kind, grp.name))}"
+                aria-expanded="${shut ? 'false' : 'true'}">
+          <span class="mv-group-name">${escapeHTML(grp.name)}</span>
+          <span class="mv-group-side">
+            <span class="mv-count">${escapeHTML(grp.rows.length)}</span>
+            <span class="pset-chev">▾</span>
+          </span>
+        </button>
+        <div class="grade-cards" ${shut ? 'hidden' : ''}>
           ${rows
             .map((r) => {
               const right =
@@ -442,6 +483,15 @@ function movementScreenHTML() {
     return `<div style="padding:1rem;"><div class="home-empty" style="padding:2rem; text-align:center;">جارٍ تحميل الدرجات…</div></div>`;
   }
 
+  // فيه فئة واحدة على الأقل مفتوحة؟ الزرار بيقلب حسب ده.
+  const closedNow = getClosedGroups();
+  const allKeys = [
+    ...rep.fast.map((g) => groupKey('fast', g.name)),
+    ...rep.idle.map((g) => groupKey('idle', g.name)),
+    ...rep.unknown.map((g) => groupKey('unknown', g.name)),
+  ];
+  const anyOpen = allKeys.some((k) => !closedNow.has(k));
+
   return `
     <div style="padding:1rem;">
       <div class="card" style="padding:12px; margin-bottom:12px;">
@@ -468,6 +518,7 @@ function movementScreenHTML() {
         </div>
 
         <div class="mv-tools">
+          <button class="btn" id="mv-fold">${anyOpen ? '⬆️ اقفل كل الفئات' : '⬇️ افتح كل الفئات'}</button>
           <button class="btn" id="mv-refresh">🔄 حدّث الأرقام</button>
           <button class="btn" id="mv-repeat">🔁 فئات درجاتها بتتكرر</button>
           <button class="btn" id="mv-backfill">📥 احسب من السجل القديم</button>
@@ -619,6 +670,38 @@ function attachMovementEvents() {
   if (spanEl) {
     spanEl.addEventListener('change', () => {
       setMovementSpan(spanEl.value);
+      renderFromData();
+    });
+  }
+
+  // قفل/فتح الفئة الواحدة — معالج واحد لكلهم
+  document.querySelectorAll('.mv-group-head[data-mv-group]').forEach((btn) => {
+    const box = btn.nextElementSibling;
+    if (!box) return;
+    btn.addEventListener('click', () => {
+      const key = decodeURIComponent(btn.getAttribute('data-mv-group'));
+      const willOpen = box.hidden;
+      box.hidden = !willOpen;
+      btn.classList.toggle('shut', !willOpen);
+      btn.setAttribute('aria-expanded', String(willOpen));
+      const set = getClosedGroups();
+      if (willOpen) set.delete(key);
+      else set.add(key);
+      setClosedGroups(set);
+    });
+  });
+
+  const fold = document.getElementById('mv-fold');
+  if (fold) {
+    fold.addEventListener('click', () => {
+      const heads = [...document.querySelectorAll('.mv-group-head[data-mv-group]')];
+      const keys = heads.map((h) => decodeURIComponent(h.getAttribute('data-mv-group')));
+      const set = getClosedGroups();
+      const anyOpen = keys.some((k) => !set.has(k));
+      // مفتوح واحد على الأقل → اقفل الكل. كلهم مقفولين → افتح الكل.
+      if (anyOpen) keys.forEach((k) => set.add(k));
+      else keys.forEach((k) => set.delete(k));
+      setClosedGroups(set);
       renderFromData();
     });
   }

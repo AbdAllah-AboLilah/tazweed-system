@@ -200,6 +200,66 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ الأساسية مش درجة جديدة', r.baseNoCycle);
   check('⭐ الفئة المعلّم عليها مش درجة جديدة', r.repeatCatNoCycle);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
+  // ---- قفل/فتح الفئة الواحدة ----
+  // ⚠️ اسم الفئة بيتحط في خاصية HTML، و`escapeHTML` مابتهربش علامة
+  // التنصيص (بتستخدم textContent) — فبنجرّب باسم فيه `"` بالتحديد.
+  const fold = await p.evaluate(() => {
+    state.isNarrow = true;
+    state.profile = { name: 'A', role: 'owner' };
+    state.categories = [{ id: 'c1', name: 'كريب "سادة" لوكس' }, { id: 'c2', name: 'بونيه' }];
+    const M = movementMonthKey(), now = Date.now(), day = 86400000;
+    const mk = (d) => ({ toDate: () => new Date(d) });
+    allGradesCache = [];
+    movementStats = {};
+    [['c1', '56', 1, 34, 5], ['c1', '8', 2, 21, 7], ['c2', '6', 40, 0, 3]].forEach(
+      ([cat, num, idle, sold, bq], i) => {
+        const gid = 'x' + i;
+        allGradesCache.push({ catId: cat, gradeId: gid, name: num, branchQty: bq, mainQty: 0 });
+        movementStats[cat + '__' + gid] = {
+          gradeNumber: num, lastMovedAt: mk(now - idle * day),
+          soldByMonth: { [M]: sold }, soldTotal: sold, moves: 3,
+        };
+      }
+    );
+    setMovementDays(15);
+    setMovementSpan('1');
+    localStorage.removeItem('tazweed_movement_groups');
+    localStorage.setItem('tazweed_movement_open', JSON.stringify({ fast: true, idle: true, unknown: true }));
+    window.renderFromData = () => {
+      document.body.innerHTML = '<div id=root>' + movementScreenHTML() + '</div>';
+      attachMovementEvents();
+    };
+    renderFromData();
+
+    const heads = [...document.querySelectorAll('.mv-group-head[data-mv-group]')];
+    const first = heads[0];
+    const nameKept = first.textContent.includes('كريب "سادة" لوكس');
+    first.click();
+    const shut = first.nextElementSibling.hidden && first.classList.contains('shut');
+    const saved = JSON.parse(localStorage.getItem('tazweed_movement_groups') || '[]');
+    renderFromData();
+    const remembered = document.querySelector('.mv-group-head[data-mv-group]').nextElementSibling.hidden;
+
+    document.getElementById('mv-fold').click();
+    const allShut = [...document.querySelectorAll('.mv-group-head[data-mv-group]')]
+      .every((h) => h.nextElementSibling.hidden);
+    const label = document.getElementById('mv-fold').textContent.trim();
+    document.getElementById('mv-fold').click();
+    const allOpen = [...document.querySelectorAll('.mv-group-head[data-mv-group]')]
+      .every((h) => !h.nextElementSibling.hidden);
+    localStorage.removeItem('tazweed_movement_groups');
+    return { count: heads.length, nameKept, shut, saved, remembered, allShut, label, allOpen };
+  });
+
+  check('كل فئة ليها زرار قفل', fold.count >= 2, fold);
+  check('⭐ اسم فيه علامة تنصيص مابيكسرش الخاصية', fold.nameKept, fold);
+  check('الفئة بتتقفل', fold.shut, fold);
+  check('والقفل بيتخزّن', fold.saved.length === 1, fold);
+  check('وبيتفتكر بعد إعادة الرسم', fold.remembered, fold);
+  check('"اقفل كل الفئات" بتقفل الكل', fold.allShut, fold);
+  check('والزرار بيقلب لـ"افتح"', fold.label.includes('افتح'), fold);
+  check('و"افتح الكل" بترجّعهم', fold.allOpen, fold);
+
   // ---- الملء من السجل: بيقرا السجل **مرة واحدة** ----
   // ⚠️ أول نسخة كانت بتقرا المجموعة كلها عشان تعرف العدد، وبعدين تقراها
   // تاني على صفحات — يعني السجل بيتقرا مرتين. على 12,554 عملية ده كان

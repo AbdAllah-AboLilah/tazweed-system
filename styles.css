@@ -2230,18 +2230,40 @@ tr.grade-base td:first-child {
 /* مجموعات تقرير الحركة — كل فئة لوحدها */
 .mv-group { margin-bottom: 10px; }
 
+/* عنوان الفئة بقى زرار بيقفل ويفتح صفوفها */
 .mv-group-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
   margin-bottom: 6px;
+  border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-muted);
+  color: var(--text-primary);
+  font-family: inherit;
   font-size: 13px;
   font-weight: 600;
+  text-align: start;
+  cursor: pointer;
 }
+
+.mv-group-name { min-width: 0; }
+
+.mv-group-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* المقفولة: السهم بيتقلب، والعنوان بيخف شوية */
+.mv-group-head.shut { margin-bottom: 6px; opacity: 0.75; }
+.mv-group-head .pset-chev { transition: transform 0.15s; }
+.mv-group-head.shut .pset-chev { transform: rotate(-90deg); }
 
 .mv-right {
   display: flex;
