@@ -231,29 +231,35 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     };
     renderFromData();
 
+    // ⚠️⚠️ بنقيس **الإخفاء الفعلي** مش خاصية hidden.
+    // العطل اللي علّم الدرس: الخاصية بتتحط والسهم بيلف، والمحتوى يفضل
+    // ظاهر — لأن `.grade-cards` عليها `display:flex` وبتغلب قاعدة
+    // المتصفح لـ[hidden]. الفحص القديم كان بيشوف `box.hidden` وبينجح
+    // وهو **مش شايف الشاشة**.
+    const isGone = (el) => getComputedStyle(el).display === 'none' && el.getBoundingClientRect().height === 0;
     const heads = [...document.querySelectorAll('.mv-group-head[data-mv-group]')];
     const first = heads[0];
     const nameKept = first.textContent.includes('كريب "سادة" لوكس');
     first.click();
-    const shut = first.nextElementSibling.hidden && first.classList.contains('shut');
+    const shut = isGone(first.nextElementSibling) && first.classList.contains('shut');
     const saved = JSON.parse(localStorage.getItem('tazweed_movement_groups') || '[]');
     renderFromData();
-    const remembered = document.querySelector('.mv-group-head[data-mv-group]').nextElementSibling.hidden;
+    const remembered = isGone(document.querySelector('.mv-group-head[data-mv-group]').nextElementSibling);
 
     document.getElementById('mv-fold').click();
     const allShut = [...document.querySelectorAll('.mv-group-head[data-mv-group]')]
-      .every((h) => h.nextElementSibling.hidden);
+      .every((h) => isGone(h.nextElementSibling));
     const label = document.getElementById('mv-fold').textContent.trim();
     document.getElementById('mv-fold').click();
     const allOpen = [...document.querySelectorAll('.mv-group-head[data-mv-group]')]
-      .every((h) => !h.nextElementSibling.hidden);
+      .every((h) => !isGone(h.nextElementSibling));
     localStorage.removeItem('tazweed_movement_groups');
     return { count: heads.length, nameKept, shut, saved, remembered, allShut, label, allOpen };
   });
 
   check('كل فئة ليها زرار قفل', fold.count >= 2, fold);
   check('⭐ اسم فيه علامة تنصيص مابيكسرش الخاصية', fold.nameKept, fold);
-  check('الفئة بتتقفل', fold.shut, fold);
+  check('⭐ الفئة بتختفي فعلًا من الشاشة (مش الخاصية بس)', fold.shut, fold);
   check('والقفل بيتخزّن', fold.saved.length === 1, fold);
   check('وبيتفتكر بعد إعادة الرسم', fold.remembered, fold);
   check('"اقفل كل الفئات" بتقفل الكل', fold.allShut, fold);
