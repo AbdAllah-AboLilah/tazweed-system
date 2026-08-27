@@ -2226,3 +2226,56 @@ tr.grade-base td:first-child {
   background: var(--accent);
   transition: width 0.2s;
 }
+
+/* مجموعات تقرير الحركة — كل فئة لوحدها */
+.mv-group { margin-bottom: 10px; }
+
+.mv-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mv-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.mv-onhand {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.mv-fresh {
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.mv-cat-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mv-cat-row:hover { background: var(--surface-muted); }
+.mv-cat-row input { width: 18px; height: 18px; flex: 0 0 auto; }

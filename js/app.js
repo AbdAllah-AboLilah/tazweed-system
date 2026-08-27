@@ -4934,6 +4934,21 @@ async function resetOutOfStock(gradeId) {
     gradeId,
     gradeNumber: data.number,
   });
+
+  // "رجّعها متاحة" برضه رجوع بعد خلاص → دورة جديدة (نفس قاعدة الكميات)
+  if (typeof recordMovement === 'function') {
+    recordMovement({
+      categoryId,
+      categoryName,
+      gradeId,
+      gradeNumber: data.number,
+      gradeName: data.name,
+      soldQty: 0,
+      newCycle:
+        typeof isNewCycleGrade === 'function' &&
+        isNewCycleGrade(state.categories.find((c) => c.id === categoryId), data),
+    });
+  }
 }
 
 async function deleteGrade(categoryId, gradeId, gradeNumber) {
@@ -5084,6 +5099,14 @@ async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldVal
   // بـ17 تركيبة، فأي حقل جديد هناك كان هيمنع تعديل الكميات خالص.)
   // "بيع" = كمية الفرع قلّت. النقل من الرئيسي مش بيع.
   if (typeof recordMovement === 'function') {
+    // ⭐ رجعت بعد ما خلصت؟ ساعة "راكدة" تبدأ من أول — الدرجة دي شحنة
+    // تانية. (الأساسيات والفئات المعلّم عليها مستثناة — isNewCycleGrade)
+    const cameBack =
+      (data.status || '') === 'out' &&
+      nextStatus &&
+      nextStatus !== 'out' &&
+      typeof isNewCycleGrade === 'function' &&
+      isNewCycleGrade(state.categories.find((c) => c.id === categoryId), data);
     recordMovement({
       categoryId,
       categoryName,
@@ -5091,6 +5114,7 @@ async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldVal
       gradeNumber: data.number,
       gradeName: data.name,
       soldQty: field === 'branchQty' ? Math.max(0, (Number(oldValue) || 0) - (Number(newValue) || 0)) : 0,
+      newCycle: cameBack,
     });
   }
 

@@ -193,6 +193,9 @@ function subscribeOverview() {
           name: g.name,
           number: g.number,
           branchQty: Number(g.branchQty) || 0,
+          // ⭐ تقرير الحركة محتاجها: الدرجة اللي مافيهاش بضاعة في المخزنين
+          // **مش راكدة** — هي خلصانة، ومش المفروض تظهر في القايمة.
+          mainQty: Number(g.mainQty) || 0,
           criticalQty: g.criticalQty,
         };
       });
