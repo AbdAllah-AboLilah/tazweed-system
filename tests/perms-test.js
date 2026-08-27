@@ -110,7 +110,9 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   });
   check('شاشة الحسابات بترسم الحسابات', users.rows === 3, users);
   check('معرّف الحساب ظاهر للنسخ', users.uid === 'me', users);
-  check('جدول المفاتيح كامل (16 مفتاح)', users.perms === 16, users);
+  // ⚠️ الرقم ده حارس: أي مفتاح جديد في permissions.js لازم يتحدّث هنا،
+  // وده بيفكّرك تضيفه في firestore.rules كمان (presetHas).
+  check('جدول المفاتيح كامل (17 مفتاح)', users.perms === 17, users);
   check('الاستثناء المحفوظ ظاهر في مكانه', users.val === 'false', users);
   check('رتبة حساب عادي بتتغيّر', users.roleLocked === false, users);
   check('⭐ رتبة منشئ النظام مقفولة', users.meLocked === true, users);

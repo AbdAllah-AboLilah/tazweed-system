@@ -144,6 +144,7 @@ node tests/nav-test.js
 node tests/theme-test.js
 node tests/label-bidi-test.js
 node tests/mobile-cards-test.js
+node tests/movement-test.js
 node tests/restock-print-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js

@@ -2136,3 +2136,92 @@ tr.grade-base td:first-child {
   white-space: nowrap;
   color: var(--text-muted);
 }
+
+/* ============================================================
+   تقرير حركة المخزون
+   ============================================================ */
+.mv-sec { margin-bottom: 10px; }
+
+.mv-count {
+  min-width: 26px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.mv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+}
+
+.mv-label {
+  font-size: 13px;
+  line-height: 1.5;
+  min-width: 0;
+}
+
+.mv-qty,
+.mv-idle {
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mv-qty { color: var(--danger-text); }
+.mv-idle { color: var(--text-muted); font-weight: 500; }
+
+.mv-more {
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.mv-days {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.mv-days .input {
+  width: 84px;
+  padding: 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.mv-tools {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.mv-tools .btn { flex: 1; min-width: 150px; font-size: 13px; }
+
+.mv-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.mv-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}

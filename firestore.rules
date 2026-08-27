@@ -41,7 +41,7 @@ service cloud.firestore {
     // قوالب الرتب — لازم تفضل مطابقة لـ ROLE_PRESETS في permissions.js
     function presetHas(key) {
       return (role() in ['owner', 'admin'])
-        || (role() == 'branch_manager' && !(key in ['manageUsers', 'printerSetup']))
+        || (role() == 'branch_manager' && !(key in ['manageUsers', 'printerSetup', 'viewReports']))
         || (role() == 'supervisor' && key in ['manageCategories', 'addGrades', 'printLabel', 'printRestock', 'printScreen', 'remotePrint', 'viewProducts', 'excelTools', 'viewActivity'])
         || (role() == 'warehouse_keeper' && key in ['editBranchQty', 'editMainQty', 'addGrades', 'printLabel', 'printRestock', 'printScreen', 'viewProducts', 'viewActivity'])
         || (role() == 'print_operator' && key in ['printLabel', 'printScreen', 'remotePrint'])
@@ -254,6 +254,27 @@ service cloud.firestore {
     // قراءة فقط — كل عمليات الكتابة لسه بتمر على القاعدة المتداخلة فوق.
     match /{path=**}/grades/{gradeId} {
       allow read: if isSignedIn();
+    }
+
+    // ============================================================
+    // حركة المخزون — ملخص صغير لكل درجة
+    // ============================================================
+    // ⚠️ ليه مجموعة منفصلة ومش حقول جوّه الدرجة: تعديل الدرجة متحكوم
+    // بـonlyChangedKeys بقايمة حقول مقفولة، وفيه 17 تركيبة في
+    // branchAction/mainAction. أي حقل جديد هناك كان لازم يتضاف للـ17
+    // كلهم، وأي واحدة تفوتنا معناها إن **تعديل الكميات بيترفض في صمت**.
+    //
+    // فالحركة ليها مستند مستقل وقاعدة مستقلة، ومستند الدرجة مالوش أي
+    // علاقة — بايت ببايت زي ما كان.
+    //
+    // الكتابة لأي حد بيقدر يعدّل كمية أصلًا: الملخص ده **مشتق** من تعديل
+    // هو عامله بالفعل، فمش بيدّيه أي قدرة زيادة. والقراءة لأي مستخدم
+    // مسجّل — التقرير نفسه متحكوم بمفتاح viewReports في الواجهة.
+    match /gradeStats/{statId} {
+      allow read: if isSignedIn();
+      allow create, update: if can('editBranchQty') || can('editMainQty');
+      // مافيش حذف: الملخص تاريخ، وأي حذف بيضيّع "من إمتى الدرجة راكدة".
+      allow delete: if false;
     }
 
     // سجل العمليات: أي مستخدم مسجّل دخول يقدر يضيف سجل (وقت تعديله هو نفسه)
