@@ -30,7 +30,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       { catId: 'c1', gradeId: 'g1', name: '56', branchQty: 4, mainQty: 0 },  // اتحركت امبارح، باعت 20
       { catId: 'c1', gradeId: 'g2', name: '12', branchQty: 3, mainQty: 0 },  // واقفة من 40 يوم وفيها بضاعة
       { catId: 'c2', gradeId: 'g3', name: '3', branchQty: 9, mainQty: 0 },   // اتحركت من يومين، باعت 5
-      { catId: 'c2', gradeId: 'g4', name: '7', branchQty: 2, mainQty: 0 },   // مامتحركتش خالص
+      { catId: 'c2', gradeId: 'g4', name: '7', branchQty: 2, mainQty: 0 },   // مالهاش تاريخ خالص
       { catId: 'c2', gradeId: 'g5', name: '9', branchQty: 0, mainQty: 0 },   // خلصانة — مش راكدة
     ];
     movementStats = {
@@ -49,8 +49,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.idle15 = a.idleCount;
     out.idleGroups = a.idle.map((g) => g.name);
     out.soldOut = a.soldOut;
-    // اللي عمره مااتحرك بيطلع أول صف في مجموعته
-    out.neverFirst = a.idle.some((g) => g.rows[0] && g.rows[0].daysIdle === null);
+    // ⭐ اللي مالهاش تاريخ اتفصلت في قسم لوحدها
+    out.unknownCount = a.unknownCount;
+    out.unknownGroups = a.unknown.map((g) => g.name);
+    // وولا صف في "راكدة" من غير عدد أيام حقيقي
+    out.idleAllHaveDays = a.idle.every((g) => g.rows.every((r) => typeof r.daysIdle === 'number'));
     out.tracked = a.tracked;
     out.total = a.total;
 
@@ -117,6 +120,12 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const html = movementScreenHTML();
     out.hasDaysInput = html.includes('id="mv-days-input"');
     out.hasBothSections = html.includes('data-mv="fast"') && html.includes('data-mv="idle"');
+    out.hasUnknownSection = html.includes('data-mv="unknown"');
+    out.explains = html.includes('مالناش سطر عنها في السجل');
+    out.unknownShutByDefault = (() => {
+      localStorage.removeItem('tazweed_movement_open');
+      return getMovementOpen().unknown === false && getMovementOpen().idle === true;
+    })();
     out.hasBackfill = html.includes('id="mv-backfill"');
     out.hasSpan = html.includes('id="mv-span"');
     out.hasRepeat = html.includes('id="mv-repeat"');
@@ -145,12 +154,13 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('الأسرع مرتّبة تنازلي', JSON.stringify(r.fastOrder) === '[20,5]', r.fastOrder);
   check('اللي مابعتش مش في قايمة الأسرع', r.fastCount === 2, r.fastCount);
   check('⭐ الصفوف متجمّعة تحت فئتها', r.fastGroups.length === 2 && r.idleGroups.length >= 1, [r.fastGroups, r.idleGroups]);
-  check('الراكد عند ١٥ يوم = اتنين', r.idle15 === 2, r.idle15);
+  check('الراكد عند ١٥ يوم = واحدة', r.idle15 === 1, r.idle15);
   check('⭐ الدرجة الخلصانة مش في الراكد', r.soldOut === 1, r.soldOut);
-  check('اللي عمره مااتحرك بيطلع أول مجموعته', r.neverFirst);
-  check('مدة أطول = راكد أقل', r.idle60 === 1, r.idle60);
-  // عند يوم واحد: الأربعة اللي فيهم بضاعة راكدين (الخلصانة مستثناة)
-  check('مدة أقصر = راكد أكتر', r.idle1 === 4, r.idle1);
+  check('⭐ اللي مالهاش تاريخ في قسم لوحدها', r.unknownCount === 1, r.unknownCount);
+  check('⭐ ولا صف في "راكدة" من غير عدد أيام', r.idleAllHaveDays, r);
+  check('مدة أطول = راكد أقل', r.idle60 === 0, r.idle60);
+  // عند يوم واحد: التلاتة اللي عندهم تاريخ وفيهم بضاعة
+  check('مدة أقصر = راكد أكتر', r.idle1 === 3, r.idle1);
   check('عدّاد المتتبَّع والإجمالي', r.tracked === 3 && r.total === 5, [r.tracked, r.total]);
 
   check('⭐ الحركة بتتكتب في gradeStats مش في الدرجة', JSON.stringify(r.writeCollections) === '["gradeStats","gradeStats","gradeStats"]', r.writeCollections);
@@ -177,6 +187,9 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
   check('الشاشة فيها عدّاد الأيام', r.hasDaysInput);
   check('الشاشة فيها القسمين', r.hasBothSections);
+  check('⭐ وفيها قسم "مافيش عنها تاريخ"', r.hasUnknownSection);
+  check('وبتشرح يعني إيه', r.explains);
+  check('القسم التالت مقفول افتراضيًا', r.unknownShutByDefault);
   check('الشاشة فيها زرار الحساب من السجل', r.hasBackfill);
   check('الشاشة فيها اختيار الفترة', r.hasSpan);
   check('الشاشة فيها زرار الفئات المتكررة', r.hasRepeat);
