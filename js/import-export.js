@@ -224,6 +224,39 @@ function openImportDialog() {
       لقيت <strong>${parsed.length}</strong> فئة فيهم <strong>${totalGrades}</strong> درجة.
       ${dupes ? `<br><span style="color:var(--text-muted);">${dupes} منهم موجودين عندك خلاص وهيتخطّوا.</span>` : ''}`;
 
+    // ============================================================
+    // على الموبايل: كارتس بدل الجدول
+    // ============================================================
+    // الجدول ده جوّه نافذة عرضها أقل من الشاشة، وفيه ٣ أعمدة — يعني
+    // "اسم الصنف" كان بيتقص لحرفين على تليفون ٣٩٠ بكسل.
+    // ⚠️ **نفس البيانات**: الفئة واسم الصنف وعدد الدرجات، ونفس التبهيت
+    // للفئة الموجودة أصلًا.
+    if (state.isNarrow) {
+      previewEl.innerHTML = `
+        <div style="max-height:34vh; overflow:auto; display:flex; flex-direction:column; gap:6px;">
+          ${parsed
+            .map((g) => {
+              const dup = existing.has(g.name);
+              return `<div class="imp-card" style="${dup ? 'opacity:0.45;' : ''}">
+                <div class="imp-name">${escapeHTML(g.name)}</div>
+                <div class="imp-meta">
+                  <span>${escapeHTML(g.itemName || '—')}</span>
+                  <span class="imp-count">${dup ? 'موجودة' : `${g.grades.length} درجة`}</span>
+                </div>
+              </div>`;
+            })
+            .join('')}
+        </div>`;
+      previewEl.style.display = 'block';
+      if (newOnes.length) {
+        confirmBtn.style.display = 'inline-block';
+        confirmBtn.textContent = `حفظ ${newOnes.length} فئة في النظام`;
+      } else {
+        statusEl.innerHTML += '<br>كل الفئات دي موجودة عندك خلاص — مفيش جديد يتضاف.';
+      }
+      return;
+    }
+
     previewEl.innerHTML = `
       <div style="max-height:34vh; overflow:auto; border:1px solid var(--border); border-radius:6px;">
         <table style="width:100%; font-size:12px; border-collapse:collapse;">

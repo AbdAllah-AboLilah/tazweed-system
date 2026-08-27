@@ -38,6 +38,58 @@ function subscribeUsers() {
 // ليه شاشة كاملة؟ لأن جدول المفاتيح بقى 15 مفتاح في 5 مجموعات — ده مش
 // بيدخل في نافذة صغيرة، وكنت هتفضل تمرّر جواها. والتاب بتاعها بيظهر
 // **للي عنده مفتاح إدارة الحسابات بس**، فباقي الناس شاشتهم زي ما هي.
+// ============================================================
+// كارت الحساب — بديل صف الجدول على الموبايل
+// ============================================================
+// الجدول كان ٤ أعمدة (الاسم · الرتبة · المفاتيح · تعديل) في شاشة ٣٩٠
+// بكسل، يعني كل عمود ٩٧ بكسل — الاسم بيتقص والرتبة بتتلزق.
+//
+// ⚠️ **نفس البيانات بالحرف** — نفس الاسم ونفس اسم الدخول ونفس الرتبة
+// ونفس عدّاد المفاتيح ونفس زرار التعديل بنفس الـ`data-edit-user`، عشان
+// attachUsersScreenEvents تلاقيه من غير أي تغيير.
+function userCardsHTML(users, me) {
+  return users
+    .map((u) => {
+      const isMe = u.id === me;
+      const owner = isOwner(u);
+      const access =
+        u.warehouseAccess && can(u, 'editBranchQty') !== can(u, 'editMainQty')
+          ? ''
+          : u.warehouseAccess
+            ? ` (${{ branch: 'الفرع', main: 'الرئيسي', both: 'الاتنين' }[u.warehouseAccess] || ''})`
+            : '';
+      const customCount = u.perms ? Object.keys(u.perms).length : 0;
+      return `
+      <div class="grade-card">
+        <div class="gc-head">
+          <span class="gc-num">
+            ${owner ? '⭐ ' : ''}${escapeHTML(u.name || '—')}${isMe ? ' <span style="color:var(--text-muted); font-weight:400; font-size:13px;">(انت)</span>' : ''}
+          </span>
+          <button class="btn" style="padding:4px 12px; font-size:12px; min-height:32px;" data-edit-user="${escapeHTML(u.id)}">تعديل</button>
+        </div>
+        ${
+          u.loginName
+            ? `<div class="gc-line"><span class="gc-label">اسم الدخول</span>
+                 <span style="direction:ltr; font-size:13px;">${escapeHTML(u.loginName)}</span></div>`
+            : ''
+        }
+        <div class="gc-line">
+          <span class="gc-label">الرتبة</span>
+          <span style="font-size:14px; font-weight:500;">${escapeHTML(ROLE_LABELS_AR[u.role] || u.role || '—')}${escapeHTML(access)}</span>
+        </div>
+        <div class="gc-line" style="margin-bottom:0;">
+          <span class="gc-label">المفاتيح</span>
+          <span>${
+            customCount
+              ? `<span class="badge badge-purple">${escapeHTML(customCount)} مُعدّل</span>`
+              : '<span style="color:var(--text-muted); font-size:13px;">القالب</span>'
+          }</span>
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+
 function usersScreenHTML() {
   const users = state.users || [];
   const me = state.user ? state.user.uid : '';
@@ -73,6 +125,8 @@ function usersScreenHTML() {
       </tr>`;
     })
     .join('');
+
+  const cards = state.isNarrow ? userCardsHTML(users, me) : '';
 
   const myProfile = users.find((u) => u.id === me) || state.profile || {};
   const iAmOwner = isOwner(myProfile);
@@ -129,7 +183,9 @@ function usersScreenHTML() {
 
       ${
         users.length
-          ? `<div class="card" data-keep-scroll="users" style="padding:0; overflow:auto;">
+          ? state.isNarrow
+            ? `<div class="grade-cards" data-keep-scroll="users">${cards}</div>`
+            : `<div class="card" data-keep-scroll="users" style="padding:0; overflow:auto;">
                <table>
                  <thead><tr>
                    <th class="sticky-th">الاسم</th>

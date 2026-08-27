@@ -1991,62 +1991,101 @@ function gradeTableHTML() {
     ${spacerHTML}${actionBarHTML}`;
 }
 
+// ============================================================
+// سطر السجل — الوصف بيتحسب مرة واحدة للجدول وللكارت
+// ============================================================
+// ⚠️ الوصف ده كان مكتوب **جوّه** بنّاء الجدول. لما بقى فيه شكلين (جدول
+// على الكمبيوتر وكارتس على الموبايل) كان لازم يتنقل بره، وإلا التلاتين
+// حالة دول يتكتبوا مرتين ويفترقوا مع أول تعديل.
+function activityEntryParts(entry) {
+  const when = entry.timestamp && entry.timestamp.toDate ? entry.timestamp.toDate().toLocaleString('ar-EG') : '—';
+  const cat = escapeHTML(entry.categoryName || '');
+  const grade = `${cat} — درجة ${escapeHTML(entry.gradeNumber)}`;
+  let itemLabel = '';
+  let detailLabel = '';
+
+  if (entry.action === 'edit') {
+    const fieldLabel = entry.field === 'branchQty' ? 'مخزن الفرع' : entry.field === 'mainQty' ? 'المخزن الرئيسي' : entry.field || '';
+    itemLabel = grade;
+    detailLabel = `${escapeHTML(fieldLabel)}: ${escapeHTML(entry.oldValue)} ← ${escapeHTML(entry.newValue)}`;
+  } else if (entry.action === 'add_category') {
+    itemLabel = cat;
+    detailLabel = 'إضافة فئة جديدة';
+  } else if (entry.action === 'delete_category') {
+    itemLabel = cat;
+    detailLabel = 'حذف فئة بالكامل';
+  } else if (entry.action === 'add_grade') {
+    itemLabel = grade;
+    detailLabel = 'إضافة درجة جديدة';
+  } else if (entry.action === 'delete_grade') {
+    itemLabel = grade;
+    detailLabel = 'حذف درجة';
+  } else if (entry.action === 'edit_category_info') {
+    itemLabel = escapeHTML(entry.itemName || '');
+    detailLabel = `تعديل بيانات الصنف (باركود: ${escapeHTML(entry.barcodeNumber || '—')})`;
+  } else if (entry.action === 'request_shortage') {
+    itemLabel = grade;
+    detailLabel = 'طلب تزويد (خلصت من الفرع)';
+  } else if (entry.action === 'cancel_shortage') {
+    itemLabel = grade;
+    detailLabel = 'إلغاء طلب التزويد';
+  } else if (entry.action === 'fulfill_shortage') {
+    itemLabel = grade;
+    detailLabel = `تزويد بكمية ${escapeHTML(entry.transferredQty)}`;
+  } else if (entry.action === 'mark_out_of_stock') {
+    itemLabel = grade;
+    detailLabel = 'خلصت نهائيًا من الفرع والرئيسي';
+  } else if (entry.action === 'reset_available') {
+    itemLabel = grade;
+    detailLabel = 'رجّعت متاحة (وصل تزويد جديد)';
+  } else if (entry.action === 'add_base_grades') {
+    itemLabel = escapeHTML(entry.categoryName || 'كل الفئات');
+    detailLabel = `إضافة ${escapeHTML(entry.newValue)} درجة أساسية`;
+  } else if (entry.action === 'bulk_branch_qty') {
+    itemLabel = escapeHTML(entry.categoryName || 'كل الفئات');
+    detailLabel = `ظبط كميات الفرع (${escapeHTML(entry.newValue)} درجة)`;
+  } else if (entry.action === 'set_critical_qty') {
+    itemLabel = cat;
+    detailLabel = `تعديل حدود التنبيه (${escapeHTML(entry.newValue)} درجة)`;
+  }
+
+  return { when, itemLabel, detailLabel };
+}
+
 function activityLogHTML() {
   if (state.activityLog.length === 0) {
     return `<div style="padding:1rem; color:var(--text-secondary);">لا يوجد أي عمليات مسجّلة بعد.</div>`;
   }
 
+  // ============================================================
+  // كارتس على الموبايل — الجدول كان ٤ أعمدة بتتزحلق يمين وشمال
+  // ============================================================
+  // "الوقت" أطول عمود فيهم (تاريخ + ساعة بالعربي)، وكان بياكل نص عرض
+  // الشاشة ويسيب "العملية" — اللي هي أهم عمود — مقصوصة.
+  //
+  // في الكارت: العملية هي العنوان، والصنف تحتيها، والوقت والشخص سطر
+  // خفيف تحت. **نفس البيانات بالحرف**، مافيش حقل بيتشال.
+  if (state.isNarrow) {
+    const cards = state.activityLog
+      .map((entry) => {
+        const { when, itemLabel, detailLabel } = activityEntryParts(entry);
+        return `
+        <div class="grade-card">
+          <div class="act-what">${detailLabel}</div>
+          ${itemLabel ? `<div class="act-item">${itemLabel}</div>` : ''}
+          <div class="act-meta">
+            <span>👤 ${escapeHTML(entry.userName)}</span>
+            <span>${escapeHTML(when)}</span>
+          </div>
+        </div>`;
+      })
+      .join('');
+    return `<div style="padding:1rem;"><div class="grade-cards">${cards}</div></div>`;
+  }
+
   const rows = state.activityLog
     .map((entry) => {
-      const when = entry.timestamp && entry.timestamp.toDate ? entry.timestamp.toDate().toLocaleString('ar-EG') : '—';
-      let itemLabel = '';
-      let detailLabel = '';
-
-      if (entry.action === 'edit') {
-        const fieldLabel = entry.field === 'branchQty' ? 'مخزن الفرع' : entry.field === 'mainQty' ? 'المخزن الرئيسي' : entry.field || '';
-        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
-        detailLabel = `${escapeHTML(fieldLabel)}: ${escapeHTML(entry.oldValue)} ← ${escapeHTML(entry.newValue)}`;
-      } else if (entry.action === 'add_category') {
-        itemLabel = escapeHTML(entry.categoryName || '');
-        detailLabel = 'إضافة فئة جديدة';
-      } else if (entry.action === 'delete_category') {
-        itemLabel = escapeHTML(entry.categoryName || '');
-        detailLabel = 'حذف فئة بالكامل';
-      } else if (entry.action === 'add_grade') {
-        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
-        detailLabel = 'إضافة درجة جديدة';
-      } else if (entry.action === 'delete_grade') {
-        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
-        detailLabel = 'حذف درجة';
-      } else if (entry.action === 'edit_category_info') {
-        itemLabel = escapeHTML(entry.itemName || '');
-        detailLabel = `تعديل بيانات الصنف (باركود: ${escapeHTML(entry.barcodeNumber || '—')})`;
-      } else if (entry.action === 'request_shortage') {
-        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
-        detailLabel = 'طلب تزويد (خلصت من الفرع)';
-      } else if (entry.action === 'cancel_shortage') {
-        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
-        detailLabel = 'إلغاء طلب التزويد';
-      } else if (entry.action === 'fulfill_shortage') {
-        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
-        detailLabel = `تزويد بكمية ${escapeHTML(entry.transferredQty)}`;
-      } else if (entry.action === 'mark_out_of_stock') {
-        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
-        detailLabel = 'خلصت نهائيًا من الفرع والرئيسي';
-      } else if (entry.action === 'reset_available') {
-        itemLabel = `${escapeHTML(entry.categoryName || '')} — درجة ${escapeHTML(entry.gradeNumber)}`;
-        detailLabel = 'رجّعت متاحة (وصل تزويد جديد)';
-      } else if (entry.action === 'add_base_grades') {
-        itemLabel = escapeHTML(entry.categoryName || 'كل الفئات');
-        detailLabel = `إضافة ${escapeHTML(entry.newValue)} درجة أساسية`;
-      } else if (entry.action === 'bulk_branch_qty') {
-        itemLabel = escapeHTML(entry.categoryName || 'كل الفئات');
-        detailLabel = `ظبط كميات الفرع (${escapeHTML(entry.newValue)} درجة)`;
-      } else if (entry.action === 'set_critical_qty') {
-        itemLabel = escapeHTML(entry.categoryName || '');
-        detailLabel = `تعديل حدود التنبيه (${escapeHTML(entry.newValue)} درجة)`;
-      }
-
+      const { when, itemLabel, detailLabel } = activityEntryParts(entry);
       return `
         <tr>
           <td>${escapeHTML(when)}</td>

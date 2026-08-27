@@ -2396,14 +2396,26 @@ async function openPrinterSettings() {
              ⚠️⚠️ **ولا سطر جوّه القسم ده اتغيّر**: نفس الخانات ونفس
              الـid ونفس الأزرار ونفس الترتيب. اللي اتضاف هو الغلاف
              والزرار بس، عشان أي تعديل في المنطق مايتكسرش. -->
-        <button type="button" class="pset-toggle" id="pset-advanced-toggle" aria-expanded="false">
-          <span>⚙️ إعدادات متقدمة</span>
-          <span class="pset-chev">▾</span>
-        </button>
-        <div id="pset-advanced" hidden>
-        <!-- ---------- معايرة الطابعة ---------- -->
-        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
-          <div style="font-size:13px; font-weight:500; margin-bottom:4px;">🎯 معايرة طابعة الملصق</div>
+        <!-- ============================================================
+             ⭐⭐ كل قسم بيتفتح لوحده
+             ============================================================
+             النافذة دي فيها 13 خانة و16 زرار. وانت بتفتحها 99% من المرات
+             عشان **حاجة واحدة**: تختار طابعة — وهي فوق خالص.
+
+             قبل كده كان فيه زرار واحد "إعدادات متقدمة" بيخبّي **الخمس
+             أقسام مع بعض**، فأول ما تدوسه ترجع لنفس الكومة. دلوقتي كل
+             قسم عنوان لوحده بيتفتح لما تحتاجه.
+
+             ⚠️⚠️ **ولا سطر جوّه أي قسم اتغيّر**: نفس الخانات ونفس الـid
+             ونفس الأزرار ونفس الترتيب — الغلاف بس هو اللي اتقسم، عشان أي
+             تعديل في المنطق مايتكسرش. -->
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="cal" aria-expanded="false" aria-controls="pset-body-cal">
+            <span class="pset-sec-title">🎯 معايرة طابعة الملصق<small>مقاس الملصق والفراغ بينهم — مرة واحدة لكل طابعة</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-cal" hidden>
+<div style="font-size:13px; font-weight:500; margin-bottom:4px;">🎯 معايرة طابعة الملصق</div>
           <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
             بتقول للطابعة مقاس الملصق وتخليها تقيس الفراغ بين الملصقات بنفسها.
             بتحل مشكلة <strong>الملصق المنحرف</strong> و<strong>الورقة الفاضية</strong>.
@@ -2427,10 +2439,15 @@ async function openPrinterSettings() {
             <button class="btn" id="cal-run">🎯 عايِر</button>
           </div>
           <div id="cal-status" style="font-size:12px; min-height:16px;"></div>
-
-          <!-- ---------- جودة الطباعة ---------- -->
-          <div style="border-top:1px dashed var(--border); margin-top:12px; padding-top:10px;">
-            <div style="font-size:12px; font-weight:500; margin-bottom:4px;">🔥 وضوح الطباعة (السرعة والحرارة)</div>
+          </div>
+        </div>
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="quality" aria-expanded="false" aria-controls="pset-body-quality">
+            <span class="pset-sec-title">🔥 وضوح الطباعة<small>السرعة والحرارة — لو الكلام منغمش أو باهت</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-quality" hidden>
+<div style="font-size:12px; font-weight:500; margin-bottom:4px;">🔥 وضوح الطباعة (السرعة والحرارة)</div>
             <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:8px;">
               دول أهم حاجتين في حدة الطباعة الحرارية:
               <br>• <strong>السرعة أبطأ</strong> ← الحرارة توصل كاملة، الحرف بيطلع أوضح
@@ -2453,10 +2470,15 @@ async function openPrinterSettings() {
               ولو <strong>باهت</strong>: السرعة <strong>2</strong> والحرارة <strong>10</strong>.
             </div>
             <div id="pq-status" style="font-size:12px; min-height:16px;"></div>
-
-            <!-- ⭐⭐ ده اللي بيخلّي الطبعات الكبيرة تخرج كاملة -->
-            <div style="border-top:1px dashed var(--border); margin-top:10px; padding-top:10px;">
-              <div style="font-size:12px; font-weight:500; margin-bottom:4px;">⏱️ إيقاع الطبعات الكبيرة</div>
+          </div>
+        </div>
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="pace" aria-expanded="false" aria-controls="pset-body-pace">
+            <span class="pset-sec-title">⏱️ إيقاع الطبعات الكبيرة<small>الوقفة بين الملصقات عشان الطبعة الكبيرة تخرج كاملة</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-pace" hidden>
+<div style="font-size:12px; font-weight:500; margin-bottom:4px;">⏱️ إيقاع الطبعات الكبيرة</div>
               <div style="font-size:11px; color:var(--text-muted); line-height:1.8; margin-bottom:8px;">
                 الطابعة بتطبع الملصق في حوالي <strong>نص ثانية</strong>. لو بعتنا 100 ملصق
                 في ثانية واحدة، ذاكرتها بتتملى و<strong>الباقي بيضيع من غير أي رسالة</strong> —
@@ -2472,11 +2494,15 @@ async function openPrinterSettings() {
                 <button class="btn" id="pq-pace-save">حفظ</button>
                 <span id="pq-pace-status" style="font-size:11px; color:var(--text-muted);"></span>
               </div>
-            </div>
-
-            <!-- ⭐ الأرقام دي للتجربة عند الماكينة — مافيش حد يعرفها من بعيد -->
-            <div style="border-top:1px dashed var(--border); margin-top:10px; padding-top:10px;">
-              <div style="font-size:12px; font-weight:500; margin-bottom:4px;">📦 حجم الدفعة والتقديم</div>
+          </div>
+        </div>
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="batch" aria-expanded="false" aria-controls="pset-body-batch">
+            <span class="pset-sec-title">📦 حجم الدفعة والتقديم<small>أرقام للتجربة عند الماكينة</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-batch" hidden>
+<div style="font-size:12px; font-weight:500; margin-bottom:4px;">📦 حجم الدفعة والتقديم</div>
               <div style="font-size:11px; color:var(--text-muted); line-height:1.8; margin-bottom:8px;">
                 الرقمين دول <strong>للتجربة</strong> — جرّب وشوف بعينك على الماكينة.
                 بعد كل طبعة كبيرة هيظهر لك تحت <strong>الدفعة طلعت كام فعلًا</strong>.
@@ -2497,11 +2523,15 @@ async function openPrinterSettings() {
                 <button class="btn" id="pq-batch-save">حفظ</button>
                 <span id="pq-batch-status" style="font-size:11px; color:var(--text-muted);"></span>
               </div>
-            </div>
           </div>
-
-          <div style="border-top:1px dashed var(--border); margin-top:12px; padding-top:10px;">
-            <div style="font-size:12px; font-weight:500; margin-bottom:4px;">🧪 عيّنة خطوط الطابعة</div>
+        </div>
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="fonts" aria-expanded="false" aria-controls="pset-body-fonts">
+            <span class="pset-sec-title">🧪 عيّنة خطوط الطابعة<small>بيطبع ملصق فيه كل خط في الطابعة عشان تقارن</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-fonts" hidden>
+<div style="font-size:12px; font-weight:500; margin-bottom:4px;">🧪 عيّنة خطوط الطابعة</div>
             <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:8px;">
               الملصق دلوقتي بيترسم عندنا كصورة. الطريقة الاحترافية إن
               <strong>الطابعة ترسم النص بخطها الداخلي</strong> — خط مرسوم أصلًا
@@ -2514,9 +2544,6 @@ async function openPrinterSettings() {
             <div id="tspl-status" style="font-size:12px; min-height:16px; margin-top:6px;"></div>
           </div>
         </div>
-
-        <!-- ---------- النسخ من جهاز تاني ---------- -->
-        </div><!-- /pset-advanced -->
 
         <div id="copy-box" style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px; display:none;">
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">📥 انسخ الإعدادات من جهاز تاني</div>
@@ -2628,17 +2655,19 @@ async function openPrinterSettings() {
         <button class="btn btn-primary" id="qz-settings-save" style="display:none;">حفظ</button>
       </div>
     </div>`;
-  // زرار الإعدادات المتقدمة — بيفتح/يقفل الغلاف وبس.
-  const advToggle = overlay.querySelector('#pset-advanced-toggle');
-  const advBox = overlay.querySelector('#pset-advanced');
-  if (advToggle && advBox) {
-    advToggle.addEventListener('click', () => {
-      const open = advBox.hidden;
-      advBox.hidden = !open;
-      advToggle.setAttribute('aria-expanded', String(open));
-      advToggle.classList.toggle('on', open);
+  // فتح/قفل الأقسام — معالج واحد لكلهم بدل واحد لكل قسم.
+  // ⚠️ الفتح **مابيلمسش** أي خانة جوّه القسم؛ بيشيل hidden عن الغلاف وبس،
+  // فالقيم المحفوظة وأي مستمع اتربط بالخانات بيفضلوا زي ما هما.
+  overlay.querySelectorAll('.pset-toggle[data-pset]').forEach((btn) => {
+    const box = overlay.querySelector('#pset-body-' + btn.getAttribute('data-pset'));
+    if (!box) return;
+    btn.addEventListener('click', () => {
+      const open = box.hidden;
+      box.hidden = !open;
+      btn.setAttribute('aria-expanded', String(open));
+      btn.classList.toggle('on', open);
     });
-  }
+  });
 
   document.body.appendChild(overlay);
 
