@@ -66,9 +66,10 @@ function setMovementDays(n) {
 // أي قسم مفتوح — بيتفتكر عشان ماتفتحهوش كل مرة
 function getMovementOpen() {
   try {
-    return JSON.parse(localStorage.getItem(MOVEMENT_OPEN_KEY)) || { fast: true, idle: true };
+    const saved = JSON.parse(localStorage.getItem(MOVEMENT_OPEN_KEY));
+    return saved || { fast: true, idle: true, unknown: false };
   } catch (err) {
-    return { fast: true, idle: true };
+    return { fast: true, idle: true, unknown: false };
   }
 }
 
@@ -234,10 +235,12 @@ function computeMovementReport() {
   const grades = typeof allGradesCache !== 'undefined' && allGradesCache ? allGradesCache : null;
   if (!grades) return null;
 
-  const fast = {};   // catId → صفوف
-  const idle = {};
+  const fast = {};      // فئة → صفوف
+  const idle = {};      // عندها تاريخ وماتحركتش
+  const unknown = {};   // مالهاش أي تاريخ لسه
   let fastCount = 0;
   let idleCount = 0;
+  let unknownCount = 0;
   let soldOut = 0;
 
   grades.forEach((g) => {
@@ -274,10 +277,34 @@ function computeMovementReport() {
     const cycle = st ? movementToDate(st.cycleStartedAt) : null;
     const fromMs = Math.max(moved ? moved.getTime() : 0, cycle ? cycle.getTime() : 0);
 
+    // ============================================================
+    // ⭐⭐⭐ "مالناش تاريخ عنها" ≠ "راكدة"
+    // ============================================================
+    // ⚠️ أول نسخة كانت بتحط الاتنين في قايمة واحدة، وده كان بيخلّي
+    // القايمة تقول حاجة مش عارفاها:
+    //   • "40 يوم"        = حقيقة، السجل بيقول كده
+    //   • "من غير حركة"   = **صفحة فاضية**، مش حقيقة
+    //
+    // والدرجة بتبقى من غير تاريخ لسبب واضح: العمليات الجماعية (ظبط
+    // كميات الفرع / الدرجات الأساسية) بتسجّل **سطر واحد للفئة كلها**
+    // من غير أسماء الدرجات — فمفيش أثر لكل درجة لوحدها.
+    //
+    // النتيجة العملية على بيانات حقيقية: 602 درجة من غير تاريخ، أغلبها
+    // قطعة واحدة، وكانت بتتصدّر القايمة وتزقّ اللي فعلًا فلوسه واقفة
+    // فيه لتحت.
+    //
+    // ⭐ وبتتصلح لوحدها: أول تعديل كمية بيدّي الدرجة تاريخ وتنتقل
+    // للقايمة الصح.
+    if (!fromMs) {
+      (unknown[catName] = unknown[catName] || []).push({ label, onHand });
+      unknownCount++;
+      return;
+    }
+
     if (fromMs < cutoff) {
       (idle[catName] = idle[catName] || []).push({
         label,
-        daysIdle: fromMs ? Math.floor((Date.now() - fromMs) / 86400000) : null,
+        daysIdle: Math.floor((Date.now() - fromMs) / 86400000),
         onHand,
         fresh: !!(cycle && moved && cycle.getTime() >= moved.getTime()),
       });
@@ -300,10 +327,11 @@ function computeMovementReport() {
     days,
     span,
     fast: sortGroups(fast, sumQty, (a, b) => b.qty - a.qty),
-    idle: sortGroups(idle, sumOnHand,
-      (a, b) => (b.daysIdle == null ? 1 : a.daysIdle == null ? -1 : b.daysIdle - a.daysIdle)),
+    idle: sortGroups(idle, sumOnHand, (a, b) => b.daysIdle - a.daysIdle),
+    unknown: sortGroups(unknown, sumOnHand, (a, b) => b.onHand - a.onHand),
     fastCount,
     idleCount,
+    unknownCount,
     soldOut,
     total: grades.length,
     tracked: Object.keys(stats).length,
@@ -335,9 +363,12 @@ function movementSectionHTML(key, icon, title, count, hint, bodyHTML, open) {
 // منها "أنهي فئة اللي واقفة"، وده أهم سؤال في الشاشة.
 function movementRowsHTML(groups, kind) {
   if (!groups.length) {
-    return `<div class="home-empty" style="padding:1rem; text-align:center;">${
-      kind === 'fast' ? 'مفيش حاجة اتباعت في الفترة دي.' : 'مفيش درجات راكدة بالمدة دي — كله بيتحرك. 👌'
-    }</div>`;
+    const empty = {
+      fast: 'مفيش حاجة اتباعت في الفترة دي.',
+      idle: 'مفيش درجات راكدة بالمدة دي — كله بيتحرك. 👌',
+      unknown: 'كل الدرجات عندها تاريخ. 👌',
+    };
+    return `<div class="home-empty" style="padding:1rem; text-align:center;">${empty[kind]}</div>`;
   }
   let shown = 0;
   const out = [];
@@ -357,11 +388,11 @@ function movementRowsHTML(groups, kind) {
               const right =
                 kind === 'fast'
                   ? `<span class="mv-qty">${escapeHTML(r.qty)}</span>`
-                  : `<span class="mv-idle">${r.daysIdle == null ? 'من غير حركة' : `${escapeHTML(r.daysIdle)} يوم`}</span>`;
+                  : kind === 'idle'
+                    ? `<span class="mv-idle">${escapeHTML(r.daysIdle)} يوم</span>`
+                    : '';
               const extra =
-                kind === 'idle'
-                  ? `<span class="mv-onhand">${escapeHTML(r.onHand)} قطعة</span>`
-                  : '';
+                kind === 'fast' ? '' : `<span class="mv-onhand">${escapeHTML(r.onHand)} قطعة</span>`;
               return `
               <div class="grade-card mv-row">
                 <span class="mv-label">${escapeHTML(r.label)}${
@@ -441,10 +472,14 @@ function movementScreenHTML() {
           <button class="btn" id="mv-repeat">🔁 فئات درجاتها بتتكرر</button>
           <button class="btn" id="mv-backfill">📥 احسب من السجل القديم</button>
         </div>
-        <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.7;">
-          متتبّع <strong>${escapeHTML(rep.tracked)}</strong> درجة من <strong>${escapeHTML(rep.total)}</strong>.
-          ${rep.soldOut ? `و<strong>${escapeHTML(rep.soldOut)}</strong> درجة خلصانة (مش محسوبة في الراكد).` : ''}
-          <br>لو الرقم قليل، دوس "احسب من السجل القديم" مرة واحدة عشان تاريخك كله يتحسب.
+        <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.8;">
+          عندك <strong>${escapeHTML(rep.total)}</strong> درجة في النظام.
+          ${rep.soldOut ? `منهم <strong>${escapeHTML(rep.soldOut)}</strong> خلصانة (مافيش فيها بضاعة، فمش داخلة في الحساب).` : ''}
+          ${
+            rep.unknownCount
+              ? `<br>و<strong>${escapeHTML(rep.unknownCount)}</strong> درجة لسه مالهاش تاريخ حركة — تحت في آخر قسم.`
+              : ''
+          }
         </div>
       </div>
 
@@ -453,6 +488,23 @@ function movementScreenHTML() {
 
       ${movementSectionHTML('idle', '🧊', 'راكدة', rep.idleCount,
         `فيها بضاعة ومامتحركتش من ${days} يوم أو أكتر`, movementRowsHTML(rep.idle, 'idle'), open.idle)}
+
+      ${movementSectionHTML('unknown', '❔', 'مافيش عنها تاريخ لسه', rep.unknownCount,
+        'مش راكدة — إحنا بس مانعرفش عنها حاجة', movementRowsHTML(rep.unknown, 'unknown'), open.unknown)}
+
+      ${
+        rep.unknownCount
+          ? `<div class="card" style="padding:12px; font-size:12px; color:var(--text-secondary); line-height:1.9;">
+               <strong>❔ يعني إيه "مافيش عنها تاريخ"؟</strong>
+               <br>النظام بيسجّل حركة الدرجة لما تعدّل كميتها لوحدها. لكن
+               العمليات الجماعية — زي <strong>ظبط كميات الفرع</strong> و<strong>الدرجات
+               الأساسية</strong> — بتتسجّل سطر واحد للفئة كلها من غير أسماء الدرجات.
+               <br>فالدرجات دي مش راكدة، إحنا بس <strong>مالناش سطر عنها في السجل</strong>.
+               <br>⭐ وبتتصلح لوحدها: أول ما تعدّل كمية أي درجة منهم، تاخد تاريخ
+               وتنتقل للقايمة اللي فوق.
+             </div>`
+          : ''
+      }
     </div>`;
 }
 
