@@ -63,7 +63,7 @@ function userCardsHTML(users, me) {
       <div class="grade-card">
         <div class="gc-head">
           <span class="gc-num">
-            ${owner ? '⭐ ' : ''}${escapeHTML(u.name || '—')}${isMe ? ' <span style="color:var(--text-muted); font-weight:400; font-size:13px;">(انت)</span>' : ''}
+            ${owner ? '⭐ ' : ''}${escapeHTML(u.name || '—')}${isMe ? ' <span style="color:var(--text-muted); font-weight:400; font-size:13px;">(انت)</span>' : ''}${u.sharedAccount ? ' <span class="badge badge-purple">مشترك</span>' : ''}
           </span>
           <button class="btn" style="padding:4px 12px; font-size:12px; min-height:32px;" data-edit-user="${escapeHTML(u.id)}">تعديل</button>
         </div>
@@ -110,7 +110,7 @@ function usersScreenHTML() {
       return `
       <tr>
         <td>
-          <strong>${escapeHTML(u.name || '—')}</strong>${isMe ? ' <span style="color:var(--text-muted);">(انت)</span>' : ''}
+          <strong>${escapeHTML(u.name || '—')}</strong>${isMe ? ' <span style="color:var(--text-muted);">(انت)</span>' : ''}${u.sharedAccount ? ' <span class="badge badge-purple">مشترك</span>' : ''}
           ${u.loginName ? `<div style="font-size:11px; color:var(--text-muted); direction:ltr; text-align:start;">${escapeHTML(u.loginName)}</div>` : ''}
         </td>
         <td style="white-space:nowrap;">
@@ -462,6 +462,18 @@ function editUserRole(uid) {
         ${accessSelectHTML('eu-access', user.warehouseAccess || 'branch')}
       </div>
 
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="eu-shared" ${user.sharedAccount ? 'checked' : ''} />
+          <span>حساب مشترك (أكتر من شخص بيستخدمه)</span>
+        </label>
+        <div style="font-size:11px; color:var(--text-secondary); margin-top:4px; line-height:1.7;">
+          لما تعلّمها، أي جهاز يدخل بالحساب ده هيتساله مرة واحدة عن اسم اللي
+          ماسكه. الاسم بيتحفظ على الجهاز نفسه، وبيتكتب جنب اسم الحساب فوق
+          ومع كل حركة في السجل — عشان تعرف مين عمل إيه.
+        </div>
+      </div>
+
       <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
         <div style="font-size:13px; font-weight:500; margin-bottom:2px;">🔑 المفاتيح</div>
         <div style="font-size:11px; color:var(--text-secondary); margin-bottom:10px; line-height:1.7;">
@@ -511,6 +523,7 @@ function editUserRole(uid) {
         name: document.getElementById('eu-name').value.trim(),
         role,
         warehouseAccess: document.getElementById('eu-access').value,
+        sharedAccount: document.getElementById('eu-shared').checked,
         perms,
       });
       await logActivity({ action: 'edit_user', categoryName: user.name || '', newValue: role });

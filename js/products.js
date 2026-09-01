@@ -100,6 +100,22 @@ function productsStampOf(meta) {
   return `${ms}:${Number(meta.count) || 0}`;
 }
 
+// ============================================================
+// آخر تحديث لملف الأصناف — سطر واحد صغير
+// ============================================================
+// ⚠️ بترجّع نص فاضي لو التاريخ مش معروف (أول تحميل، أو serverTimestamp
+// لسه مأكّدتش). النص الفاضي أحسن من "غير معروف" — السطر بيختفي خالص
+// بدل ما ياخد مساحة ويقول حاجة مالهاش قيمة.
+function productsUpdatedText() {
+  const at = productsMeta && productsMeta.updatedAt;
+  const d = at && typeof at.toDate === 'function' ? at.toDate() : null;
+  if (!d) return '';
+  return d.toLocaleString('ar-EG', {
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}
+
 function readChunks(snap) {
   const chunks = [];
   let meta = null;
@@ -701,6 +717,11 @@ function productsScreenHTML() {
         <div style="font-size:12px; color:var(--text-secondary); margin-top:10px;">
           إجمالي الأصناف: <strong>${escapeHTML(total)}</strong>
           ${state.productSearch || state.productDept || state.productSubDept ? ` — نتيجة البحث: <strong>${escapeHTML(results.length)}</strong>` : ''}
+          ${
+            productsUpdatedText()
+              ? `<div class="prod-updated">📅 آخر تحديث للملف: ${escapeHTML(productsUpdatedText())}</div>`
+              : ''
+          }
         </div>
       </div>
 

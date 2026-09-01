@@ -1108,9 +1108,14 @@ function dashboardHTML() {
     return `
       <div>
         <div class="topbar">
-          <div>
+          <div class="topbar-user" style="flex-wrap:wrap;">
+            ${/* ⚠️ حساب الطباعة هو **بالظبط** الحساب اللي بيتشارك بين كذا
+                  شخص — فالشريحة دي أهم ما تكون هنا. الشريط ده منفصل عن
+                  شريط باقي الشاشات، فأي حاجة بتتضاف فوق لازم تتضاف هنا
+                  كمان وإلا الحساب الوحيد المحتاجها مايشوفهاش. */ ''}
             <div style="font-size:14px; font-weight:500;">${escapeHTML(state.profile?.name)}</div>
-            <div style="font-size:12px; color:var(--text-secondary);">${escapeHTML(roleLabel)}</div>
+            ${operatorChipHTML()}
+            <div style="font-size:12px; color:var(--text-secondary); width:100%;">${escapeHTML(roleLabel)}</div>
           </div>
           <div class="topbar-meta">
             ${connectionDotHTML()}
@@ -1244,6 +1249,7 @@ function dashboardHTML() {
       <div class="topbar">
         <div class="topbar-user">
           <span class="topbar-name">${escapeHTML(state.profile?.name)}</span>
+          ${operatorChipHTML()}
           ${pendingDotHTML(true)}
           <span class="topbar-role">${escapeHTML(roleLabel)}</span>
         </div>
@@ -2032,15 +2038,15 @@ function gradeTableHTML() {
 // العمليات في الكود. صاحب المحل بيفكر بالشكل ده:
 //   • غيّرت كميات؟   • زوّدت حاجة؟   • ضفت؟   • حذفت؟   • عدّلت بيانات؟
 //
-// ⚠️ **الطباعة مش موجودة هنا لأنها مش بتتسجّل في السجل أصلًا** — ولا
-// عملية طباعة واحدة بتكتب سطر. لو اتطلب تسجيلها، محتاج يتضاف عند
-// deliverPrint، وساعتها يتضاف قسم سادس.
+// ⚠️ الطباعة بتتسجّل **سطر واحد للطبعة كلها**، مش سطر لكل ملصق —
+// طبعة 100 ملصق كانت هتبقى 100 سطر وتغرق السجل. (شوف logPrintJob)
 const LOG_KINDS = [
   { key: 'qty',     icon: '📦', label: 'الكميات',  actions: ['edit', 'bulk_branch_qty'] },
   { key: 'restock', icon: '🔄', label: 'التزويد',  actions: ['request_shortage', 'cancel_shortage', 'fulfill_shortage', 'mark_out_of_stock', 'reset_available'] },
   { key: 'add',     icon: '➕', label: 'إضافة',    actions: ['add_category', 'add_grade', 'add_base_grades'] },
   { key: 'del',     icon: '🗑️', label: 'حذف',      actions: ['delete_category', 'delete_grade'] },
   { key: 'info',    icon: '⚙️', label: 'بيانات',   actions: ['edit_category_info', 'set_critical_qty'] },
+  { key: 'print',   icon: '🖨️', label: 'طباعة',    actions: ['print'] },
 ];
 
 const LOG_KIND_OF = {};
@@ -2140,6 +2146,10 @@ function activityEntryParts(entry) {
   } else if (entry.action === 'set_critical_qty') {
     itemLabel = cat;
     detailLabel = `تعديل حدود التنبيه (${escapeHTML(entry.newValue)} درجة)`;
+  } else if (entry.action === 'print') {
+    itemLabel = escapeHTML(entry.itemName || cat || '');
+    const n = Number(entry.newValue) || 0;
+    detailLabel = `${escapeHTML(entry.printLabel || 'طباعة')}${n > 1 ? ` — ${escapeHTML(n)} نسخة` : ''}`;
   }
 
   return { when, itemLabel, detailLabel };
@@ -2221,7 +2231,7 @@ function activityLogHTML() {
           <div class="act-what">${detailLabel}${entry.pending ? '<span class="act-wait">⏳ لسه مترفعش</span>' : ''}</div>
           ${itemLabel ? `<div class="act-item">${itemLabel}</div>` : ''}
           <div class="act-meta">
-            <span>👤 ${escapeHTML(entry.userName)}</span>
+            <span>👤 ${escapeHTML(entryWho(entry))}</span>
             <span>${escapeHTML(when)}</span>
           </div>
         </div>`;
@@ -2236,7 +2246,7 @@ function activityLogHTML() {
       return `
         <tr class="${entry.pending ? 'act-pending' : ''}">
           <td>${escapeHTML(when)}${entry.pending ? ' <span class="act-wait">⏳</span>' : ''}</td>
-          <td>${escapeHTML(entry.userName)}</td>
+          <td>${escapeHTML(entryWho(entry))}</td>
           <td>${itemLabel}</td>
           <td>${detailLabel}</td>
         </tr>`;
@@ -2445,6 +2455,10 @@ function attachDashboardEvents() {
   if (isPrintOperator(state.profile)) {
     const out = document.getElementById('logout-btn');
     if (out) out.addEventListener('click', () => auth.signOut());
+    // ⚠️ الشريط ده بيرجع من هنا قبل الربط العام تحت، فأي زرار فيه لازم
+    // يتربط هنا بإيدنا — وإلا هيبان ومايشتغلش.
+    const chip = document.getElementById('operator-chip');
+    if (chip) chip.addEventListener('click', () => askOperatorName(true));
     attachPrintScreenEvents();
     return;
   }
@@ -3112,6 +3126,7 @@ function attachDashboardEvents() {
     menuPanel.addEventListener('click', () => menuPanel.classList.remove('open'));
     document.addEventListener('click', () => menuPanel.classList.remove('open'), { once: true });
   }
+  wire('operator-chip', () => askOperatorName(true));
   wire('scan-barcode-btn', () => safeAsync(() => openBarcodeScanner(), 'فتح الكاميرا'));
   wire('import-btn', () => openImportDialog());
   wire('users-btn', () => {
@@ -5189,12 +5204,153 @@ function fireWrite(promise, label) {
   return promise;
 }
 
+// ------------------------------------------------------------
+// اسم اللي ماسك الجهاز (Operator)
+// ------------------------------------------------------------
+// فيه حسابات بيستخدمها أكتر من شخص — حساب الطباعة مثلًا. السجل ساعتها
+// بيقول "طبع: حساب الطباعة"، وده مابيقولش **مين** طبع فعلًا.
+//
+// الحل: الحساب اللي المالك يعلّمه "حساب مشترك" بيسأل كل جهاز **مرة
+// واحدة** عن اسم اللي بيستخدمه، ويحفظ الاسم على الجهاز ده لوحده (مش في
+// السحابة، عشان الجهاز التاني ما يتأثرش)، ويكتبه جنب اسم الحساب فوق
+// ومع كل حركة في السجل.
+//
+// ⚠️ ده **مش** اسم نقطة الطباعة (DEVICE_NAME_KEY). ده اسم آلة
+// ("كمبيوتر الكاشير")، وده اسم بني آدم — والاتنين ممكن يبقوا على نفس
+// الجهاز في نفس الوقت.
+//
+// ⚠️ والمفتاح متعلّق بـuid الحساب مش بالجهاز لوحده: لو الجهاز اتسجّل
+// عليه حسابين مختلفين، كل حساب له اسمه — من غير كده الاسم كان هيتسرّب
+// من حساب للتاني.
+const OPERATOR_NAME_PREFIX = 'tazweed_operator_';
+const OPERATOR_NAME_MAX = 20;
+
+function operatorNameKey(uid) {
+  return OPERATOR_NAME_PREFIX + (uid || 'anon');
+}
+
+function getOperatorName() {
+  if (!state.user) return '';
+  try {
+    return (localStorage.getItem(operatorNameKey(state.user.uid)) || '').trim();
+  } catch (err) {
+    return '';
+  }
+}
+
+function saveOperatorName(name) {
+  if (!state.user) return;
+  const clean = String(name || '').trim().slice(0, OPERATOR_NAME_MAX);
+  try {
+    if (clean) localStorage.setItem(operatorNameKey(state.user.uid), clean);
+    else localStorage.removeItem(operatorNameKey(state.user.uid));
+  } catch (err) {
+    console.error('تعذّر حفظ اسم المستخدم على الجهاز:', err);
+  }
+}
+
+// الحساب متعلّم "مشترك" من المالك في شاشة الحسابات.
+function isSharedAccount(profile) {
+  return !!(profile || state.profile || {}).sharedAccount;
+}
+
+let operatorAskOpen = false;
+
+// بيسأل عن الاسم. `force` = المستخدم هو اللي طلب يغيّره بنفسه، فيبقى
+// عنده زرار "إلغاء". من غيرها (أول دخول) مفيش إلغاء — عشان الغرض كله
+// إن الحركات ما تفضلش مجهولة.
+function askOperatorName(force) {
+  if (operatorAskOpen) return;
+  operatorAskOpen = true;
+  const current = getOperatorName();
+
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:2300;padding:12px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:340px; width:100%;">
+      <div style="font-size:15px; font-weight:500; margin-bottom:6px;">👤 مين اللي ماسك الجهاز ده؟</div>
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.7; margin-bottom:12px;">
+        الحساب ده بيستخدمه أكتر من شخص. اكتب اسمك عشان يتكتب جنب اسم الحساب
+        فوق، ويتسجّل مع كل حركة تعملها.
+        <br>الاسم بيتحفظ على الجهاز ده بس — مرة واحدة ومش هيتسألك تاني.
+      </div>
+      <div class="field">
+        <label>اسمك</label>
+        <input class="input" id="op-name" maxlength="${OPERATOR_NAME_MAX}" placeholder="مثلًا: محمود"
+               value="${escapeHTML(current)}" />
+      </div>
+      <div id="op-err" style="font-size:12px; color:var(--danger); min-height:16px; margin-bottom:8px;"></div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary" id="op-save" style="flex:1;">حفظ</button>
+        ${force ? '<button class="btn" id="op-cancel">إلغاء</button>' : ''}
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    operatorAskOpen = false;
+    if (overlay.parentNode) document.body.removeChild(overlay);
+  };
+  const input = overlay.querySelector('#op-name');
+  const err = overlay.querySelector('#op-err');
+  const cancelBtn = overlay.querySelector('#op-cancel');
+  if (cancelBtn) cancelBtn.addEventListener('click', close);
+
+  const save = () => {
+    const val = (input.value || '').trim();
+    if (!val) {
+      err.textContent = 'اكتب اسمك الأول.';
+      input.focus();
+      return;
+    }
+    saveOperatorName(val);
+    close();
+    render();
+  };
+  overlay.querySelector('#op-save').addEventListener('click', save);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') save();
+  });
+  setTimeout(() => input.focus(), 50);
+}
+
+// بينده أول ما بيانات الحساب توصل: لو الحساب مشترك والجهاز لسه مسجّلش
+// اسم، اسأل. بيتنده من مكان واحد (بعد ما البروفايل يتحمّل) عشان ما
+// يتكررش.
+// الشريحة اللي بتظهر جنب اسم الحساب فوق. زرار عشان اللي غيّر شيفت
+// يقدر يبدّل الاسم من غير ما يدوّر عليه في القوايم.
+function operatorChipHTML() {
+  if (!isSharedAccount()) return '';
+  const name = getOperatorName();
+  return `<button class="topbar-op" id="operator-chip" type="button" title="غيّر الاسم">${
+    name ? escapeHTML(name) : 'مين انت؟'
+  }</button>`;
+}
+
+// "مين عمل الحركة" في السجل: اسم الحساب، وجنبه اسم الشخص لو الحركة
+// اتسجّلت من حساب مشترك.
+function entryWho(entry) {
+  const who = entry.userName || '';
+  return entry.operatorName ? `${who} — ${entry.operatorName}` : who;
+}
+
+function ensureOperatorName() {
+  if (!isSharedAccount()) return;
+  if (getOperatorName()) return;
+  askOperatorName(false);
+}
+
 function logActivity(details) {
+  // ⭐ لو الحساب مشترك، بنكتب كمان اسم اللي ماسك الجهاز — من غيره كل
+  // حركات الطباعة بتبقى باسم حساب واحد ومفيش طريقة نعرف مين عملها.
+  const operator = isSharedAccount() ? getOperatorName() : '';
   return fireWrite(
     db.collection('activityLog').add({
       ...details,
       userId: state.user.uid,
       userName: state.profile.name,
+      ...(operator ? { operatorName: operator } : {}),
       timestamp: firebase.firestore.FieldValue.serverTimestamp(),
     }),
     'سجل العمليات'
@@ -5468,6 +5624,10 @@ function init() {
 
       state.view = 'dashboard';
       render();
+
+      // لو الحساب مشترك والجهاز لسه مسجّلش اسم — نسأل مرة واحدة بعد ما
+      // الشاشة تبان (مش قبلها، عشان المودال ما يطلعش على شاشة فاضية).
+      ensureOperatorName();
 
       // ⚠️⚠️ نقطة حرجة — متشيلش الشرط ده:
       //
