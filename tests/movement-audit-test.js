@@ -141,6 +141,81 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     movementStatsCapped = false;
     out.noCapWarn = movementScreenHTML().indexOf('الحد الأقصى للقراءة') === -1;
 
+    // ============================================================
+    // ⭐⭐ (7) القراءة على صفحات + الرجوع لذاكرة الجهاز
+    // ============================================================
+    // العطل اللي اتبلّغ: "مش قادر أقرا أرقام الحركة" والنت شغّال
+    // والقواعد سليمة — استعلام واحد ضخم (12000) بيتكسر لأسباب مالهاش
+    // علاقة بالصلاحيات.
+    const calls = [];
+    const mkSnap = (docs) => ({
+      size: docs.length,
+      docs: docs.map((id) => ({ id, data: () => ({ lastMovedAt: ts(now - 3 * D), soldByMonth: {} }) })),
+    });
+    const makeDb = (behavior) => ({
+      collection: () => {
+        const q = {
+          orderBy: () => q,
+          limit: (n) => { q._limit = n; return q; },
+          startAfter: (d) => { q._after = d; return q; },
+          get: (opts) => behavior(q, opts, calls),
+        };
+        return q;
+      },
+    });
+    window.firebase = { firestore: { FieldPath: { documentId: () => '__id__' } } };
+
+    // (أ) القراءة بتتقسّم صفحات — 3600 مستند
+    calls.length = 0;
+    let total = 3600, served = 0;
+    window.db = makeDb((q, opts) => {
+      calls.push({ limit: q._limit, source: opts && opts.source });
+      const n = Math.min(q._limit, total - served);
+      const ids = Array.from({ length: n }, (_, i) => 'd' + (served + i));
+      served += n;
+      return Promise.resolve(mkSnap(ids));
+    });
+    movementStats = null; movementStatsAt = 0;
+    await loadMovementStats(true);
+    out.pagedCount = Object.keys(movementStats).length;
+    out.pageSizes = calls.map(c => c.limit);
+    out.noHugeQuery = calls.every(c => c.limit <= 2000);
+    out.notFromCache = movementStatsFromCache;
+
+    // (ب) ⭐ السحابة فشلت → الجهاز
+    calls.length = 0; served = 0; total = 900;
+    window.db = makeDb((q, opts) => {
+      calls.push({ source: opts && opts.source });
+      if (!opts || opts.source !== 'cache') return Promise.reject({ code: 'unavailable' });
+      const n = Math.min(q._limit, total - served);
+      const ids = Array.from({ length: n }, (_, i) => 'c' + (served + i));
+      served += n;
+      return Promise.resolve(mkSnap(ids));
+    });
+    movementStats = null; movementStatsAt = 0; movementStatsError = ''; movementStatsFromCache = false;
+    await loadMovementStats(true);
+    out.cacheCount = Object.keys(movementStats || {}).length;
+    out.cameFromCache = movementStatsFromCache;
+    out.cacheNoError = movementStatsError === '';
+    // ولازم يتقال إنها من الجهاز
+    allGradesCache = [{ catId:'c1', gradeId:'x', name:'1', number:'1', branchQty:2, mainQty:0 }];
+    state.categories = [{ id:'c1', name:'كريب' }];
+    out.cacheLabelShown = movementScreenHTML().indexOf('الأرقام المحفوظة على الجهاز') !== -1;
+
+    // (ج) ⭐⭐ الاتنين فشلوا → شاشة خطأ **بالكود**
+    window.db = makeDb(() => Promise.reject({ code: 'permission-denied' }));
+    movementStats = null; movementStatsAt = 0; movementStatsError = ''; movementStatsFromCache = false;
+    await loadMovementStats(true);
+    out.errCode = movementStatsError;
+    const eh = movementScreenHTML();
+    out.errShowsCode = eh.indexOf('permission-denied') !== -1;
+    out.errShowsHint = eh.indexOf('مالوش صلاحية') !== -1;
+    out.hintUnavailable = movementErrorHint('unavailable').indexOf('النت') !== -1;
+    out.hintQuota = movementErrorHint('resource-exhausted').indexOf('حد القراءة اليومي') !== -1;
+    out.hintUnknown = movementErrorHint('حاجة-غريبة').indexOf('بلّغ') !== -1;
+
+    movementStatsError = ''; movementStatsFromCache = false;
+
     // النص بقى صح عن الخلصانة
     // ⚠️ لازم نرجّع بيانات فيها درجة خلصانة — السطر ده شرطه soldOut > 0،
     // والبيانات اللي فوق كلها فيها بضاعة.
@@ -183,7 +258,9 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   // ⚠️ الفحصين اللي فوق بيجرّبوا **عرض** العلامة. لازم نتأكد كمان إنها
   // بتتحط أصلًا من القراءة — وإلا هتفضل false للأبد والعرض مالوش لازمة.
   check('⭐⭐ والعلامة بتتحط من حجم القراءة فعلًا',
-    /movementStatsCapped\s*=\s*snap\.size\s*>=\s*MOVEMENT_MAX_STATS/.test(src));
+    /movementStatsCapped\s*=\s*size\s*>=\s*MOVEMENT_MAX_STATS/.test(src));
+  // والقراءة على صفحات بتوقف عند الحد كمان
+  check('⭐ والقراءة نفسها بتوقف عند الحد', /if \(size >= MOVEMENT_MAX_STATS\) break/.test(src));
   // والحد نفسه لازم يفضل أكبر من عدد الدرجات الحالي بهامش معقول
   const cap = Number((src.match(/MOVEMENT_MAX_STATS = (\d+)/) || [])[1] || 0);
   check('والحد فيه هامش فوق حجم المحل (3642 درجة)', cap >= 8000, cap);
@@ -195,6 +272,14 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⚠️⚠️ الملء من السجل بيستخدم merge (مايمسحش cycleStartedAt)', bf.indexOf('{ merge: true }') !== -1);
   check('⭐ ومابيكتبش اسم درجة فاضي فوق الاسم المحفوظ', bf.indexOf("gradeName: ''") === -1);
   check('والملء لسه بيكتب قيمة نهائية مش increment (مايتضاعفش)', bf.indexOf('increment') === -1);
+  check('⭐⭐ القراءة بتتقسّم صفحات (مفيش استعلام ضخم)', r.noHugeQuery, r.pageSizes);
+  check('والعدد كامل مهما اتقسّم', r.pagedCount === 3600, r.pagedCount);
+  check('⭐⭐ السحابة فشلت → بيقرا من ذاكرة الجهاز', r.cacheCount === 900 && r.cameFromCache, [r.cacheCount, r.cameFromCache]);
+  check('ومابيعتبرهاش فشل', r.cacheNoError);
+  check('⭐ بس بيقول إنها من الجهاز', r.cacheLabelShown);
+  check('⭐⭐ الاتنين فشلوا: شاشة خطأ **بالكود**', r.errShowsCode, r.errCode);
+  check('⭐⭐ ومعاها سبب مفهوم', r.errShowsHint);
+  check('وتلميح لكل كود', r.hintUnavailable && r.hintQuota && r.hintUnknown);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();

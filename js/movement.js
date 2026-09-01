@@ -44,10 +44,27 @@ const MOVEMENT_SPANS = [
 // movementStatsCapped تحت). الرقم لوحده مش حماية — اللي بيحمي إنك تعرف.
 const MOVEMENT_MAX_STATS = 12000;
 
+// ============================================================
+// ⚠️⚠️ الصفحة الواحدة صغيرة — والاستعلام الكبير اتشال
+// ============================================================
+// أول نسخة كانت بتعمل `.limit(12000).get()` **استعلام واحد ضخم**. وده
+// اتبلّغ عنه فعلًا: الشاشة طلعت "مش قادر أقرا أرقام الحركة" والنت شغّال
+// والقواعد سليمة.
+//
+// الاستعلام الضخم بيتكسر لأسباب مالهاش علاقة بالصلاحيات: حجم الرد،
+// ذاكرة التليفون، ومهلة الشبكة على بيانات الموبايل. والقراءة كلها
+// بتفشل مرة واحدة — كل شيء أو لا شيء.
+//
+// فبقت بتتقرا **صفحات**: نفس عدد المستندات بالظبط، بس كل رحلة صغيرة
+// ومستقلة. ولو صفحة فشلت في النص، اللي اتقرا قبلها بيفضل صالح.
+const MOVEMENT_STATS_PAGE = 1500;
+
 // آخر مرة الأرقام اتقرت فيها، وهل القراءة فشلت، وهل وصلنا للحد.
 let movementStatsAt = 0;
 let movementStatsError = '';
 let movementStatsCapped = false;
+// الأرقام دي جاية من ذاكرة الجهاز مش من السحابة؟
+let movementStatsFromCache = false;
 
 // ⭐ الأرقام بتتقرا مرة وبتفضل في الذاكرة. لو قعدت كتير بتبقى **كذب**:
 // تعدّل كميات وترجع للتقرير تلاقيه لسه بيقول "راكدة".
@@ -236,6 +253,32 @@ function writeMovement(FV, info) {
 // ============================================================
 // مابنعملش onSnapshot: التقرير بيتفتح مرة كل كام يوم، واشتراك دايم على
 // آلاف المستندات هيفضل شغّال في الخلفية على الفاضي.
+// بتقرا gradeStats على صفحات صغيرة. `source` = 'cache' عشان النسخة
+// المحفوظة على الجهاز، أو تتساب فاضية للقراءة العادية.
+//
+// ⚠️ الترتيب بـdocumentId() مش ترف: من غير ترتيب ثابت، `startAfter`
+// مالهاش معنى وممكن نقرا نفس الصفحة أو نفوّت صفحة.
+async function readAllGradeStats(source) {
+  const opts = source ? { source } : undefined;
+  const map = {};
+  let size = 0;
+  let last = null;
+  const idField = firebase.firestore.FieldPath.documentId();
+  for (;;) {
+    let q = db.collection('gradeStats').orderBy(idField).limit(MOVEMENT_STATS_PAGE);
+    if (last) q = q.startAfter(last);
+    const snap = opts ? await q.get(opts) : await q.get();
+    snap.docs.forEach((d) => {
+      map[d.id] = d.data();
+      size++;
+    });
+    if (snap.size < MOVEMENT_STATS_PAGE) break;
+    if (size >= MOVEMENT_MAX_STATS) break;
+    last = snap.docs[snap.docs.length - 1];
+  }
+  return { map, size };
+}
+
 function movementStatsStale() {
   return !movementStats || Date.now() - movementStatsAt > MOVEMENT_STALE_MS;
 }
@@ -247,16 +290,38 @@ async function loadMovementStats(force) {
   if (movementLoading) return movementStats;
   movementLoading = true;
   try {
-    const snap = await db.collection('gradeStats').limit(MOVEMENT_MAX_STATS).get();
-    const next = {};
-    snap.docs.forEach((d) => (next[d.id] = d.data()));
-    movementStats = next;
+    const { map, size } = await readAllGradeStats();
+    movementStats = map;
     movementStatsAt = Date.now();
     movementStatsError = '';
+    movementStatsFromCache = false;
     // ⚠️ وصلنا الحد = فيه درجات **مقصوصة** من القراءة. لازم يتقال.
-    movementStatsCapped = snap.size >= MOVEMENT_MAX_STATS;
+    movementStatsCapped = size >= MOVEMENT_MAX_STATS;
   } catch (err) {
     console.warn('تعذّرت قراءة حركة المخزون:', err);
+
+    // ============================================================
+    // ⭐ قبل ما نستسلم: النسخة المحفوظة على الجهاز
+    // ============================================================
+    // Firestore بيحفظ اللي اتقرا قبل كده على الجهاز. لو السحابة مش
+    // ردّت، النسخة دي **موجودة وصالحة** — أرقام قديمة شوية أحسن بكتير
+    // من شاشة خطأ فاضية.
+    //
+    // ⚠️ بس لازم تتقال إنها قديمة، وإلا رجعنا لنفس عطل "تقرير مبني على
+    // حاجة مش دقيقة من غير ما حد يعرف".
+    try {
+      const { map, size } = await readAllGradeStats('cache');
+      if (size > 0) {
+        movementStats = map;
+        movementStatsAt = Date.now();
+        movementStatsError = '';
+        movementStatsFromCache = true;
+        movementStatsCapped = size >= MOVEMENT_MAX_STATS;
+        return movementStats;
+      }
+    } catch (err2) {
+      console.warn('ومفيش نسخة محفوظة على الجهاز كمان:', err2);
+    }
     // ============================================================
     // ⚠️⚠️ الفشل **لازم يتقال**، مايتبلعش
     // ============================================================
@@ -273,6 +338,19 @@ async function loadMovementStats(force) {
     movementLoading = false;
   }
   return movementStats;
+}
+
+// كود الخطأ → كلام مفهوم. الأكواد دي بتيجي من Firestore زي ما هي.
+function movementErrorHint(code) {
+  const map = {
+    'permission-denied': 'الحساب ده مالوش صلاحية يقرا أرقام الحركة. راجع صلاحياته.',
+    unavailable: 'مافيش وصول للسحابة دلوقتي. اتصل بالنت وجرّب تاني.',
+    'resource-exhausted': 'وصلنا حد القراءة اليومي من السحابة. جرّب بكرة.',
+    'deadline-exceeded': 'القراءة أخدت وقت وماكملتش — النت بطيء. جرّب تاني.',
+    'failed-precondition': 'فيه مشكلة في التخزين المحلي للمتصفح. اقفل التبويبات التانية وجرّب.',
+    unauthenticated: 'الجلسة انتهت. اخرج وادخل تاني.',
+  };
+  return map[code] || 'جرّب تاني، ولو فضلت بلّغ عن الكود اللي تحت.';
 }
 
 // "الأرقام دي من امتى" بكلام بني آدم
@@ -578,7 +656,14 @@ function movementScreenHTML() {
           <div style="font-size:13px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">
             مانعرضش تقرير من غير الأرقام — كان هيطلع كأن كل الدرجات مالهاش
             تاريخ، وده مش صحيح.
-            <br>غالبًا النت فاصل. اتصل وجرّب تاني.
+            <br>${escapeHTML(movementErrorHint(movementStatsError))}
+          </div>
+          ${/* ⚠️ سبب العطل **لازم يبان**. "حاول تاني" لوحده مالوش قيمة:
+                لو السبب الصلاحيات، هتفضل تحاول للأبد. وأنا مش قدام
+                الجهاز عشان أشوف الكونسول. */ ''}
+          <div style="font-size:11px; color:var(--text-muted); font-family:monospace;
+                      direction:ltr; text-align:center; margin-bottom:12px;">
+            ${escapeHTML(movementStatsError)}
           </div>
           <button class="btn btn-primary" id="mv-refresh">🔄 حاول تاني</button>
         </div>
@@ -675,6 +760,14 @@ function movementScreenHTML() {
           }
           ${movementStatsAt ? `<br>🕐 الأرقام دي اتقرت <strong>${escapeHTML(movementStatsAgeText())}</strong>.` : ''}
         </div>
+        ${
+          // ⚠️ أرقام من ذاكرة الجهاز = ممكن تكون أقدم من اللي في السحابة.
+          // لازم تتقال، وإلا رجعنا لنفس العطل: تقرير مش دقيق ومحدش يعرف.
+          movementStatsFromCache
+            ? `<div class="mv-warn">📴 السحابة مردّتش، فدي <strong>الأرقام المحفوظة على الجهاز</strong> —
+                 ممكن تكون أقدم من الحقيقة. اضغط "حدّث الأرقام" لما النت يرجع.</div>`
+            : ''
+        }
       </div>
 
       ${movementSectionHTML('fast', '🔥', 'بتسحب بسرعة', rep.fastCount,
