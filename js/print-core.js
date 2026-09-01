@@ -164,7 +164,7 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, s
 //
 // ⚠️ الـHTML الجاهز فاضل مبعوت كمان — عشان الأجهزة اللي لسه على نسخة
 // قديمة مش عارفة الوصفة تفضل تطبع حاجة صح بدل ما تقف.
-async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML, spec) {
+async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML, spec, rawCommand) {
   const station = (state.printStations || []).find((s) => s.id === targetDeviceId);
 
   // ⚠️ درس مهم: الجهاز المستقبِل ممكن يكون لسه شغّال على **نسخة أقدم** من
@@ -202,6 +202,10 @@ async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML
   const payload = {
     type,
     targetDeviceId,
+    // ⚠️ أمر خام (عيّنة الخطوط): الجهاز المستقبِل بيشوفه الأول ويرجع.
+    // جهاز على نسخة قديمة مش فاهمه هيتجاهله ويطبع ملصق فاضي — ملصق
+    // ضايع، مش عطل. وده أحسن من سكوت تام مالوش تفسير.
+    raw: rawCommand || null,
     html: oneLabelHTML,
     jobs,
     // وصفة إعادة البناء — الجهاز المستقبِل بيفضّلها على الـHTML الجاهز
@@ -378,6 +382,35 @@ async function rebuildFromSpec(spec, sizeOptions) {
 }
 
 async function executePrintJob(jobId, job) {
+  // ============================================================
+  // ⭐ أمر خام (عيّنة الخطوط) — مسار منفصل تمامًا
+  // ============================================================
+  // عيّنة الخطوط **مش HTML**: دي أوامر TSPL بتتبعت للطابعة نفسها بلغتها.
+  // فمالهاش أي علاقة بكل اللي تحت (الوصفة، النسخ، الدفعات، التقدم).
+  //
+  // ⚠️ الفرع ده **بيرجع بدري**، والطلب اللي مافيهوش `raw` مابيدخلوش
+  // خالص — يعني الطباعة العادية زي ما هي بالحرف.
+  if (job && job.raw && job.raw.kind === 'fontSample') {
+    const ref0 = db.collection('printJobs').doc(jobId);
+    try {
+      const printer = getSavedPrinter('label');
+      if (!printer) throw new Error('مفيش طابعة ملصق محفوظة على الجهاز ده');
+      await printTSPLFontSample(
+        printer,
+        Number(job.raw.w) || 38,
+        Number(job.raw.h) || 25,
+        job.raw.text || 'Hejap Kuwaiti 120',
+        job.raw.code || '10632103'
+      );
+      await ref0.update({ status: 'printed' });
+      showPrintNotice('🧪 اتطبعت عيّنة الخطوط بطلب من جهاز تاني.');
+    } catch (err) {
+      console.error('فشلت عيّنة الخطوط عن بُعد:', err);
+      await ref0.update({ status: 'failed', failReason: String((err && err.message) || err).slice(0, 200) }).catch(() => {});
+    }
+    return;
+  }
+
   // الـHTML بيوصل جاهز من الجهاز الباعت (بما فيه صورة الـQR)، فاللي بيتطبع
   // هنا هو بالظبط اللي هو شافه في المعاينة عنده.
   // jobs هو الشكل الجديد؛ html هو الشكل المتوافق مع النسخ القديمة. لو
@@ -1251,6 +1284,147 @@ async function ensureQZConnected() {
       qzConnecting = null;
     });
   return qzConnecting;
+}
+
+// ============================================================
+// ⚙️⚙️ التحكم في جهاز الطباعة من جهاز تاني (أوامر الضبط)
+// ============================================================
+// المشكلة اللي بيحلها: الطابعة على كمبيوتر الكاشير، وصاحب المحل شغّال من
+// التليفون. عشان يظبط رقم في الإعدادات كان لازم يقوم يقعد على الكمبيوتر.
+//
+// ------------------------------------------------------------
+// ليه "أمر" مش تعديل مباشر؟
+// ------------------------------------------------------------
+// لأن **مافيش قناة مباشرة** بين التليفون والكمبيوتر. المتصفح مايقدرش
+// يوصل لمتصفح تاني. اللي بينهم هو السحابة بس.
+//
+// فالتليفون بيسيب "أمر" في السحابة، والكمبيوتر بيشوفه مع أول نبضة
+// (كل 45 ثانية) وينفّذه. لو الكمبيوتر مقفول، الأمر بيفضل مستني — وينفّذ
+// أول ما يفتح.
+//
+// ------------------------------------------------------------
+// ⚠️ ثلاث حاجات لازم تتحل عشان ده مايبقاش خطر
+// ------------------------------------------------------------
+// 1) **أمر قديم بينفّذ فجأة.** لو الكمبيوتر قعد أسبوعين مقفول، الأمر
+//    اللي اتبعت زمان ينفّذ لحظة ما يفتح — وصاحبه نسيه أصلًا. فالأمر
+//    بيبطل لوحده بعد PRINT_ORDER_TTL_MS.
+//
+// 2) **التنفيذ مرتين.** النبضة بتتكرر كل 45 ثانية. من غير علامة
+//    "اتنفّذ"، نفس الأمر هيتنفّذ كل نبضة للأبد. فبنكتب appliedAt
+//    والكمبيوتر بيتخطّاه بعد كده.
+//
+// 3) **مين يكسب لو الاتنين غيّروا.** حد ظبط على الكمبيوتر وفي نفس الوقت
+//    فيه أمر مستني؟ **الأمر بيكسب** لما ينفّذ — لأنه أحدث نية من صاحب
+//    الصلاحية. واللي قدام الماكينة بيشوف النتيجة قدامه على طول.
+//
+// ⚠️⚠️ واللي **مش** بيتبعت في الأمر ده مقصود: المعايرة والمفاتيح.
+// دول أصلًا **مشتركين للمحل كله** في settings/print — يعني بيتظبطوا من
+// التليفون **دلوقتي** من غير أي أمر، وكل الأجهزة بتاخدهم لوحدها.
+// لو بعتناهم كأمر كمان، هيتكتبوا في مكانين ويختلفوا.
+const PRINT_ORDER_TTL_MS = 7 * 86400000; // أسبوع
+const PRINT_ORDERS = 'printOrders';
+
+// الحقول اللي الأمر يقدر يغيّرها — **قايمة حصرية** عن قصد.
+// أي حقل مش هنا بيتجاهل، عشان أمر قديم من نسخة تانية مايكتبش حاجة
+// النسخة دي مش فاهماها.
+const PRINT_ORDER_FIELDS = ['pace', 'batch', 'lead', 'labelPrinter', 'restockPrinter', 'deviceName'];
+
+function cleanSetupOrder(setup) {
+  const out = {};
+  if (!setup || typeof setup !== 'object') return out;
+  PRINT_ORDER_FIELDS.forEach((k) => {
+    if (setup[k] === undefined || setup[k] === null || setup[k] === '') return;
+    out[k] = setup[k];
+  });
+  return out;
+}
+
+// بيسيب أمر للجهاز ده في السحابة. بيمسح أي أمر قديم مستني (بيكتب فوقه)
+// عشان مايتكوّمش طابور أوامر متضاربة.
+async function sendPrintSetupOrder(deviceId, setup) {
+  const clean = cleanSetupOrder(setup);
+  if (!deviceId || !Object.keys(clean).length) return false;
+  await db.collection(PRINT_ORDERS).doc(deviceId).set({
+    setup: clean,
+    byUid: state.user ? state.user.uid : '',
+    byName: (state.profile && state.profile.name) || '',
+    at: firebase.firestore.FieldValue.serverTimestamp(),
+    expiresAtMs: Date.now() + PRINT_ORDER_TTL_MS,
+    // ⚠️ بنصفّرهم صراحةً: المستند بيتكتب فوق القديم، ولو سيبنا appliedAt
+    // بتاعة الأمر اللي فات، الجهاز هيفتكر إن الأمر الجديد اتنفّذ خلاص.
+    appliedAt: null,
+    appliedFields: null,
+  });
+  return true;
+}
+
+// بيلغي أمر مستني (لسه ما اتنفّذش).
+async function cancelPrintSetupOrder(deviceId) {
+  if (!deviceId) return;
+  await db.collection(PRINT_ORDERS).doc(deviceId).delete();
+}
+
+// ⭐ بيتنده على **الجهاز اللي عليه الطابعة** مع كل نبضة.
+// بيرجّع أسماء الحاجات اللي اتغيّرت (أو [] لو مفيش).
+async function applyPendingSetupOrder() {
+  const deviceId = getDeviceId();
+  if (!deviceId) return [];
+  let snap;
+  try {
+    snap = await db.collection(PRINT_ORDERS).doc(deviceId).get();
+  } catch (err) {
+    // مفيش نت أو القاعدة رفضت — النبضة الجاية هتحاول تاني
+    return [];
+  }
+  if (!snap.exists) return [];
+  const data = snap.data() || {};
+  if (data.appliedAt) return [];                                  // اتنفّذ قبل كده
+  if (data.expiresAtMs && Date.now() > data.expiresAtMs) return []; // أمر بايت
+
+  const setup = cleanSetupOrder(data.setup);
+  const done = [];
+
+  if (setup.pace !== undefined) {
+    setPrintPaceMs(setup.pace);
+    done.push('الإيقاع');
+  }
+  if (setup.batch !== undefined) {
+    setPrintBatchSize(setup.batch);
+    done.push('حجم الدفعة');
+  }
+  if (setup.lead !== undefined) {
+    setPrintLeadLabels(setup.lead);
+    done.push('التقديم');
+  }
+  // ⚠️ الطابعة بتتغيّر **بالاسم بس لو الاسم ده موجود فعلًا على الجهاز
+  // ده**. من غير الشرط ده، أمر من التليفون يقدر يحط اسم طابعة مش موجودة
+  // والطباعة تفضل تفشل من غير ما حد يفهم ليه.
+  const here = await getAvailableQZPrinters();
+  if (setup.labelPrinter && here.indexOf(setup.labelPrinter) > -1) {
+    saveSelectedPrinter('label', setup.labelPrinter);
+    done.push('طابعة الملصق');
+  }
+  if (setup.restockPrinter && here.indexOf(setup.restockPrinter) > -1) {
+    saveSelectedPrinter('restock', setup.restockPrinter);
+    done.push('طابعة ورقة التزويد');
+  }
+  if (setup.deviceName) {
+    saveDeviceName(String(setup.deviceName).slice(0, 40));
+    done.push('اسم الجهاز');
+  }
+
+  try {
+    await db.collection(PRINT_ORDERS).doc(deviceId).set(
+      {
+        appliedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        appliedFields: done,
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('اتنفّذ الأمر بس ما اتسجّلش:', err);
+  }
+  return done;
 }
 
 async function getAvailableQZPrinters() {

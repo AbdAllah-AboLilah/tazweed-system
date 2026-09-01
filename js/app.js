@@ -65,6 +65,8 @@ const state = {
   fromCache: false,
   bulkRequestMode: false,
   printStations: [], // الأجهزة المسجّلة كنقاط طباعة (اللي عليها QZ Tray وطابعة)
+  printOrders: {},   // أوامر ضبط مستنية لكل جهاز — { deviceId: order }
+  printTab: 'work',  // تاب شاشة الطباعة: 'work' | 'devices'
   users: [], // حسابات المستخدمين (بتتحمّل بس وقت فتح شاشة الحسابات)
   canInstallApp: false, // المتصفح عرض إنه يثبّت النظام كأيقونة
   gradeLabelMode: false, // وضع اختيار درجات لطباعة ملصقاتها
@@ -4678,10 +4680,40 @@ async function registerPrintStation() {
   const deviceId = getDeviceId();
   if (!deviceId) return;
 
+  if (!getSavedPrinter('label') && !getSavedPrinter('restock')) return;
+  if (!(await ensureQZConnected())) return;
+
+  // ⭐ الأمر الأول: لو صاحب المحل ظبط حاجة من التليفون والجهاز ده كان
+  // مقفول، الأمر مستنيه في السحابة. بننفّذه **قبل** ما نبعت النبضة —
+  // عشان النبضة تطلع بالقيم الجديدة على طول، مش بالقديمة وتستنى 45
+  // ثانية كمان.
+  let applied = [];
+  try {
+    applied = await applyPendingSetupOrder();
+  } catch (err) {
+    console.warn('تعذّر تنفيذ أمر الضبط:', err);
+  }
+  if (applied.length) {
+    showPrintNotice(`⚙️ اتظبط من بعيد: ${applied.join('، ')}`);
+  }
+
+  // ⚠️ بنقراهم **بعد** تنفيذ الأمر مش قبله، وإلا النبضة هتنشر القيم
+  // القديمة والتليفون هيفضل شايف إن الأمر ما اتنفّذش.
   const labelPrinter = getSavedPrinter('label');
   const restockPrinter = getSavedPrinter('restock');
-  if (!labelPrinter && !restockPrinter) return;
-  if (!(await ensureQZConnected())) return;
+
+  // ⭐ قايمة **كل** الطابعات المتعرّفة على الجهاز ده — مش المختارة بس.
+  // ده اللي بيخلّي التليفون يقدر يغيّر الطابعة من بعيد: من غير القايمة
+  // دي، الجهاز التاني عمره ما هيعرف إن فيه طابعة تانية موجودة أصلًا.
+  //
+  // ⚠️ بسقف عدد: مستند الطابعة مش المفروض يكبر عشان قايمة طابعات، وفيه
+  // أجهزة عليها عشرات الطابعات الوهمية (PDF، Fax، OneNote...).
+  let printers = [];
+  try {
+    printers = (await getAvailableQZPrinters()).slice(0, 40);
+  } catch (err) {
+    console.warn('تعذّر قراءة قايمة الطابعات:', err);
+  }
 
   try {
     fireWrite(db.collection('printStations').doc(deviceId).set(
@@ -4689,6 +4721,7 @@ async function registerPrintStation() {
         deviceName: getDeviceName() || 'جهاز بدون اسم',
         labelPrinter,
         restockPrinter,
+        printers,
         // نسخة النظام الشغّالة على الجهاز ده — بتظهر للي هيبعتله طباعة،
         // عشان لو الجهاز لسه على نسخة قديمة ياخد باله ويحدّثها.
         appVersion: typeof APP_VERSION === 'string' ? APP_VERSION : '',
@@ -4701,6 +4734,11 @@ async function registerPrintStation() {
         printSetup: {
           align: getPrintAlign(),
           tweaks: getPrintTweaksMap(),
+          // الأرقام دي **لكل جهاز**، مش مشتركة — فهي بالظبط اللي التليفون
+          // محتاج يشوفها ويغيّرها من بعيد.
+          pace: getPrintPaceMs(),
+          batch: getPrintBatchSize(),
+          lead: getPrintLeadLabels(),
         },
         lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
         updatedByUid: state.user.uid,
@@ -4753,8 +4791,29 @@ function subscribePrintStations() {
   unsubPrintStations = db.collection('printStations').onSnapshot(
     (snap) => {
       state.printStations = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // ⚠️ الشاشة **لازم** تتعاد رسمتها هنا. تاب الأجهزة بيعرض حالة كل
+      // جهاز (شغّال/مقفول وآخر ظهور)، ومن غير الرسمة دي بتفضل واقفة على
+      // اللقطة اللي فتحت بيها — تبعت أمر وما تشوفش إنه اتنفّذ.
+      if (state.view === 'dashboard' && state.screen === 'print') render();
     },
     (err) => console.warn('تعذّر قراءة قائمة أجهزة الطباعة:', err)
+  );
+}
+
+// ⭐ أوامر الضبط المستنية — عشان اللي بعت الأمر يشوف "⏳ مستني" أو
+// "✅ اتطبّق" من غير ما يسأل حد.
+let unsubPrintOrders = null;
+
+function subscribePrintOrders() {
+  if (unsubPrintOrders) unsubPrintOrders();
+  unsubPrintOrders = db.collection('printOrders').onSnapshot(
+    (snap) => {
+      const map = {};
+      snap.docs.forEach((d) => (map[d.id] = { id: d.id, ...d.data() }));
+      state.printOrders = map;
+      if (state.view === 'dashboard' && state.screen === 'print') render();
+    },
+    (err) => console.warn('تعذّر قراءة أوامر الضبط:', err)
   );
 }
 
@@ -5604,6 +5663,7 @@ function init() {
     if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
     if (unsubPrintJobs) { unsubPrintJobs(); unsubPrintJobs = null; }
     if (unsubPrintStations) { unsubPrintStations(); unsubPrintStations = null; }
+    if (unsubPrintOrders) { unsubPrintOrders(); unsubPrintOrders = null; }
     stopOverview();
     stopStationHeartbeat();
     // ⚠️ لازم تتصفّر مع تغيير الحساب: العدّاد وأسماء الدرجات بتاعت
@@ -5743,6 +5803,7 @@ function init() {
       if (isPrintOperator(state.profile)) {
         subscribePrintSettings();
         subscribePrintStations();
+        subscribePrintOrders();
         subscribePrintJobs();
         startStationHeartbeat();
         return;
@@ -5760,6 +5821,7 @@ function init() {
       // QZ Tray وطابعة محفوظة — لأن الطابعات كلها في مكتب الكاشير.
       subscribePrintSettings();
       subscribePrintStations();
+      subscribePrintOrders();
       subscribePrintJobs();
       startStationHeartbeat();
     });
