@@ -2047,6 +2047,9 @@ const LOG_KINDS = [
   { key: 'del',     icon: '🗑️', label: 'حذف',      actions: ['delete_category', 'delete_grade'] },
   { key: 'info',    icon: '⚙️', label: 'بيانات',   actions: ['edit_category_info', 'set_critical_qty'] },
   { key: 'print',   icon: '🖨️', label: 'طباعة',    actions: ['print'] },
+  // ⚠️ العمليتين دول كانوا **مالهمش قسم ولا نص** — فكانوا بيطلعوا في
+  // السجل ككارت فاضي فيه الاسم والوقت وبس، ومحدش يقدر يخفيهم.
+  { key: 'admin',   icon: '👥', label: 'الإدارة',   actions: ['edit_user', 'import_products'] },
 ];
 
 const LOG_KIND_OF = {};
@@ -2054,7 +2057,40 @@ LOG_KINDS.forEach((k) => k.actions.forEach((a) => (LOG_KIND_OF[a] = k.key)));
 
 const LOG_KINDS_STORE = 'tazweed_log_kinds';
 const LOG_DAYS_STORE = 'tazweed_log_days';
+const LOG_TAB_STORE = 'tazweed_log_tab';
 const LOG_DAY_CHOICES = [3, 7, 30, 0]; // 0 = من غير حد
+
+// ============================================================
+// ⭐ التابات — والشيك بوكس فاضلة جوه "الكل"
+// ============================================================
+// ليه الاتنين مع بعض؟ لأنهم بيخدموا سؤالين مختلفين:
+//
+//   • "وريني الطباعة بس"        → تاب. ضغطة واحدة.
+//   • "وريني الكميات والتزويد"  → شيك بوكس. تجميعة.
+//
+// الشكل القديم كان الشيك بوكس بس، فالسؤال الأول — وهو الأكتر — كان
+// بيتكلّف **٥ ضغطات** (تشيل العلامة عن ٥ أقسام) وبعدين ٥ تانيين ترجّعهم.
+//
+// فبقى: تاب لكل قسم للعزل السريع، وتاب "الكل" فيه الشيك بوكس للتجميعة.
+const LOG_TAB_ALL = 'all';
+
+function getLogTab() {
+  try {
+    const v = localStorage.getItem(LOG_TAB_STORE);
+    if (v && (v === LOG_TAB_ALL || LOG_KINDS.some((k) => k.key === v))) return v;
+  } catch (err) {
+    /* التخزين مقفول */
+  }
+  return LOG_TAB_ALL;
+}
+
+function setLogTab(key) {
+  try {
+    localStorage.setItem(LOG_TAB_STORE, key);
+  } catch (err) {
+    /* التخزين مقفول */
+  }
+}
 
 // الأقسام المعروضة — الافتراضي كلها
 function getLogKinds() {
@@ -2149,21 +2185,47 @@ function activityEntryParts(entry) {
   } else if (entry.action === 'print') {
     itemLabel = escapeHTML(entry.itemName || cat || '');
     const n = Number(entry.newValue) || 0;
-    detailLabel = `${escapeHTML(entry.printLabel || 'طباعة')}${n > 1 ? ` — ${escapeHTML(n)} نسخة` : ''}`;
+    detailLabel = `${escapeHTML(entry.printLabel || 'طباعة')}${n > 1 ? ` — ${escapeHTML(n)} ملصق` : ''}`;
+  } else if (entry.action === 'import_products') {
+    itemLabel = '';
+    detailLabel = `📁 تحديث ملف الأصناف — ${escapeHTML(Number(entry.newValue) || 0)} صنف`;
+  } else if (entry.action === 'edit_user') {
+    itemLabel = escapeHTML(entry.categoryName || '');
+    const r = ROLE_LABELS_AR[entry.newValue] || entry.newValue || '';
+    detailLabel = `تعديل حساب${r ? ` — الرتبة: ${escapeHTML(r)}` : ''}`;
   }
+
+  // ============================================================
+  // ⭐ شبكة أمان: عملية مالهاش نص = كارت فاضي
+  // ============================================================
+  // ⚠️ ده حصل فعلًا مع `edit_user` و`import_products`: العملية بتتسجّل،
+  // والسطر بيطلع فيه الاسم والوقت **وبس** — مفيش أي كلام. المستخدم شاف
+  // سطرين فاضيين في السجل ومعرفش إيه ده.
+  //
+  // فبدل ما نعتمد على إن كل عملية جديدة حد هيفتكر يكتب لها نص، أي عملية
+  // مانعرفهاش بتطلع باسمها الخام. وحش شوية، بس **بيتقرا** — والفاضي لأ.
+  if (!detailLabel) detailLabel = escapeHTML(entry.action || 'عملية غير معروفة');
 
   return { when, itemLabel, detailLabel };
 }
 
 function activityLogHTML() {
   const kinds = getLogKinds();
+  const tab = getLogTab();
   const days = getLogDays();
   const cutoff = days ? Date.now() - days * 86400000 : 0;
 
   const all = state.activityLog || [];
   const rows = all.filter((e) => {
     const kind = LOG_KIND_OF[e.action];
-    if (kind && kinds.indexOf(kind) === -1) return false;
+    // تاب قسم معيّن = القسم ده بس، والشيك بوكس مالهاش دعوة.
+    // ⚠️ العملية اللي مالهاش قسم (حاجة جديدة اتضافت ونسينا نصنّفها)
+    // بتظهر في "الكل" بس — أحسن من إنها تختفي خالص.
+    if (tab !== LOG_TAB_ALL) {
+      if (kind !== tab) return false;
+    } else if (kind && kinds.indexOf(kind) === -1) {
+      return false;
+    }
     if (!cutoff) return true;
     // ⭐ السطر اللي لسه مترفعش بيفضل ظاهر مهما كانت المدة — ده اللي
     // انت لسه عامله وانت مفصول، وأكتر حاجة محتاج تتطمّن إنها اتسجّلت.
@@ -2194,7 +2256,25 @@ function activityLogHTML() {
         <button class="btn log-refresh" id="log-refresh">🔄 حدّث</button>
       </div>
 
-      <div class="log-kinds">
+      <div class="log-tabs" role="tablist">
+        <button type="button" class="log-tab ${tab === LOG_TAB_ALL ? 'on' : ''}" role="tab"
+                aria-selected="${tab === LOG_TAB_ALL}" data-log-tab="${LOG_TAB_ALL}">
+          الكل <span class="log-count">${escapeHTML(all.length)}</span>
+        </button>
+        ${LOG_KINDS.map(
+          (k) => `
+          <button type="button" class="log-tab ${tab === k.key ? 'on' : ''}" role="tab"
+                  aria-selected="${tab === k.key}" data-log-tab="${k.key}">
+            ${k.icon} ${escapeHTML(k.label)} <span class="log-count">${escapeHTML(counts[k.key])}</span>
+          </button>`
+        ).join('')}
+      </div>
+
+      ${
+        // الشيك بوكس بتبان في "الكل" بس — هي أداة تجميعة، ومالهاش أي
+        // معنى وانت واقف على قسم واحد.
+        tab === LOG_TAB_ALL
+          ? `<div class="log-kinds">
         ${LOG_KINDS.map(
           (k) => `
           <label class="log-kind ${kinds.indexOf(k.key) > -1 ? 'on' : ''}">
@@ -2203,10 +2283,14 @@ function activityLogHTML() {
             <span class="log-count">${escapeHTML(counts[k.key])}</span>
           </label>`
         ).join('')}
-      </div>
+      </div>`
+          : ''
+      }
 
       <div class="log-note">
-        شيل العلامة عن أي قسم عشان يختفي من القايمة. اختيارك بيتحفظ.
+        ${tab === LOG_TAB_ALL
+          ? 'دوس على تاب عشان تشوف قسم لوحده، أو شيل العلامة من تحت عشان تشوف كذا قسم مع بعض. اختيارك بيتحفظ.'
+          : 'دوس <strong>الكل</strong> عشان ترجّع باقي الأقسام.'}
         ${pendingCount ? `<br>⏳ <strong>${escapeHTML(pendingCount)}</strong> عملية لسه مترفعتش — محفوظة على الجهاز وهترفع أول ما النت يرجع.` : ''}
       </div>
     </div>`;
@@ -2274,6 +2358,13 @@ function attachActivityLogEvents() {
   document.querySelectorAll('[data-log-days]').forEach((btn) => {
     btn.addEventListener('click', () => {
       setLogDays(btn.getAttribute('data-log-days'));
+      renderFromData();
+    });
+  });
+
+  document.querySelectorAll('[data-log-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setLogTab(btn.getAttribute('data-log-tab'));
       renderFromData();
     });
   });

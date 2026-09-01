@@ -149,6 +149,8 @@ node tests/topbar-menu-test.js
 node tests/no-barcode-test.js
 node tests/activity-log-test.js
 node tests/operator-name-test.js
+node tests/log-tabs-test.js
+node tests/products-updated-test.js
 node tests/restock-print-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
