@@ -326,7 +326,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     let batches = 0;
     window.db = { collection: () => Object.assign(q(1000), { doc: (id) => ({ id }) }),
                   batch: () => ({ set() {}, commit: async () => { batches++; } }) };
-    window.firebase = { firestore: { Timestamp: { fromDate: (d) => d } } };
+    // ⚠️ الستب لازم يبقى فيه FieldPath زي SDK الحقيقي — قراءة gradeStats
+    // بترتّب بـdocumentId() عشان الصفحات تبقى ثابتة.
+    window.firebase = {
+      firestore: { Timestamp: { fromDate: (d) => d }, FieldPath: { documentId: () => '__id__' } },
+    };
     window.confirm = () => true;
     window.alert = () => {};
     await backfillMovementFromLog();
@@ -339,7 +343,13 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     };
   });
   check('⭐ الملء بيستخدم count() مرة واحدة بس', bf.counts === 1, bf);
-  check('⭐ السجل بيتقرا مرة واحدة (٣ صفحات لـ2300 + قراءة الملخّص)', bf.pages === 4, bf);
+  // ⚠️⚠️ ده الحارس الأصلي: السجل كان بيتقرا **مرتين** (مرة عشان نعرف
+  // العدد ومرة عشان نقراه)، يعني 12,554 عملية بقت 25,108 قراءة — نص
+  // الحد المجاني اليومي في تشغيلة واحدة.
+  //
+  // 2300 سطر ÷ 1000 = 3 صفحات للسجل. واللي بعدهم قراءة الملخّص
+  // (gradeStats) اللي بقت هي كمان على صفحات.
+  check('⭐⭐ السجل بيتقرا **مرة واحدة** (3 صفحات لـ2300)', bf.pages >= 3 && bf.pages <= 5, bf);
   check('الكتابة على دفعات', bf.batches >= 1, bf);
 
   await b.close();
