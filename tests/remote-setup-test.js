@@ -1,15 +1,17 @@
-// التحكم في إعدادات الطابعة من جهاز تاني
+// التحكم في إعدادات الطابعة عن بُعد — عام + خاص بالجهاز
 // ============================================================
 // ⭐ أهم النقط:
-//   1) التابات **مابتظهرش** لغير صاحب صلاحية إعدادات الطابعة — حساب
-//      الطباعة لازم يشوف الشاشة زي ما هي بالحرف
-//   2) الأمر بيتحفظ للجهاز المقفول وينفّذ لما يفتح
-//   3) ⭐⭐ الأمر مابيتنفّذش **مرتين** (النبضة بتتكرر كل 45 ثانية)
-//   4) ⭐⭐ والأمر البايت (أقدم من أسبوع) مابينفّذش خالص
-//   5) الطابعة مابتتغيّرش لاسم **مش موجود** على الجهاز
-//   6) زراير التجربة مقفولة لو الجهاز مقفول
+//   1) التاب **مابيظهرش** لغير صاحب مفتاح "التحكم عن بُعد" — وده مفتاح
+//      **منفصل** عن "إعدادات الطابعة"
+//   2) ⭐⭐ الجهاز اللي مالوش استثناء بيقرا العام **بالحرف** — يعني
+//      مفيش أي فرق عن قبل التعديل
+//   3) ⭐⭐ الاستثناء الجزئي **بيتدمج** مش بيستبدل (أخطر نقطة: تظبط x
+//      لوحدها فتتبهدل y وshrink في صمت)
+//   4) "على الكل" بيمسح الاستثناءات ويحذّر بأسمائها الأول
+//   5) الخانة الفاضية مابتتلمسش، والصفر قيمة صحيحة
 const { chromium } = require('playwright');
 const pass = [], fail = [];
+let PRINT_ALIGN_LIMIT = 0;
 const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? ` → ${JSON.stringify(x)}` : ''));
 
 (async () => {
@@ -18,7 +20,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   const errs = [];
   p.on('pageerror', (e) => errs.push(String(e)));
   await p.goto('http://localhost:8899/tests/harness.html');
-  await p.waitForFunction(() => typeof printDevicesHTML === 'function' && typeof applyPendingSetupOrder === 'function');
+  await p.waitForFunction(() => typeof printDevicesHTML === 'function' && typeof readPrintObject === 'function');
 
   const r = await p.evaluate(async () => {
     const out = {};
@@ -27,156 +29,192 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     state.user = { uid: 'U1' };
     state.printStations = [
       { id: 'd1', deviceName: 'كمبيوتر الكاشير', labelPrinter: 'XP-365B', restockPrinter: 'HP',
-        printers: ['XP-365B', 'HP', 'Microsoft PDF'], appVersion: '0.66.0',
+        printers: ['XP-365B', 'HP', 'Microsoft PDF'], appVersion: '0.68.0',
         printSetup: { batch: 30, lead: 5, pace: 420 }, lastSeen: seen(now - 10000) },
       { id: 'd2', deviceName: 'كمبيوتر المخزن', labelPrinter: 'TSC', printers: [],
         appVersion: '0.60.0', printSetup: { batch: 20 }, lastSeen: seen(now - 5 * 3600000) },
     ];
-    state.printOrders = {};
+    state.deviceSettings = {};
 
-    // ⭐ (1) من غير صلاحية = مفيش تابات خالص
+    // ============================================================
+    // (١) المفتاح المنفصل
+    // ============================================================
+    // حساب معاه إعدادات الطابعة بس — **مايشوفش** التاب
+    state.profile = { name: 'مدير الفرع', role: 'branch_manager', perms: { printerSetup: true } };
+    out.setupAloneNoTab = printScreenHTML().indexOf('data-print-tab') === -1;
+
     state.profile = { name: 'م', role: 'print_operator' };
     const plain = printScreenHTML();
-    out.noTabsForOperator = plain.indexOf('data-print-tab') === -1;
-    out.operatorSeesCart = plain.indexOf('سلة الطباعة') !== -1;
-    out.sameAsWork = plain === printWorkHTML();
+    out.operatorNoTab = plain.indexOf('data-print-tab') === -1;
+    out.operatorSameScreen = plain === printWorkHTML();
 
-    // (2) صاحب الصلاحية بيشوف التابات
     state.profile = { name: 'عبدالله', role: 'owner' };
-    state.printTab = 'work';
-    const owner = printScreenHTML();
-    out.tabsForOwner = owner.indexOf('data-print-tab') !== -1;
-    out.startsOnWork = owner.indexOf('سلة الطباعة') !== -1;
+    out.ownerHasTab = printScreenHTML().indexOf('data-print-tab') !== -1;
 
-    // (3) تاب الأجهزة
+    // ============================================================
+    // (٢) ترتيب القراءة: استثناء الجهاز → العام
+    // ============================================================
+    sharedPrintSettings = { align: { x: 1, y: 2, shrink: 3 }, tweaks: { noScale: true, blackwhite: false }, batch: 20, lead: 0, pace: 400 };
+    deviceOverrides = null;
+    try { localStorage.removeItem('tazweed_device_overrides'); } catch (e) {}
+
+    // ⭐⭐ مالوش استثناء = العام بالحرف
+    out.noOwnAlign = JSON.stringify(getPrintAlign());
+    out.noOwnBatch = getPrintBatchSize();
+    out.noOwnPace = getPrintPaceMs();
+    out.noOwnTweakOn = getPrintTweak('noScale');
+    out.noOwnTweakOff = getPrintTweak('blackwhite');
+
+    // استثناء كامل بيكسب
+    deviceOverrides = { batch: 7, pace: 900 };
+    out.ownBatch = getPrintBatchSize();
+    out.ownPace = getPrintPaceMs();
+    out.ownLeadStillShared = getPrintLeadLabels();  // مالهوش استثناء → العام
+
+    // ⭐⭐ (٣) الاستثناء **الجزئي** لازم يتدمج
+    deviceOverrides = { align: { x: 4.5 } };
+    const merged = getPrintAlign();
+    out.mergedX = merged.x;
+    out.mergedY = merged.y;         // لازم 2 من العام مش 0
+    out.mergedShrink = merged.shrink; // لازم 3 من العام مش 0
+
+    // ⚠️ والاستثناء بيتقص على حد المعايرة زي العام بالظبط — استثناء
+    // مش معناه إنه بيعدّي على الحدود.
+    deviceOverrides = { align: { x: 99 } };
+    out.clampedX = getPrintAlign().x;
+
+    deviceOverrides = { tweaks: { blackwhite: true } };
+    out.mergedTweakOwn = getPrintTweak('blackwhite');  // true من الاستثناء
+    out.mergedTweakShared = getPrintTweak('noScale');  // true من العام
+
+    // الصفر في الاستثناء قيمة صحيحة مش "فاضي"
+    deviceOverrides = { lead: 0, pace: 0 };
+    out.zeroLead = getPrintLeadLabels();
+    out.zeroPace = getPrintPaceMs();
+
+    deviceOverrides = null;
+
+    // ============================================================
+    // (٤) التنضيف
+    // ============================================================
+    out.cleanKeeps = Object.keys(cleanPrintFields({ batch: 5, pace: 300, align: { x: 1 } })).sort().join(',');
+    out.cleanDropsUnknown = cleanPrintFields({ batch: 5, hack: 'x' }).hack === undefined;
+    out.cleanDropsEmpty = Object.keys(cleanPrintFields({ batch: '', lead: null, pace: undefined })).length === 0;
+    out.cleanKeepsZero = cleanPrintFields({ lead: 0 }).lead === 0;
+
+    // ============================================================
+    // (٥) شاشة الأجهزة + تحذير الاستثناءات
+    // ============================================================
+    state.deviceSettings = {
+      d2: { batch: 9, align: { x: 0.4 }, updatedByName: 'عبدالله', updatedAt: {} },
+    };
+    // ⚠️ updatedByName/updatedAt **مش** إعدادات — مايتعدّوش
+    out.overrideKeys = deviceOverrideKeys('d2').sort().join(',');
+    out.noOverrideKeys = deviceOverrideKeys('d1').length;
+
     state.printTab = 'devices';
     document.body.innerHTML = '<div id=root>' + printScreenHTML() + '</div>';
     const txt = () => document.body.textContent;
-    out.showsBoth = document.querySelectorAll('.dev-card').length === 2;
-    out.showsOnlineCount = txt().indexOf('1 شغّال') !== -1;
-    out.showsPrinterName = txt().indexOf('XP-365B') !== -1;
-    out.showsNumbers = txt().indexOf('30') !== -1 && txt().indexOf('420') !== -1;
-    out.offlineLabelled = txt().indexOf('مقفول') !== -1 && txt().indexOf('من 5 ساعة') !== -1;
-
-    // ⭐ (4) زراير التجربة مقفولة على الجهاز المقفول، مفتوحة على الشغّال
-    const frameOn = document.querySelector('[data-dev-frame="d1"]');
-    const frameOff = document.querySelector('[data-dev-frame="d2"]');
-    out.testEnabledOnline = !!frameOn && !frameOn.disabled;
-    out.testDisabledOffline = !!frameOff && frameOff.disabled;
-    // بس "عدّل" مفتوح على الاتنين — الأمر بيستنى
-    out.editEnabledOffline = !document.querySelector('[data-dev-edit="d2"]').disabled;
-
-    // (5) أمر مستني بيبان
-    state.printOrders = { d2: { setup: { batch: 12, pace: 500 }, byName: 'عبدالله', expiresAtMs: now + 100000 } };
-    document.body.innerHTML = '<div id=root>' + printScreenHTML() + '</div>';
-    out.waitingShown = document.body.textContent.indexOf('مستني الجهاز يفتح') !== -1;
-    out.cancelBtn = !!document.querySelector('[data-dev-cancel="d2"]');
-
-    // (6) أمر اتنفّذ بيبان
-    state.printOrders = { d2: { setup: { batch: 12 }, appliedAt: { toMillis: () => now - 1000 }, appliedFields: ['حجم الدفعة'] } };
-    document.body.innerHTML = '<div id=root>' + printScreenHTML() + '</div>';
-    out.appliedShown = document.body.textContent.indexOf('اتطبّق') !== -1;
-
-    // ---- تنضيف الأمر: القايمة الحصرية ----
-    out.cleanKeeps = Object.keys(cleanSetupOrder({ batch: 5, lead: 0, pace: 300 })).sort().join(',');
-    out.cleanDropsUnknown = cleanSetupOrder({ batch: 5, hackField: 'x', align: { x: 99 } }).hackField === undefined
-      && cleanSetupOrder({ batch: 5, align: { x: 99 } }).align === undefined;
-    out.cleanDropsEmpty = Object.keys(cleanSetupOrder({ batch: '', lead: null, pace: undefined })).length === 0;
-    // ⚠️ صفر قيمة **صحيحة** (تقديم صفر = استنى الدفعة كلها) — مش فاضي
-    out.cleanKeepsZero = cleanSetupOrder({ lead: 0 }).lead === 0;
+    out.twoCards = document.querySelectorAll('.dev-card').length === 2;
+    out.warnsOnCard = txt().indexOf('إعداد خاص بالجهاز ده') !== -1;
+    out.namesFields = txt().indexOf('حجم الدفعة') !== -1 && txt().indexOf('المعايرة') !== -1;
+    out.hasResetBtn = !!document.querySelector('[data-dev-reset="d2"]');
+    out.noResetOnClean = !document.querySelector('[data-dev-reset="d1"]');
+    out.testOnlineOn = !document.querySelector('[data-dev-frame="d1"]').disabled;
+    out.testOfflineOff = document.querySelector('[data-dev-frame="d2"]').disabled;
 
     // ============================================================
-    // ⭐⭐ تنفيذ الأمر على الجهاز اللي عليه الطابعة
+    // (٦) النافذة: "على مين؟" والتحذير قبل المسح
     // ============================================================
-    // بنركّب db مزيّف عشان نجرّب المنطق نفسه: يتنفّذ مرة واحدة، ومايلمسش
-    // أمر بايت، ومايحطش اسم طابعة مش موجودة.
-    const calls = { pace: null, batch: null, lead: null, label: null, restock: null, name: null, wrote: null };
-    setPrintPaceMs = (v) => (calls.pace = v);
-    setPrintBatchSize = (v) => (calls.batch = v);
-    setPrintLeadLabels = (v) => (calls.lead = v);
-    saveSelectedPrinter = (t, n) => (t === 'label' ? (calls.label = n) : (calls.restock = n));
-    saveDeviceName = (n) => (calls.name = n);
-    getDeviceId = () => 'd1';
-    // الطابعات الموجودة **فعلًا** على الجهاز ده
-    getAvailableQZPrinters = async () => ['XP-365B', 'HP'];
+    attachPrintDeviceEvents();
+    document.getElementById('dev-open-settings').click();
+    out.dialogOpened = !!document.querySelector('#ps-target');
+    out.targetHasAll = !!document.querySelector('#ps-target option[value="all"]');
+    out.targetHasDevices = document.querySelectorAll('#ps-target option').length === 3;
 
-    let stored = null;
-    window.db = {
-      collection: () => ({
-        doc: () => ({
-          get: async () => ({ exists: !!stored, data: () => stored }),
-          set: async (patch) => { calls.wrote = patch; stored = { ...stored, ...patch }; },
-        }),
-      }),
-    };
-    window.firebase = { firestore: { FieldValue: { serverTimestamp: () => ({ __ts: true }) } } };
+    // "كل الأجهزة" + حقل بيتعارض مع استثناء d2 → تحذير باسمه
+    document.querySelector('#ps-target').value = 'all';
+    document.querySelector('#ps-batch').value = '15';
+    document.querySelector('#ps-batch').dispatchEvent(new Event('input', { bubbles: true }));
+    const warn = document.querySelector('#ps-warn');
+    out.warnShown = warn.style.display === 'block';
+    out.warnNamesDevice = warn.textContent.indexOf('كمبيوتر المخزن') !== -1;
+    out.warnNamesField = warn.textContent.indexOf('حجم الدفعة') !== -1;
+    // ⚠️ ومايحذّرش من حقل مالوش استثناء
+    out.warnSkipsOther = warn.textContent.indexOf('الإيقاع') === -1;
+    // ⚠️ واختيار الطابعة مايظهرش على "الكل"
+    out.noPrinterPickOnAll = !document.querySelector('#ps-label-printer');
 
-    const reset = () => {
-      Object.keys(calls).forEach((k) => (calls[k] = null));
-    };
+    // حقل مالوش أي استثناء = مفيش تحذير
+    document.querySelector('#ps-batch').value = '';
+    document.querySelector('#ps-pace').value = '600';
+    document.querySelector('#ps-pace').dispatchEvent(new Event('input', { bubbles: true }));
+    out.noWarnForClean = document.querySelector('#ps-warn').style.display === 'none';
 
-    // (أ) أمر عادي بينفّذ
-    stored = { setup: { pace: 300, batch: 12, lead: 2, deviceName: 'الكاشير الجديد' }, expiresAtMs: now + 100000 };
-    reset();
-    out.applyA = await applyPendingSetupOrder();
-    out.aPace = calls.pace; out.aBatch = calls.batch; out.aLead = calls.lead; out.aName = calls.name;
-    out.aMarked = !!(calls.wrote && calls.wrote.appliedAt);
+    // جهاز معيّن → قايمة طابعاته بتبان
+    document.querySelector('#ps-target').value = 'd1';
+    document.querySelector('#ps-target').dispatchEvent(new Event('change', { bubbles: true }));
+    out.printerPickForDevice = !!document.querySelector('#ps-label-printer');
+    out.printerOptions = document.querySelectorAll('#ps-label-printer option').length === 4;
+    out.onlineNote = document.querySelector('#ps-scope-note').textContent.indexOf('شغّال') !== -1;
 
-    // ⭐⭐ (ب) نفس الأمر تاني — النبضة الجاية. **مايتنفّذش**
-    reset();
-    out.applyB = await applyPendingSetupOrder();
-    out.bTouchedNothing = calls.pace === null && calls.batch === null && calls.wrote === null;
+    // جهاز مقفول ومن غير قايمة طابعات
+    document.querySelector('#ps-target').value = 'd2';
+    document.querySelector('#ps-target').dispatchEvent(new Event('change', { bubbles: true }));
+    out.offlineNote = document.querySelector('#ps-scope-note').textContent.indexOf('مقفول') !== -1;
+    out.noPrinterListMsg = document.querySelector('#ps-printers').textContent.indexOf('لسه مابعتش قايمة طابعاته') !== -1;
 
-    // ⭐⭐ (ج) أمر بايت (أقدم من أسبوع)
-    stored = { setup: { batch: 99 }, expiresAtMs: now - 1000 };
-    reset();
-    out.applyC = await applyPendingSetupOrder();
-    out.cTouchedNothing = calls.batch === null;
-
-    // ⭐ (د) اسم طابعة **مش موجود** على الجهاز
-    stored = { setup: { labelPrinter: 'طابعة وهمية', restockPrinter: 'HP' }, expiresAtMs: now + 100000 };
-    reset();
-    out.applyD = await applyPendingSetupOrder();
-    out.dLabelRefused = calls.label === null;
-    out.dRestockOk = calls.restock === 'HP';
-
-    // (هـ) مفيش أمر خالص
-    stored = null;
-    reset();
-    out.applyE = await applyPendingSetupOrder();
-
+    document.querySelector('#ps-close').click();
+    out.dialogClosed = !document.querySelector('#ps-target');
+    out.limit = PRINT_ALIGN_LIMIT_MM;
     return out;
   });
 
-  check('⭐ حساب الطباعة: مفيش تابات', r.noTabsForOperator);
-  check('وبيشوف السلة عادي', r.operatorSeesCart);
-  check('⭐⭐ والشاشة مطابقة للقديمة بالحرف', r.sameAsWork);
-  check('صاحب الصلاحية بيشوف التابات', r.tabsForOwner);
-  check('وبيفتح على تاب الطباعة', r.startsOnWork);
-  check('تاب الأجهزة: الجهازين ظاهرين', r.showsBoth);
-  check('وبيقول كام شغّال', r.showsOnlineCount);
-  check('واسم الطابعة', r.showsPrinterName);
-  check('وأرقام الدفعة والإيقاع', r.showsNumbers);
-  check('والمقفول مكتوب إنه مقفول ومن امتى', r.offlineLabelled);
-  check('⭐ زرار التجربة مفتوح على الشغّال', r.testEnabledOnline);
-  check('⭐⭐ ومقفول على المقفول (الورقة مش بتتأجّل)', r.testDisabledOffline);
-  check('بس "عدّل" مفتوح على المقفول (الأمر بيستنى)', r.editEnabledOffline);
-  check('الأمر المستني بيبان', r.waitingShown);
-  check('ومعاه زرار إلغاء', r.cancelBtn);
-  check('والأمر اللي اتنفّذ بيبان', r.appliedShown);
-  check('الأمر بيقبل الأرقام الصح', r.cleanKeeps === 'batch,lead,pace', r.cleanKeeps);
-  check('⭐⭐ وبيرمي أي حقل بره القايمة الحصرية', r.cleanDropsUnknown);
+  PRINT_ALIGN_LIMIT = r.limit;
+  check('⭐⭐ "إعدادات الطابعة" لوحدها مش كفاية للتاب', r.setupAloneNoTab);
+  check('حساب الطباعة: مفيش تاب', r.operatorNoTab);
+  check('⭐ وشاشته مطابقة للقديمة بالحرف', r.operatorSameScreen);
+  check('منشئ النظام: التاب موجود', r.ownerHasTab);
+
+  check('⭐⭐ مالوش استثناء: المعايرة = العام بالحرف', r.noOwnAlign === '{"x":1,"y":2,"shrink":3}', r.noOwnAlign);
+  check('⭐⭐ والدفعة', r.noOwnBatch === 20, r.noOwnBatch);
+  check('⭐⭐ والإيقاع', r.noOwnPace === 400, r.noOwnPace);
+  check('⭐⭐ والمفاتيح (مفتوح ومقفول)', r.noOwnTweakOn === true && r.noOwnTweakOff === false, [r.noOwnTweakOn, r.noOwnTweakOff]);
+  check('الاستثناء بيكسب على العام', r.ownBatch === 7 && r.ownPace === 900, [r.ownBatch, r.ownPace]);
+  check('واللي مالوش استثناء يفضل على العام', r.ownLeadStillShared === 0, r.ownLeadStillShared);
+  check('⭐⭐ استثناء x لوحده: y وshrink من العام مش صفر', r.mergedX === 4.5 && r.mergedY === 2 && r.mergedShrink === 3, [r.mergedX, r.mergedY, r.mergedShrink]);
+  check('⭐ والاستثناء بيتقص على حد المعايرة برضه', r.clampedX === PRINT_ALIGN_LIMIT, [r.clampedX]);
+  check('⭐⭐ ومفتاح واحد مايلغيش باقي المفاتيح العامة', r.mergedTweakOwn === true && r.mergedTweakShared === true, [r.mergedTweakOwn, r.mergedTweakShared]);
+  check('⭐ الصفر في الاستثناء قيمة صحيحة', r.zeroLead === 0 && r.zeroPace === 0, [r.zeroLead, r.zeroPace]);
+
+  check('التنضيف بيقبل الحقول الصح', r.cleanKeeps === 'align,batch,pace', r.cleanKeeps);
+  check('⭐ وبيرمي أي حقل بره القايمة', r.cleanDropsUnknown);
   check('وبيرمي الفاضي', r.cleanDropsEmpty);
-  check('⭐ بس صفر قيمة صحيحة مش فاضي', r.cleanKeepsZero);
-  check('الأمر بينفّذ ويقول اتغيّر إيه', (r.applyA || []).length === 4, r.applyA);
-  check('والأرقام وصلت صح', r.aPace === 300 && r.aBatch === 12 && r.aLead === 2, [r.aPace, r.aBatch, r.aLead]);
-  check('واسم الجهاز', r.aName === 'الكاشير الجديد', r.aName);
-  check('واتعلّم إنه اتنفّذ', r.aMarked);
-  check('⭐⭐ النبضة الجاية: مابيتنفّذش تاني', (r.applyB || []).length === 0 && r.bTouchedNothing, r.applyB);
-  check('⭐⭐ والأمر البايت مابيتنفّذش خالص', (r.applyC || []).length === 0 && r.cTouchedNothing, r.applyC);
-  check('⭐ وطابعة مش موجودة على الجهاز بترفض', r.dLabelRefused);
-  check('والموجودة بتتقبل', r.dRestockOk, r.applyD);
-  check('ومفيش أمر = مفيش حاجة', (r.applyE || []).length === 0);
+  check('وبيسيب الصفر', r.cleanKeepsZero);
+
+  check('⭐ عدّ الاستثناءات: الحقول بس مش updatedAt', r.overrideKeys === 'align,batch', r.overrideKeys);
+  check('والجهاز النضيف مالوش استثناءات', r.noOverrideKeys === 0, r.noOverrideKeys);
+  check('الجهازين ظاهرين', r.twoCards);
+  check('والكارت بيقول إن فيه إعداد خاص', r.warnsOnCard);
+  check('وبأسماء الإعدادات', r.namesFields);
+  check('وزرار "رجّعه للعام"', r.hasResetBtn);
+  check('والجهاز النضيف مالوش الزرار ده', r.noResetOnClean);
+  check('⭐ زرار التجربة مفتوح على الشغّال ومقفول على المقفول', r.testOnlineOn && r.testOfflineOff, [r.testOnlineOn, r.testOfflineOff]);
+
+  check('النافذة بتفتح', r.dialogOpened);
+  check('وفيها "كل الأجهزة"', r.targetHasAll);
+  check('وكل الأجهزة في القايمة', r.targetHasDevices);
+  check('⭐⭐ "على الكل" بيحذّر قبل ما يمسح', r.warnShown);
+  check('⭐⭐ وبيقول اسم الجهاز', r.warnNamesDevice);
+  check('⭐⭐ واسم الإعداد', r.warnNamesField);
+  check('⭐ ومابيحذّرش من حقل مالوش استثناء', r.warnSkipsOther);
+  check('⭐ اختيار الطابعة مايظهرش على "الكل"', r.noPrinterPickOnAll);
+  check('وحقل نضيف = مفيش تحذير', r.noWarnForClean);
+  check('جهاز معيّن: قايمة طابعاته بتبان', r.printerPickForDevice && r.printerOptions, [r.printerPickForDevice, r.printerOptions]);
+  check('ومكتوب إنه شغّال', r.onlineNote);
+  check('والمقفول مكتوب إنه مقفول', r.offlineNote);
+  check('واللي مابعتش طابعاته بيتقاله السبب', r.noPrinterListMsg);
+  check('والنافذة بتقفل', r.dialogClosed);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();
