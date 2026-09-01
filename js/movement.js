@@ -26,17 +26,41 @@ const MOVEMENT_DAYS_KEY = 'tazweed_movement_days';
 const MOVEMENT_OPEN_KEY = 'tazweed_movement_open';
 const MOVEMENT_SPAN_KEY = 'tazweed_movement_span';   // فترة "بتسحب بسرعة"
 const MOVEMENT_GROUPS_KEY = 'tazweed_movement_groups'; // الفئات المقفولة
+// ⚠️ `skip` = ابدأ من الشهر اللي فات. الخيار ده اتضاف عشان فخ حافة
+// الشهر: يوم 1، "الشهر ده" فيه يوم واحد، فاللي عايز يشوف **شهر كامل**
+// مالوش أي طريقة. دلوقتي عنده واحدة مهما كان تاريخ النهاردة.
 const MOVEMENT_SPANS = [
-  { key: '1', label: 'الشهر ده', months: 1 },
-  { key: '2', label: 'شهرين', months: 2 },
-  { key: '3', label: '٣ شهور', months: 3 },
+  { key: '1', label: 'الشهر ده', months: 1, skip: 0 },
+  { key: 'p', label: 'الشهر اللي فات', months: 1, skip: 1 },
+  { key: '2', label: 'شهرين', months: 2, skip: 0 },
+  { key: '3', label: '٣ شهور', months: 3, skip: 0 },
 ];
-const MOVEMENT_MAX_STATS = 4000;
+// ⚠️⚠️ الحد ده **حارس صامت وخطير** لو عدّيناه من غير ما نعرف.
+// المحل عنده 3642 درجة، ومنهم 2913 متتبّعة دلوقتي. يوم ما العدد يعدّي
+// الحد، الدرجات الزيادة هتختفي من الإحصائيات **من غير أي رسالة** —
+// وهتظهر في "مافيش عنها تاريخ" كأنها مالهاش حركة، وهي ليها.
+//
+// فالحد اترفع، **والأهم** إن الشاشة بقت تقول لما نوصله (شوف
+// movementStatsCapped تحت). الرقم لوحده مش حماية — اللي بيحمي إنك تعرف.
+const MOVEMENT_MAX_STATS = 12000;
+
+// آخر مرة الأرقام اتقرت فيها، وهل القراءة فشلت، وهل وصلنا للحد.
+let movementStatsAt = 0;
+let movementStatsError = '';
+let movementStatsCapped = false;
+
+// ⭐ الأرقام بتتقرا مرة وبتفضل في الذاكرة. لو قعدت كتير بتبقى **كذب**:
+// تعدّل كميات وترجع للتقرير تلاقيه لسه بيقول "راكدة".
+// فبعد المدة دي بنعيد القراءة لوحدنا أول ما تفتح الشاشة.
+const MOVEMENT_STALE_MS = 5 * 60 * 1000;
 // ⚠️ الحد **جوّه الفئة الواحدة**، مش على الصفوف كلها مع بعض.
 // أول نسخة كانت بتحد 100 صف إجمالي، فأول فئة كانت بتاكل الحد كله
 // و**باقي الفئات تختفي خالص** — يعني الشاشة بتوريك فئة واحدة من 39
 // وتقول "دي أول 100"، وانت مش عارف إن فيه فئات تانية أصلًا.
 const MOVEMENT_ROWS_PER_GROUP = 60;
+// تحت العدد ده من أيام الشهر، "الشهر ده" بتبقى مدة قصيرة أوي والرقم
+// بيتقرا غلط — فبيطلع تحذير.
+const MOVEMENT_YOUNG_MONTH_DAYS = 7;
 
 let movementStats = null;    // آخر لقطة من gradeStats
 let movementLoading = false;
@@ -212,8 +236,14 @@ function writeMovement(FV, info) {
 // ============================================================
 // مابنعملش onSnapshot: التقرير بيتفتح مرة كل كام يوم، واشتراك دايم على
 // آلاف المستندات هيفضل شغّال في الخلفية على الفاضي.
+function movementStatsStale() {
+  return !movementStats || Date.now() - movementStatsAt > MOVEMENT_STALE_MS;
+}
+
 async function loadMovementStats(force) {
-  if (movementStats && !force) return movementStats;
+  // ⭐ القديمة بتتعاد قراءتها لوحدها. من غير ده الأرقام بتفضل من أول ما
+  // فتحت التطبيق: تعدّل كمية، ترجع للتقرير، ولسه بيقول "راكدة".
+  if (movementStats && !force && !movementStatsStale()) return movementStats;
   if (movementLoading) return movementStats;
   movementLoading = true;
   try {
@@ -221,13 +251,38 @@ async function loadMovementStats(force) {
     const next = {};
     snap.docs.forEach((d) => (next[d.id] = d.data()));
     movementStats = next;
+    movementStatsAt = Date.now();
+    movementStatsError = '';
+    // ⚠️ وصلنا الحد = فيه درجات **مقصوصة** من القراءة. لازم يتقال.
+    movementStatsCapped = snap.size >= MOVEMENT_MAX_STATS;
   } catch (err) {
     console.warn('تعذّرت قراءة حركة المخزون:', err);
-    movementStats = movementStats || {};
+    // ============================================================
+    // ⚠️⚠️ الفشل **لازم يتقال**، مايتبلعش
+    // ============================================================
+    // الكود القديم كان بيحط `movementStats = {}` ويكمّل. النتيجة
+    // (اتقاست): التقرير بيطلع **3537 درجة "مالهاش تاريخ"، وصفر راكد،
+    // وصفر بيسحب** — تقرير كامل الشكل وغلط بالكامل، ومفيش أي علامة إنه
+    // مبني على لا حاجة.
+    //
+    // ده أسوأ من شاشة خطأ بكتير: صاحب المحل بياخد قرار شراء على رقم
+    // مالوش أساس.
+    movementStatsError = (err && err.code) || 'تعذّرت القراءة';
+    if (!movementStats) movementStats = null;
   } finally {
     movementLoading = false;
   }
   return movementStats;
+}
+
+// "الأرقام دي من امتى" بكلام بني آدم
+function movementStatsAgeText() {
+  if (!movementStatsAt) return '';
+  const mins = Math.floor((Date.now() - movementStatsAt) / 60000);
+  if (mins < 1) return 'دلوقتي';
+  if (mins < 60) return `من ${mins} دقيقة`;
+  const hrs = Math.floor(mins / 60);
+  return hrs < 24 ? `من ${hrs} ساعة` : `من ${Math.floor(hrs / 24)} يوم`;
 }
 
 function movementToDate(v) {
@@ -260,12 +315,15 @@ function setMovementSpan(key) {
   if (MOVEMENT_SPANS.some((s) => s.key === key)) localStorage.setItem(MOVEMENT_SPAN_KEY, key);
 }
 
-// مفاتيح آخر N شهر (الشهر الحالي أولًا)
-function movementMonthKeys(n) {
+// مفاتيح N شهر، بادئة من `skip` شهر لورا (0 = الشهر الحالي).
+// ⚠️ `new Date(y, m - i, 1)` بيلفّ السنة لوحده: يناير − 1 = ديسمبر
+// اللي فات. مافيش حساب سنة بإيدنا.
+function movementMonthKeys(n, skip) {
   const out = [];
   const d = new Date();
+  const from = skip || 0;
   for (let i = 0; i < n; i++) {
-    out.push(movementMonthKey(new Date(d.getFullYear(), d.getMonth() - i, 1)));
+    out.push(movementMonthKey(new Date(d.getFullYear(), d.getMonth() - from - i, 1)));
   }
   return out;
 }
@@ -279,7 +337,7 @@ function computeMovementReport() {
   const stats = movementStats || {};
   const days = getMovementDays();
   const span = getMovementSpan();
-  const months = movementMonthKeys(span.months);
+  const months = movementMonthKeys(span.months, span.skip);
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
   const cats = {};
@@ -376,9 +434,16 @@ function computeMovementReport() {
   const sumQty = (rows) => rows.reduce((n, r) => n + (r.qty || 0), 0);
   const sumOnHand = (rows) => rows.reduce((n, r) => n + (r.onHand || 0), 0);
 
+  // ⭐ التحذير بيظهر بس لما المدة **تخص الشهر الحالي** وهو لسه بدري.
+  // "الشهر اللي فات" شهر كامل، فمالهاش أي علاقة بالفخ ده.
+  const dayOfMonth = new Date().getDate();
+  const monthWarn = !span.skip && dayOfMonth <= MOVEMENT_YOUNG_MONTH_DAYS;
+
   return {
     days,
     span,
+    dayOfMonth,
+    monthWarn,
     fast: sortGroups(fast, sumQty, (a, b) => b.qty - a.qty),
     idle: sortGroups(idle, sumOnHand, (a, b) => b.daysIdle - a.daysIdle),
     unknown: sortGroups(unknown, sumOnHand, (a, b) => b.onHand - a.onHand),
@@ -502,6 +567,24 @@ function movementScreenHTML() {
       </div>`;
   }
 
+  // ⚠️⚠️ القراءة فشلت = **مانرسمش تقرير**. الشاشة القديمة كانت بتكمّل
+  // بأرقام فاضية وتطلع "كل الدرجات مالهاش تاريخ" — تقرير كامل الشكل
+  // وغلط بالكامل، وصاحب المحل بياخد عليه قرار شراء.
+  if (movementStatsError && !movementStats) {
+    return `
+      <div style="padding:1rem;">
+        <div class="card" style="padding:16px; text-align:center;">
+          <div style="font-size:15px; font-weight:600; margin-bottom:8px;">⚠️ مش قادر أقرا أرقام الحركة</div>
+          <div style="font-size:13px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">
+            مانعرضش تقرير من غير الأرقام — كان هيطلع كأن كل الدرجات مالهاش
+            تاريخ، وده مش صحيح.
+            <br>غالبًا النت فاصل. اتصل وجرّب تاني.
+          </div>
+          <button class="btn btn-primary" id="mv-refresh">🔄 حاول تاني</button>
+        </div>
+      </div>`;
+  }
+
   const rep = computeMovementReport();
   if (!rep) {
     return `<div style="padding:1rem;"><div class="home-empty" style="padding:2rem; text-align:center;">جارٍ تحميل الدرجات…</div></div>`;
@@ -545,14 +628,52 @@ function movementScreenHTML() {
           <button class="btn" id="mv-repeat">🔁 فئات درجاتها بتتكرر</button>
           <button class="btn" id="mv-backfill">📥 احسب من السجل القديم</button>
         </div>
+        ${
+          // ============================================================
+          // ⚠️⚠️ فخ حافة الشهر — أخطر حاجة في الشاشة دي
+          // ============================================================
+          // "بتسحب بسرعة" بتتحسب على **شهور الروزنامة**، مش على آخر 30
+          // يوم. فيوم 1 في الشهر، "الشهر ده" فيه **يوم واحد** — والدرجة
+          // اللي باعت 500 قطعة الشهر اللي فات **بتختفي خالص** من القايمة،
+          // وواحدة باعت 3 النهاردة بتبقى في الأول.
+          //
+          // ده مش عطل في الحساب — ده الحساب شغّال صح على مدة قصيرة.
+          // العطل إن المدة دي **مش باينة**، فالرقم بيتقرا غلط.
+          //
+          // مابنغيّرش الحساب (soldByMonth متخزّن بالشهر، والتحويل لآخر 30
+          // يوم محتاج تخزين يومي) — بنقول الحقيقة بدل ما نخبّيها.
+          rep.monthWarn
+            ? `<div class="mv-warn">⚠️ لسه <strong>يوم ${escapeHTML(rep.dayOfMonth)}</strong> في الشهر —
+                 "${escapeHTML(span.label)}" فيها ${escapeHTML(rep.dayOfMonth)} يوم بس.
+                 اللي باع الشهر اللي فات <strong>مش هيبان</strong>.
+                 اختار <strong>"الشهر اللي فات"</strong> أو <strong>"شهرين"</strong> عشان تشوف صورة كاملة.</div>`
+            : ''
+        }
+        ${
+          // ⚠️ الحد اتقفل على القراءة = فيه درجات مقصوصة. من غير السطر ده
+          // بتظهر في "مافيش عنها تاريخ" كأنها مالهاش حركة، وهي ليها.
+          movementStatsCapped
+            ? `<div class="mv-warn">⚠️ الأرقام وصلت الحد الأقصى للقراءة (${escapeHTML(MOVEMENT_MAX_STATS)}).
+                 فيه درجات ممكن تظهر غلط في "مافيش عنها تاريخ". بلّغ عن ده.</div>`
+            : ''
+        }
         <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.8;">
-          عندك <strong>${escapeHTML(rep.total)}</strong> درجة في النظام.
-          ${rep.soldOut ? `منهم <strong>${escapeHTML(rep.soldOut)}</strong> خلصانة (مافيش فيها بضاعة، فمش داخلة في الحساب).` : ''}
+          عندك <strong>${escapeHTML(rep.total)}</strong> درجة في النظام،
+          منهم <strong>${escapeHTML(rep.tracked)}</strong> عندها أرقام حركة.
+          ${
+            // ⚠️ النص القديم كان بيقول إن الخلصانة "مش داخلة في الحساب" —
+            // وده **غلط**: هي مستثناة من "راكدة" بس، ولسه بتظهر في
+            // "بتسحب بسرعة" (وده صح: اللي خلص عشان باع هو اللي تجيب منه).
+            rep.soldOut
+              ? `منهم <strong>${escapeHTML(rep.soldOut)}</strong> خلصانة — مش بتتحسب "راكدة"، بس لسه بتبان في "بتسحب بسرعة".`
+              : ''
+          }
           ${
             rep.unknownCount
               ? `<br>و<strong>${escapeHTML(rep.unknownCount)}</strong> درجة لسه مالهاش تاريخ حركة — تحت في آخر قسم.`
               : ''
           }
+          ${movementStatsAt ? `<br>🕐 الأرقام دي اتقرت <strong>${escapeHTML(movementStatsAgeText())}</strong>.` : ''}
         </div>
       </div>
 
@@ -728,6 +849,8 @@ function attachMovementEvents() {
   const repeat = document.getElementById('mv-repeat');
   if (repeat) repeat.addEventListener('click', () => openRepeatGradesDialog());
 
+  // ⚠️ نفس المعرّف بيتستخدم في شاشة الخطأ ("حاول تاني") وفي شريط
+  // الأدوات ("حدّث الأرقام") — الاتنين نفس الفعل بالظبط: قراءة مجبرة.
   const refresh = document.getElementById('mv-refresh');
   if (refresh) {
     refresh.addEventListener('click', async () => {
@@ -873,8 +996,19 @@ async function backfillMovementFromLog() {
       if (snap.size < MOVEMENT_PAGE) break;
     }
 
-    // الكتابة — بنستبدل المستند بالكامل (مش merge) عشان الحساب ده هو
-    // المرجع الكامل للتاريخ، ولو الزرار اتضغط تاني مايتضاعفش.
+    // ============================================================
+    // ⚠️⚠️ الكتابة بـmerge — والسبب مش تجميل
+    // ============================================================
+    // كانت `set` من غير merge، يعني **بتستبدل المستند بالكامل**. والحقول
+    // اللي بنكتبها هنا مافيهاش `cycleStartedAt`.
+    //
+    // النتيجة: أي درجة خلصت ورجعت (= درجة جديدة، وعدّاد "راكدة" بيبدأ من
+    // أول) كانت **بتفقد** العلامة دي مع أول ضغطة على الزرار ده — وترجع
+    // تتحسب على تاريخ الشحنة اللي قبلها. وعلامة "جديدة" تختفي.
+    //
+    // ⚠️ وmerge **مابيضاعفش** لو الزرار اتضغط تاني: الحقول دي بتتكتب
+    // بقيمة نهائية محسوبة من السجل كله (`soldTotal: v.soldTotal`)، مش
+    // بـincrement. merge بيحمي اللي إحنا مش بنكتبه وبس.
     const keys = Object.keys(acc);
     for (let i = 0; i < keys.length; i += MOVEMENT_WRITE_BATCH) {
       const batch = db.batch();
@@ -885,13 +1019,14 @@ async function backfillMovementFromLog() {
           categoryName: v.categoryName,
           gradeId: v.gradeId,
           gradeNumber: v.gradeNumber,
-          gradeName: '',
+          // ⚠️ السجل مافيهوش اسم الدرجة، فمابنكتبش الحقل ده خالص —
+          // كتابته فاضي كانت **بتمسح** الاسم المحفوظ من التسجيل الحي.
           lastMovedAt: v.lastMovedAt ? firebase.firestore.Timestamp.fromDate(v.lastMovedAt) : null,
           lastSoldAt: v.lastSoldAt ? firebase.firestore.Timestamp.fromDate(v.lastSoldAt) : null,
           soldTotal: v.soldTotal,
           soldByMonth: v.soldByMonth,
           moves: v.moves,
-        });
+        }, { merge: true });
       });
       await batch.commit();
     }
