@@ -65,7 +65,7 @@ const state = {
   fromCache: false,
   bulkRequestMode: false,
   printStations: [], // الأجهزة المسجّلة كنقاط طباعة (اللي عليها QZ Tray وطابعة)
-  printOrders: {},   // أوامر ضبط مستنية لكل جهاز — { deviceId: order }
+  deviceSettings: {}, // استثناءات إعدادات لكل جهاز — { deviceId: {...} }
   printTab: 'work',  // تاب شاشة الطباعة: 'work' | 'devices'
   users: [], // حسابات المستخدمين (بتتحمّل بس وقت فتح شاشة الحسابات)
   canInstallApp: false, // المتصفح عرض إنه يثبّت النظام كأيقونة
@@ -4683,22 +4683,9 @@ async function registerPrintStation() {
   if (!getSavedPrinter('label') && !getSavedPrinter('restock')) return;
   if (!(await ensureQZConnected())) return;
 
-  // ⭐ الأمر الأول: لو صاحب المحل ظبط حاجة من التليفون والجهاز ده كان
-  // مقفول، الأمر مستنيه في السحابة. بننفّذه **قبل** ما نبعت النبضة —
-  // عشان النبضة تطلع بالقيم الجديدة على طول، مش بالقديمة وتستنى 45
-  // ثانية كمان.
-  let applied = [];
-  try {
-    applied = await applyPendingSetupOrder();
-  } catch (err) {
-    console.warn('تعذّر تنفيذ أمر الضبط:', err);
-  }
-  if (applied.length) {
-    showPrintNotice(`⚙️ اتظبط من بعيد: ${applied.join('، ')}`);
-  }
-
-  // ⚠️ بنقراهم **بعد** تنفيذ الأمر مش قبله، وإلا النبضة هتنشر القيم
-  // القديمة والتليفون هيفضل شايف إن الأمر ما اتنفّذش.
+  // ⚠️ مفيش "تنفيذ أمر" هنا خالص. الإعداد مش أمر بيتنفّذ — ده **قيمة**
+  // الجهاز بيقراها من السحابة (شوف readPrintField). الدوال تحت بترجّع
+  // القيمة النافذة فعلًا، فالنبضة بتنشر الحقيقة لوحدها.
   const labelPrinter = getSavedPrinter('label');
   const restockPrinter = getSavedPrinter('restock');
 
@@ -4800,20 +4787,20 @@ function subscribePrintStations() {
   );
 }
 
-// ⭐ أوامر الضبط المستنية — عشان اللي بعت الأمر يشوف "⏳ مستني" أو
-// "✅ اتطبّق" من غير ما يسأل حد.
-let unsubPrintOrders = null;
+// ⭐ استثناءات كل الأجهزة — عشان شاشة التحكم توري مين عنده إعداد خاص،
+// وتحذّرك قبل ما "على الكل" تمسحه.
+let unsubAllDeviceSettings = null;
 
-function subscribePrintOrders() {
-  if (unsubPrintOrders) unsubPrintOrders();
-  unsubPrintOrders = db.collection('printOrders').onSnapshot(
+function subscribeAllDeviceSettings() {
+  if (unsubAllDeviceSettings) unsubAllDeviceSettings();
+  unsubAllDeviceSettings = db.collection('deviceSettings').onSnapshot(
     (snap) => {
       const map = {};
       snap.docs.forEach((d) => (map[d.id] = { id: d.id, ...d.data() }));
-      state.printOrders = map;
+      state.deviceSettings = map;
       if (state.view === 'dashboard' && state.screen === 'print') render();
     },
-    (err) => console.warn('تعذّر قراءة أوامر الضبط:', err)
+    (err) => console.warn('تعذّر قراءة استثناءات الأجهزة:', err)
   );
 }
 
@@ -5663,7 +5650,8 @@ function init() {
     if (unsubActivityLog) { unsubActivityLog(); unsubActivityLog = null; }
     if (unsubPrintJobs) { unsubPrintJobs(); unsubPrintJobs = null; }
     if (unsubPrintStations) { unsubPrintStations(); unsubPrintStations = null; }
-    if (unsubPrintOrders) { unsubPrintOrders(); unsubPrintOrders = null; }
+    if (unsubAllDeviceSettings) { unsubAllDeviceSettings(); unsubAllDeviceSettings = null; }
+    if (unsubDeviceSettings) { unsubDeviceSettings(); unsubDeviceSettings = null; }
     stopOverview();
     stopStationHeartbeat();
     // ⚠️ لازم تتصفّر مع تغيير الحساب: العدّاد وأسماء الدرجات بتاعت
@@ -5802,8 +5790,9 @@ function init() {
       // بتقرا الأصناف بس. لكنه محتاج أجهزة الطباعة عشان يقدر يبعت للكاشير.
       if (isPrintOperator(state.profile)) {
         subscribePrintSettings();
+        subscribeDeviceSettings();
         subscribePrintStations();
-        subscribePrintOrders();
+        subscribeAllDeviceSettings();
         subscribePrintJobs();
         startStationHeartbeat();
         return;
@@ -5820,8 +5809,11 @@ function init() {
       // أي جهاز (مش أمين مخزن بس) ممكن يبقى نقطة طباعة، طالما عليه
       // QZ Tray وطابعة محفوظة — لأن الطابعات كلها في مكتب الكاشير.
       subscribePrintSettings();
+      // ⭐ استثناء الجهاز ده هو — لازم **كل** جهاز يشترك فيه، مش شاشة
+      // التحكم بس، وإلا الإعداد يتبعتله وهو مايقراهوش.
+      subscribeDeviceSettings();
       subscribePrintStations();
-      subscribePrintOrders();
+      subscribeAllDeviceSettings();
       subscribePrintJobs();
       startStationHeartbeat();
     });

@@ -1287,144 +1287,193 @@ async function ensureQZConnected() {
 }
 
 // ============================================================
-// ⚙️⚙️ التحكم في جهاز الطباعة من جهاز تاني (أوامر الضبط)
+// ⚙️⚙️ إعدادات الطابعة: عام + خاص بالجهاز
 // ============================================================
 // المشكلة اللي بيحلها: الطابعة على كمبيوتر الكاشير، وصاحب المحل شغّال من
-// التليفون. عشان يظبط رقم في الإعدادات كان لازم يقوم يقعد على الكمبيوتر.
+// التليفون. عايز يغيّر أي إعداد — كبير أو صغير — ويقرر **هو** يروح لكل
+// الأجهزة ولا لجهاز واحد.
 //
 // ------------------------------------------------------------
-// ليه "أمر" مش تعديل مباشر؟
+// طبقتين وبس
 // ------------------------------------------------------------
-// لأن **مافيش قناة مباشرة** بين التليفون والكمبيوتر. المتصفح مايقدرش
-// يوصل لمتصفح تاني. اللي بينهم هو السحابة بس.
+//   settings/print          → القيمة **العامة** (كل الأجهزة)
+//   deviceSettings/{id}     → **استثناء** لجهاز واحد
 //
-// فالتليفون بيسيب "أمر" في السحابة، والكمبيوتر بيشوفه مع أول نبضة
-// (كل 45 ثانية) وينفّذه. لو الكمبيوتر مقفول، الأمر بيفضل مستني — وينفّذ
-// أول ما يفتح.
+// وكل دالة بتقرا إعداد بتمشي بالترتيب ده:
+//
+//   استثناء الجهاز  →  العام  →  المحفوظ محليًا (نسخ قديمة)  →  الافتراضي
+//
+// ⚠️⚠️ **ليه ده أبسط من "أمر بيتبعت وينفّذ"؟**
+//
+// النسخة الأولى كانت بتسيب "أمر" في السحابة والجهاز ينفّذه مع النبضة —
+// وده جرّ وراه تلات مشاكل كان لازم نحلها بإيدنا: الأمر بينفّذ مرتين،
+// وأمر قديم بينفّذ فجأة بعد أسبوعين، وعلامة "اتنفّذ" لازم تتكتب.
+//
+// الطريقة دي **مافيهاش ولا واحدة منهم**: الإعداد مش أمر بيتنفّذ، ده
+// **قيمة** الجهاز بيقراها. الجهاز المقفول بيقراها أول ما يفتح، ومفيش
+// حاجة اسمها "اتنفّذ مرتين" لأن مفيش تنفيذ أصلًا.
 //
 // ------------------------------------------------------------
-// ⚠️ ثلاث حاجات لازم تتحل عشان ده مايبقاش خطر
+// ⭐ قاعدة "الكل يكسب"
 // ------------------------------------------------------------
-// 1) **أمر قديم بينفّذ فجأة.** لو الكمبيوتر قعد أسبوعين مقفول، الأمر
-//    اللي اتبعت زمان ينفّذ لحظة ما يفتح — وصاحبه نسيه أصلًا. فالأمر
-//    بيبطل لوحده بعد PRINT_ORDER_TTL_MS.
+// لما تحفظ إعداد **لكل الأجهزة**، الاستثناءات بتاعة نفس الإعداد
+// **بتتمسح** من كل الأجهزة. يعني "على الكل" معناها الكل فعلًا.
 //
-// 2) **التنفيذ مرتين.** النبضة بتتكرر كل 45 ثانية. من غير علامة
-//    "اتنفّذ"، نفس الأمر هيتنفّذ كل نبضة للأبد. فبنكتب appliedAt
-//    والكمبيوتر بيتخطّاه بعد كده.
-//
-// 3) **مين يكسب لو الاتنين غيّروا.** حد ظبط على الكمبيوتر وفي نفس الوقت
-//    فيه أمر مستني؟ **الأمر بيكسب** لما ينفّذ — لأنه أحدث نية من صاحب
-//    الصلاحية. واللي قدام الماكينة بيشوف النتيجة قدامه على طول.
-//
-// ⚠️⚠️ واللي **مش** بيتبعت في الأمر ده مقصود: المعايرة والمفاتيح.
-// دول أصلًا **مشتركين للمحل كله** في settings/print — يعني بيتظبطوا من
-// التليفون **دلوقتي** من غير أي أمر، وكل الأجهزة بتاخدهم لوحدها.
-// لو بعتناهم كأمر كمان، هيتكتبوا في مكانين ويختلفوا.
-const PRINT_ORDER_TTL_MS = 7 * 86400000; // أسبوع
-const PRINT_ORDERS = 'printOrders';
+// ⚠️ من غير القاعدة دي، الجهاز اللي أخد استثناء مرة كان هيفضل واقف عليه
+// للأبد وانت بتغيّر العام ومش فاهم ليه مش واصل — وده عطل **صامت**، أسوأ
+// نوع. وعشان كده كمان النافذة بتنبّهك بأسماء الأجهزة قبل ما تمسح.
+const DEVICE_SETTINGS = 'deviceSettings';
 
-// الحقول اللي الأمر يقدر يغيّرها — **قايمة حصرية** عن قصد.
-// أي حقل مش هنا بيتجاهل، عشان أمر قديم من نسخة تانية مايكتبش حاجة
-// النسخة دي مش فاهماها.
-const PRINT_ORDER_FIELDS = ['pace', 'batch', 'lead', 'labelPrinter', 'restockPrinter', 'deviceName'];
+// الحقول اللي ينفع تتظبط — **قايمة حصرية**. أي حقل بره القايمة بيتجاهل،
+// عشان قيمة من نسخة تانية ماتكتبش حاجة النسخة دي مش فاهماها.
+const PRINT_FIELDS = [
+  { key: 'align', label: 'المعايرة' },
+  { key: 'tweaks', label: 'المفاتيح المتقدمة' },
+  { key: 'pace', label: 'الإيقاع' },
+  { key: 'batch', label: 'حجم الدفعة' },
+  { key: 'lead', label: 'التقديم' },
+  { key: 'labelPrinter', label: 'طابعة الملصق' },
+  { key: 'restockPrinter', label: 'طابعة ورقة التزويد' },
+  { key: 'deviceName', label: 'اسم الجهاز' },
+];
 
-function cleanSetupOrder(setup) {
+const PRINT_FIELD_KEYS = PRINT_FIELDS.map((f) => f.key);
+
+function printFieldLabel(key) {
+  const f = PRINT_FIELDS.find((x) => x.key === key);
+  return f ? f.label : key;
+}
+
+// بتشيل أي حقل بره القايمة، وأي قيمة فاضية.
+// ⚠️ الصفر **قيمة صحيحة** (تقديم صفر = استنى الدفعة كلها) — فبنفرّق بين
+// الصفر والفاضي بدل ما نستخدم `!value`.
+function cleanPrintFields(patch) {
   const out = {};
-  if (!setup || typeof setup !== 'object') return out;
-  PRINT_ORDER_FIELDS.forEach((k) => {
-    if (setup[k] === undefined || setup[k] === null || setup[k] === '') return;
-    out[k] = setup[k];
+  if (!patch || typeof patch !== 'object') return out;
+  PRINT_FIELD_KEYS.forEach((k) => {
+    const v = patch[k];
+    if (v === undefined || v === null || v === '') return;
+    out[k] = v;
   });
   return out;
 }
 
-// بيسيب أمر للجهاز ده في السحابة. بيمسح أي أمر قديم مستني (بيكتب فوقه)
-// عشان مايتكوّمش طابور أوامر متضاربة.
-async function sendPrintSetupOrder(deviceId, setup) {
-  const clean = cleanSetupOrder(setup);
+// استثناءات الجهاز ده — بتتحدّث لايف من subscribeDeviceSettings.
+let deviceOverrides = null;
+
+function getDeviceOverrides() {
+  if (deviceOverrides) return deviceOverrides;
+  try {
+    const raw = localStorage.getItem('tazweed_device_overrides');
+    if (raw) return JSON.parse(raw);
+  } catch (err) {
+    /* تجاهل */
+  }
+  return null;
+}
+
+// ⭐ القراءة الموحّدة: استثناء الجهاز الأول، وبعدين العام.
+// كل دالة بتقرا إعداد بتعدّي من هنا — فالترتيب مكتوب **مرة واحدة**
+// ومستحيل اتنين منهم يختلفوا.
+function readPrintField(key) {
+  const own = getDeviceOverrides();
+  if (own && own[key] !== undefined && own[key] !== null) return own[key];
+  const shared = getSharedPrintSettings();
+  if (shared && shared[key] !== undefined && shared[key] !== null) return shared[key];
+  return undefined;
+}
+
+// ⚠️⚠️ الحقول اللي جواها حاجات (المعايرة والمفاتيح) لازم **تتدمج** مش
+// تتستبدل. لو الجهاز عنده استثناء في `x` بس، readPrintField هترجّع كائن
+// الجهاز كله — و`y` و`shrink` هيبقوا **مش موجودين**، فياخدوا صفر بدل
+// القيمة العامة. يعني تظبط استثناء في حاجة واحدة، فتتبهدل حاجتين تانيين
+// في صمت.
+function readPrintObject(key) {
+  const shared = getSharedPrintSettings();
+  const own = getDeviceOverrides();
+  const a = shared && typeof shared[key] === 'object' && shared[key] ? shared[key] : {};
+  const b = own && typeof own[key] === 'object' && own[key] ? own[key] : {};
+  return { ...a, ...b };
+}
+
+let unsubDeviceSettings = null;
+
+function subscribeDeviceSettings() {
+  const deviceId = getDeviceId();
+  if (!deviceId) return;
+  if (unsubDeviceSettings) unsubDeviceSettings();
+  try {
+    unsubDeviceSettings = db
+      .collection(DEVICE_SETTINGS)
+      .doc(deviceId)
+      .onSnapshot(
+        (snap) => {
+          deviceOverrides = snap.exists ? cleanPrintFields(snap.data()) : {};
+          try {
+            localStorage.setItem('tazweed_device_overrides', JSON.stringify(deviceOverrides));
+          } catch (err) {
+            /* التخزين ممكن يكون مقفول */
+          }
+          // ⚠️ الطابعة واسم الجهاز محفوظين محليًا كمان (مسارات قديمة
+          // كتير بتقراهم من هناك مباشرة)، فبنزامنهم — وإلا الاستثناء
+          // يتغيّر والطباعة تفضل رايحة للطابعة القديمة.
+          if (deviceOverrides.labelPrinter) saveSelectedPrinter('label', deviceOverrides.labelPrinter);
+          if (deviceOverrides.restockPrinter) saveSelectedPrinter('restock', deviceOverrides.restockPrinter);
+          if (deviceOverrides.deviceName) saveDeviceName(String(deviceOverrides.deviceName).slice(0, 40));
+        },
+        (err) => console.warn('تعذّر قراءة إعدادات الجهاز:', err)
+      );
+  } catch (err) {
+    console.warn('تعذّر الاشتراك في إعدادات الجهاز:', err);
+  }
+}
+
+// بيحفظ إعدادات **لجهاز واحد** (استثناء).
+async function savePrintFieldsForDevice(deviceId, patch) {
+  const clean = cleanPrintFields(patch);
   if (!deviceId || !Object.keys(clean).length) return false;
-  await db.collection(PRINT_ORDERS).doc(deviceId).set({
-    setup: clean,
-    byUid: state.user ? state.user.uid : '',
-    byName: (state.profile && state.profile.name) || '',
-    at: firebase.firestore.FieldValue.serverTimestamp(),
-    expiresAtMs: Date.now() + PRINT_ORDER_TTL_MS,
-    // ⚠️ بنصفّرهم صراحةً: المستند بيتكتب فوق القديم، ولو سيبنا appliedAt
-    // بتاعة الأمر اللي فات، الجهاز هيفتكر إن الأمر الجديد اتنفّذ خلاص.
-    appliedAt: null,
-    appliedFields: null,
-  });
+  await db.collection(DEVICE_SETTINGS).doc(deviceId).set(
+    {
+      ...clean,
+      updatedByUid: state.user ? state.user.uid : '',
+      updatedByName: (state.profile && state.profile.name) || '',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
   return true;
 }
 
-// بيلغي أمر مستني (لسه ما اتنفّذش).
-async function cancelPrintSetupOrder(deviceId) {
-  if (!deviceId) return;
-  await db.collection(PRINT_ORDERS).doc(deviceId).delete();
+// ⭐ بيحفظ **لكل الأجهزة** — وبيمسح استثناءات نفس الحقول من كل جهاز.
+// بيرجّع عدد الاستثناءات اللي اتمسحت.
+async function savePrintFieldsForAll(patch, deviceIds) {
+  const clean = cleanPrintFields(patch);
+  if (!Object.keys(clean).length) return 0;
+
+  await saveSharedPrintSettings(clean);
+
+  // ⚠️ المسح **بعد** ما العام يتحفظ مش قبله: لو المسح نجح والحفظ فشل،
+  // الأجهزة كانت هتفقد استثناءاتها وتاخد قيمة قديمة — أسوأ من الاتنين.
+  let cleared = 0;
+  const keys = Object.keys(clean);
+  for (const id of deviceIds || []) {
+    try {
+      const patch2 = {};
+      keys.forEach((k) => (patch2[k] = firebase.firestore.FieldValue.delete()));
+      await db.collection(DEVICE_SETTINGS).doc(id).set(patch2, { merge: true });
+      cleared++;
+    } catch (err) {
+      // جهاز فشل مايوقفش الباقي — الأهم إن العام اتحفظ خلاص
+      console.warn('تعذّر مسح استثناء الجهاز', id, err);
+    }
+  }
+  return cleared;
 }
 
-// ⭐ بيتنده على **الجهاز اللي عليه الطابعة** مع كل نبضة.
-// بيرجّع أسماء الحاجات اللي اتغيّرت (أو [] لو مفيش).
-async function applyPendingSetupOrder() {
-  const deviceId = getDeviceId();
-  if (!deviceId) return [];
-  let snap;
-  try {
-    snap = await db.collection(PRINT_ORDERS).doc(deviceId).get();
-  } catch (err) {
-    // مفيش نت أو القاعدة رفضت — النبضة الجاية هتحاول تاني
-    return [];
-  }
-  if (!snap.exists) return [];
-  const data = snap.data() || {};
-  if (data.appliedAt) return [];                                  // اتنفّذ قبل كده
-  if (data.expiresAtMs && Date.now() > data.expiresAtMs) return []; // أمر بايت
-
-  const setup = cleanSetupOrder(data.setup);
-  const done = [];
-
-  if (setup.pace !== undefined) {
-    setPrintPaceMs(setup.pace);
-    done.push('الإيقاع');
-  }
-  if (setup.batch !== undefined) {
-    setPrintBatchSize(setup.batch);
-    done.push('حجم الدفعة');
-  }
-  if (setup.lead !== undefined) {
-    setPrintLeadLabels(setup.lead);
-    done.push('التقديم');
-  }
-  // ⚠️ الطابعة بتتغيّر **بالاسم بس لو الاسم ده موجود فعلًا على الجهاز
-  // ده**. من غير الشرط ده، أمر من التليفون يقدر يحط اسم طابعة مش موجودة
-  // والطباعة تفضل تفشل من غير ما حد يفهم ليه.
-  const here = await getAvailableQZPrinters();
-  if (setup.labelPrinter && here.indexOf(setup.labelPrinter) > -1) {
-    saveSelectedPrinter('label', setup.labelPrinter);
-    done.push('طابعة الملصق');
-  }
-  if (setup.restockPrinter && here.indexOf(setup.restockPrinter) > -1) {
-    saveSelectedPrinter('restock', setup.restockPrinter);
-    done.push('طابعة ورقة التزويد');
-  }
-  if (setup.deviceName) {
-    saveDeviceName(String(setup.deviceName).slice(0, 40));
-    done.push('اسم الجهاز');
-  }
-
-  try {
-    await db.collection(PRINT_ORDERS).doc(deviceId).set(
-      {
-        appliedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        appliedFields: done,
-      },
-      { merge: true }
-    );
-  } catch (err) {
-    console.warn('اتنفّذ الأمر بس ما اتسجّلش:', err);
-  }
-  return done;
+// بيشيل استثناءات جهاز كلها ويرجّعه يمشي مع العام.
+async function clearDeviceOverrides(deviceId) {
+  if (!deviceId) return;
+  await db.collection(DEVICE_SETTINGS).doc(deviceId).delete();
 }
 
 async function getAvailableQZPrinters() {
@@ -1545,11 +1594,9 @@ const PRINT_TWEAKS = [
 const PRINT_TWEAK_PREFIX = 'tazweed_qz_tweak_';
 
 function getPrintTweak(key) {
-  // المشترك الأول — نفس سبب الضبط: شكل الملصق واحد للمحل كله.
-  const shared = getSharedPrintSettings();
-  if (shared && shared.tweaks && typeof shared.tweaks === 'object' && typeof shared.tweaks[key] === 'boolean') {
-    return shared.tweaks[key];
-  }
+  // ⭐ استثناء الجهاز فوق العام، **مفتاح بمفتاح** (شوف readPrintObject).
+  const tw = readPrintObject('tweaks');
+  if (typeof tw[key] === 'boolean') return tw[key];
   // مفيش اختيار محفوظ → القيمة الافتراضية بتاعة المفتاح نفسه.
   const def = (PRINT_TWEAKS.find((t) => t.key === key) || {}).defaultOn === true;
   try {
@@ -1695,13 +1742,13 @@ const PRINT_SHRINK_LIMIT = 20; // %
 
 function getPrintAlign() {
   const empty = { x: 0, y: 0, shrink: 0 };
-  // المشترك الأول: الضبط بقى واحد للمحل كله.
-  const shared = getSharedPrintSettings();
-  if (shared && shared.align && typeof shared.align === 'object') {
+  // ⭐ استثناء الجهاز فوق العام، **حقل بحقل** (شوف readPrintObject).
+  const a = readPrintObject('align');
+  if (a && Object.keys(a).length) {
     return {
-      x: clampNum(shared.align.x, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
-      y: clampNum(shared.align.y, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
-      shrink: clampNum(shared.align.shrink, 0, PRINT_SHRINK_LIMIT),
+      x: clampNum(a.x, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
+      y: clampNum(a.y, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM),
+      shrink: clampNum(a.shrink, 0, PRINT_SHRINK_LIMIT),
     };
   }
   // مفيش مشترك لسه → نستخدم اللي متحفّظ على الجهاز (الحسابات القديمة).
@@ -1975,6 +2022,11 @@ async function printTSPLFontSample(printerName, widthMm, heightMm, sampleText, s
 const PRINT_PACE_KEY = 'tazweed_print_pace_ms';
 
 function getPrintPaceMs() {
+  const remote = readPrintField('pace');
+  if (remote !== undefined) {
+    const n = Number(remote);
+    if (isFinite(n) && n >= 0) return Math.min(3000, n);
+  }
   try {
     const v = localStorage.getItem(PRINT_PACE_KEY);
     if (v === null || v === '') return PRINT_PACE_MS_PER_LABEL;
@@ -2011,6 +2063,11 @@ const PRINT_BATCH_MAX = 200;
 const PRINT_LEAD_DEFAULT = 0;
 
 function getPrintBatchSize() {
+  const remote = readPrintField('batch');
+  if (remote !== undefined) {
+    const n = parseInt(remote, 10);
+    if (isFinite(n) && n >= 1) return Math.min(PRINT_BATCH_MAX, n);
+  }
   try {
     const v = localStorage.getItem(PRINT_BATCH_KEY);
     if (v === null || v === '') return PRINT_BATCH_DEFAULT;
@@ -2033,6 +2090,11 @@ function setPrintBatchSize(n) {
 // قصد: النسبة معناها يختلف مع حجم الدفعة (70٪ من 4 = ملصق، ومن 40 = 12)،
 // والرقم الثابت معناه واحد في كل الحالات.
 function getPrintLeadLabels() {
+  const remote = readPrintField('lead');
+  if (remote !== undefined) {
+    const n = parseInt(remote, 10);
+    if (isFinite(n) && n >= 0) return Math.min(50, n);
+  }
   try {
     const v = localStorage.getItem(PRINT_LEAD_KEY);
     if (v === null || v === '') return PRINT_LEAD_DEFAULT;

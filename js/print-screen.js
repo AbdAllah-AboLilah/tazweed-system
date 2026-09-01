@@ -58,13 +58,8 @@ function printResultsHTML() {
 // ⚠️ والتابات **مابتظهرش أصلًا** إلا لصاحب صلاحية إعدادات الطابعة. أي
 // حساب تاني (موظف الطباعة مثلًا) بيشوف الشاشة زي ما هي بالظبط من غير أي
 // فرق — ولا حتى شريط تابات فاضي.
-const PRINT_TABS = [
-  { key: 'work', icon: '🖨️', label: 'الطباعة' },
-  { key: 'devices', icon: '⚙️', label: 'الأجهزة' },
-];
-
 function canControlPrinters(profile) {
-  return can(profile || state.profile, 'printerSetup');
+  return can(profile || state.profile, 'remoteControl');
 }
 
 function getPrintTab() {
@@ -72,7 +67,7 @@ function getPrintTab() {
 }
 
 // "آخر ظهور" بكلام بني آدم — الجهاز المقفول لازم يبان **إنه مقفول**
-// وقافل من امتى، عشان اللي بيبعت أمر يعرف هيستنى قد إيه.
+// وقافل من امتى، عشان اللي بيغيّر إعداد يعرف هيستنى قد إيه.
 function stationSeenText(station) {
   const ms = station && station.lastSeen && station.lastSeen.toMillis ? station.lastSeen.toMillis() : 0;
   if (!ms) return 'مش معروف';
@@ -84,14 +79,20 @@ function stationSeenText(station) {
   return `من ${Math.floor(hrs / 24)} يوم`;
 }
 
-function stationCardHTML(st, order) {
+// الاستثناءات الحقيقية بتاعة جهاز — الحقول اللي في القايمة الحصرية بس.
+// ⚠️ مستند الاستثناء فيه كمان updatedAt وupdatedByName، ودول **مش**
+// إعدادات — لو عددناهم، الجهاز يبان إن عنده استثناءين وهو مالوش ولا واحد.
+function deviceOverrideKeys(deviceId) {
+  const d = (state.deviceSettings || {})[deviceId];
+  if (!d) return [];
+  return PRINT_FIELD_KEYS.filter((k) => d[k] !== undefined && d[k] !== null);
+}
+
+function stationCardHTML(st) {
   const online = isStationOnline(st);
   const setup = st.printSetup || {};
   const printers = Array.isArray(st.printers) ? st.printers : [];
-  // ⏳ أمر مستني = اتبعت والجهاز لسه ما نفّذهوش (غالبًا مقفول)
-  const waiting = order && !order.appliedAt && !(order.expiresAtMs && Date.now() > order.expiresAtMs);
-  const doneRecently =
-    order && order.appliedAt && order.appliedAt.toMillis && Date.now() - order.appliedAt.toMillis() < 6 * 3600000;
+  const own = deviceOverrideKeys(st.id);
 
   return `
     <div class="dev-card ${online ? '' : 'off'}">
@@ -110,12 +111,12 @@ function stationCardHTML(st, order) {
       </div>
 
       ${
-        waiting
-          ? `<div class="dev-wait">⏳ فيه تعديل مستني الجهاز يفتح — <strong>${escapeHTML(Object.keys(order.setup || {}).length)}</strong> حاجة، بعتها ${escapeHTML(order.byName || '')}.
-               <button class="btn dev-mini" data-dev-cancel="${escapeHTML(st.id)}">إلغاء</button></div>`
-          : doneRecently
-            ? `<div class="dev-done">✅ اتطبّق: ${escapeHTML((order.appliedFields || []).join('، ') || 'التعديل')}</div>`
-            : ''
+        own.length
+          ? `<div class="dev-wait">
+               ⚠️ <strong>${escapeHTML(own.length)}</strong> إعداد خاص بالجهاز ده (${escapeHTML(own.map(printFieldLabel).join('، '))}) — مش ماشي مع العام.
+               <button class="btn dev-mini" data-dev-reset="${escapeHTML(st.id)}">رجّعه للعام</button>
+             </div>`
+          : ''
       }
 
       <div class="dev-btns">
@@ -132,40 +133,44 @@ function printDevicesHTML() {
     const bo = isStationOnline(b) ? 0 : 1;
     return ao - bo || String(a.deviceName || '').localeCompare(String(b.deviceName || ''), 'ar');
   });
-  const orders = state.printOrders || {};
   const online = stations.filter(isStationOnline).length;
+  const withOwn = stations.filter((s) => deviceOverrideKeys(s.id).length).length;
 
   return `
     <div class="home-wrap">
       <div class="home-card">
         <div class="home-title">
-          🖨️ أجهزة الطباعة
-          <span class="home-hint">${stations.length} جهاز — ${online} شغّال دلوقتي</span>
+          ⚙️ ظبط الإعدادات
+          <span class="home-hint">${stations.length} جهاز — ${online} شغّال</span>
         </div>
         <div class="dev-note">
-          الجهاز المقفول <strong>بيستقبل التعديل برضه</strong> — بيتحفظ في السحابة
-          وبيتنفّذ أول ما يفتح (خلال أقل من دقيقة). وبيبطل لوحده بعد أسبوع لو
-          الجهاز مافتحش.
-          <br>⚠️ زراير التجربة محتاجة الجهاز يكون <strong>شغّال دلوقتي</strong> —
-          الورقة بتخرج من ماكينة حقيقية، ودي مش حاجة تتأجّل.
+          افتح النافذة، اختار <strong>على مين</strong>، واملا الخانة اللي عايز
+          تغيّرها بس. أي خانة تسيبها فاضية <strong>مابتتلمسش</strong>.
+          <br>الجهاز المقفول بياخد التعديل أول ما يفتح.
         </div>
+        <button class="btn btn-primary print-go" id="dev-open-settings">⚙️ افتح الإعدادات</button>
         ${
-          stations.length
-            ? stations.map((st) => stationCardHTML(st, orders[st.id])).join('')
-            : `<div class="home-empty">مفيش أجهزة مسجّلة. أي كمبيوتر عليه QZ Tray وطابعة محفوظة بيسجّل نفسه لوحده.</div>`
+          withOwn
+            ? `<div class="dev-note" style="margin-top:8px;">
+                 ⚠️ فيه <strong>${escapeHTML(withOwn)}</strong> جهاز عنده إعدادات خاصة.
+                 لو حفظت على <strong>كل الأجهزة</strong>، هتتمسح وياخدوا العام —
+                 والنافذة هتقولك مين قبل ما تحفظ.
+               </div>`
+            : ''
         }
       </div>
 
       <div class="home-card">
-        <div class="home-title">☁️ إعدادات المحل كله</div>
+        <div class="home-title">🖨️ الأجهزة</div>
         <div class="dev-note">
-          الحاجات دي <strong>مشتركة أصلًا</strong> — بتتظبط مرة وكل الأجهزة
-          بتاخدها لوحدها، من غير ما تستنى حد يفتح.
+          ⚠️ زراير التجربة محتاجة الجهاز يكون <strong>شغّال دلوقتي</strong> —
+          الورقة بتخرج من ماكينة حقيقية، ودي مش حاجة تتأجّل.
         </div>
-        <div class="dev-btns">
-          <button class="btn btn-primary" id="dev-all-numbers">📦 وحّد الدفعة والإيقاع على كل الأجهزة</button>
-          ${can(state.profile, 'printerSetup') ? `<button class="btn" id="print-settings-btn">⚙️ إعدادات الطابعة (الجهاز ده)</button>` : ''}
-        </div>
+        ${
+          stations.length
+            ? stations.map((st) => stationCardHTML(st)).join('')
+            : `<div class="home-empty">مفيش أجهزة مسجّلة. أي كمبيوتر عليه QZ Tray وطابعة محفوظة بيسجّل نفسه لوحده.</div>`
+        }
       </div>
     </div>`;
 }
@@ -189,6 +194,11 @@ function printScreenHTML() {
 
   return tabs + (tab === 'devices' ? printDevicesHTML() : printWorkHTML());
 }
+
+const PRINT_TABS = [
+  { key: 'work', icon: '🖨️', label: 'الطباعة' },
+  { key: 'devices', icon: '⚙️', label: 'الأجهزة' },
+];
 
 function printWorkHTML() {
   const cart = state.printCart || [];
@@ -422,14 +432,22 @@ function attachPrintDeviceEvents() {
   });
 
   document.querySelectorAll('[data-dev-edit]').forEach((btn) => {
-    btn.addEventListener('click', () => openStationSetupDialog(btn.getAttribute('data-dev-edit')));
+    // بيفتح نفس النافذة بس بالجهاز ده مختار سلفًا
+    btn.addEventListener('click', () => openPrintSettingsDialog(btn.getAttribute('data-dev-edit')));
   });
 
-  document.querySelectorAll('[data-dev-cancel]').forEach((btn) => {
+  const openAll = document.getElementById('dev-open-settings');
+  if (openAll) openAll.addEventListener('click', () => openPrintSettingsDialog('all'));
+
+  document.querySelectorAll('[data-dev-reset]').forEach((btn) => {
     btn.addEventListener('click', () =>
       safeAsync(async () => {
-        await cancelPrintSetupOrder(btn.getAttribute('data-dev-cancel'));
-      }, 'إلغاء الأمر')
+        const id = btn.getAttribute('data-dev-reset');
+        const st = (state.printStations || []).find((s) => s.id === id);
+        const keys = deviceOverrideKeys(id).map(printFieldLabel).join('، ');
+        if (!confirm(`هيتشال الإعداد الخاص بـ"${(st && st.deviceName) || 'الجهاز'}" (${keys})\nوهيرجع ياخد الإعداد العام. تمام؟`)) return;
+        await clearDeviceOverrides(id);
+      }, 'رجّع الجهاز للعام')
     );
   });
 
@@ -445,8 +463,6 @@ function attachPrintDeviceEvents() {
     );
   });
 
-  const allBtn = document.getElementById('dev-all-numbers');
-  if (allBtn) allBtn.addEventListener('click', () => openBulkSetupDialog());
 }
 
 // ============================================================
@@ -484,197 +500,235 @@ async function sendRemoteTestPrint(deviceId, kind) {
 }
 
 // ============================================================
-// عدّل إعدادات جهاز من بعيد
+// ⚙️ نافذة الإعدادات — "على مين؟" فوق، والباقي تحته
 // ============================================================
-function openStationSetupDialog(deviceId) {
-  const st = (state.printStations || []).find((s) => s.id === deviceId);
-  if (!st) return;
-  const setup = st.printSetup || {};
-  const printers = Array.isArray(st.printers) ? st.printers : [];
-  const online = isStationOnline(st);
-
-  // ⚠️ لو الجهاز مابعتش قايمة طابعاته لسه (نسخة قديمة أو أول نبضة بعد
-  // التحديث)، مانوريش قايمة فاضية ونخلي المستخدم يفتكر إن مفيش طابعات —
-  // بنقول له السبب.
-  const printerRow = (id, label, current) =>
-    printers.length
-      ? `<div class="field">
-           <label>${escapeHTML(label)}</label>
-           <select class="input" id="${id}">
-             <option value="">${escapeHTML(current || '—')} (سيبها زي ما هي)</option>
-             ${printers.map((n) => `<option value="${escapeHTML(n)}"${n === current ? ' disabled' : ''}>${escapeHTML(n)}</option>`).join('')}
-           </select>
-         </div>`
-      : '';
-
-  const overlay = document.createElement('div');
-  overlay.style.cssText =
-    'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:2200;padding:12px;';
-  overlay.innerHTML = `
-    <div class="card" style="max-width:420px; width:100%; max-height:90vh; overflow:auto;">
-      <div style="font-size:15px; font-weight:500;">⚙️ ${escapeHTML(st.deviceName || 'جهاز')}</div>
-      <div style="font-size:11px; color:var(--text-muted); margin-bottom:12px;">
-        ${online ? '🟢 شغّال — التعديل هيوصله خلال أقل من دقيقة.' : `🔴 مقفول — التعديل هيتحفظ وينفّذ أول ما يفتح.`}
-      </div>
-
-      <div class="field">
-        <label>اسم الجهاز</label>
-        <input class="input" id="dev-name" maxlength="40" value="${escapeHTML(st.deviceName || '')}" />
-      </div>
-
-      <div style="display:flex; gap:6px; flex-wrap:wrap;">
-        <div class="field" style="width:110px;">
-          <label style="font-size:11px;">أقصى عدد في الدفعة</label>
-          <input class="input" type="number" id="dev-batch" min="1" max="200" inputmode="numeric"
-                 value="${escapeHTML(setup.batch ?? '')}" style="padding:6px;" />
-        </div>
-        <div class="field" style="width:110px;">
-          <label style="font-size:11px;">التقديم</label>
-          <input class="input" type="number" id="dev-lead" min="0" max="50" inputmode="numeric"
-                 value="${escapeHTML(setup.lead ?? '')}" style="padding:6px;" />
-        </div>
-        <div class="field" style="width:110px;">
-          <label style="font-size:11px;">الإيقاع (مث)</label>
-          <input class="input" type="number" id="dev-pace" min="0" max="3000" inputmode="numeric"
-                 value="${escapeHTML(setup.pace ?? '')}" style="padding:6px;" />
-        </div>
-      </div>
-
-      ${printerRow('dev-label-printer', 'طابعة الملصق', st.labelPrinter)}
-      ${printerRow('dev-restock-printer', 'طابعة ورقة التزويد', st.restockPrinter)}
-      ${
-        printers.length
-          ? ''
-          : `<div style="font-size:11px; color:var(--warning-text); background:var(--warning-bg); padding:8px; border-radius:8px; line-height:1.7;">
-               الجهاز ده لسه مابعتش قايمة طابعاته. هتبان بعد ما يفتح على
-               نسخة ${escapeHTML(typeof APP_VERSION === 'string' ? APP_VERSION : '')} أو أحدث.
-             </div>`
-      }
-
-      <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin:10px 0;">
-        ⚠️ المعايرة والمفاتيح <strong>مش هنا</strong> — دول مشتركين للمحل كله
-        وبيتظبطوا من "إعدادات الطابعة" وبيوصلوا لكل الأجهزة على طول.
-      </div>
-
-      <div id="dev-status" style="font-size:12px; min-height:16px; margin-bottom:8px;"></div>
-      <div style="display:flex; gap:8px;">
-        <button class="btn btn-primary" id="dev-save" style="flex:1;">ابعت التعديل</button>
-        <button class="btn" id="dev-close">إلغاء</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  const close = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
-  overlay.querySelector('#dev-close').addEventListener('click', close);
-
-  overlay.querySelector('#dev-save').addEventListener('click', () =>
-    safeAsync(async () => {
-      const st2 = overlay.querySelector('#dev-status');
-      const num = (id) => {
-        const el = overlay.querySelector('#' + id);
-        const v = el && el.value !== '' ? parseInt(el.value, 10) : NaN;
-        return Number.isFinite(v) ? v : undefined;
-      };
-      const pick = (id) => {
-        const el = overlay.querySelector('#' + id);
-        return el && el.value ? el.value : undefined;
-      };
-      const name = (overlay.querySelector('#dev-name').value || '').trim();
-
-      const order = {
-        batch: num('dev-batch'),
-        lead: num('dev-lead'),
-        pace: num('dev-pace'),
-        labelPrinter: pick('dev-label-printer'),
-        restockPrinter: pick('dev-restock-printer'),
-        // ⚠️ الاسم بيتبعت **بس لو اتغيّر فعلًا** — وإلا كل حفظة هتعدّ
-        // "اسم الجهاز" كحاجة اتغيّرت وهي زي ما هي.
-        deviceName: name && name !== (st.deviceName || '') ? name : undefined,
-      };
-
-      const sent = await sendPrintSetupOrder(deviceId, order);
-      if (!sent) {
-        st2.style.color = 'var(--danger-text)';
-        st2.textContent = 'ماغيّرتش أي حاجة.';
-        return;
-      }
-      close();
-    }, 'إرسال التعديل')
-  );
-}
-
-// ============================================================
-// ⭐ وحّد الأرقام على كل الأجهزة
-// ============================================================
-// ⚠️ **الأرقام بس** — مش المعايرة. المعايرة مشتركة أصلًا، والأهم إنها
-// لو كانت لكل جهاز كان توحيدها غلط: +0.4مم على ماكينة مش نفس +0.4 على
-// التانية، والورق نفسه بيفرق.
-function openBulkSetupDialog() {
+// ⭐ الفكرة كلها في سطر: **الخانة الفاضية مابتتلمسش**. فتقدر تغيّر حاجة
+// واحدة صغيرة على جهاز واحد، أو تغيّر كل حاجة على كل الأجهزة — نفس
+// النافذة ونفس الخطوات.
+//
+// ⚠️ وقاعدة "الكل يكسب": الحفظ على كل الأجهزة **بيمسح** استثناءات نفس
+// الحقول من كل جهاز. من غيرها، الجهاز اللي أخد استثناء مرة كان هيفضل
+// واقف عليه للأبد وانت مش فاهم ليه التغيير مش واصل — عطل صامت. والنافذة
+// بتقولك أسماء الأجهزة **قبل** ما تمسح.
+function openPrintSettingsDialog(preselectDeviceId) {
   const stations = state.printStations || [];
+  const target = preselectDeviceId || 'all';
+
   const overlay = document.createElement('div');
   overlay.style.cssText =
     'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:2200;padding:12px;';
   overlay.innerHTML = `
-    <div class="card" style="max-width:400px; width:100%; max-height:90vh; overflow:auto;">
-      <div style="font-size:15px; font-weight:500; margin-bottom:4px;">📦 وحّد على كل الأجهزة</div>
-      <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">
-        الأرقام دي هتتبعت لـ<strong>${escapeHTML(stations.length)}</strong> جهاز.
-        سيب أي خانة فاضية عشان الجهاز يفضل على رقمه.
-        <br>⚠️ اللي مقفول هياخدها أول ما يفتح.
+    <div class="card" style="max-width:440px; width:100%; max-height:92vh; overflow:auto;">
+      <div style="font-size:15px; font-weight:500; margin-bottom:10px;">⚙️ إعدادات الطباعة</div>
+
+      <div class="field" style="background:var(--surface-muted); padding:9px; border-radius:8px;">
+        <label style="font-weight:500;">على مين؟</label>
+        <select class="input" id="ps-target">
+          <option value="all"${target === 'all' ? ' selected' : ''}>🖨️ كل الأجهزة</option>
+          ${stations
+            .map(
+              (st) =>
+                `<option value="${escapeHTML(st.id)}"${target === st.id ? ' selected' : ''}>${escapeHTML(st.deviceName || 'جهاز')}${
+                  isStationOnline(st) ? '' : ' (مقفول)'
+                }</option>`
+            )
+            .join('')}
+        </select>
+        <div id="ps-scope-note" style="font-size:11px; color:var(--text-secondary); margin-top:6px; line-height:1.7;"></div>
       </div>
-      <div style="display:flex; gap:6px; flex-wrap:wrap;">
-        <div class="field" style="width:110px;">
+
+      <div style="font-size:11px; color:var(--text-muted); line-height:1.7; margin:4px 0 10px;">
+        سيب أي خانة <strong>فاضية</strong> عشان ما تتغيّرش.
+      </div>
+
+      <div style="font-size:12px; font-weight:500; margin-bottom:5px;">📦 الدفعات</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+        <div class="field" style="width:105px; margin-bottom:0;">
           <label style="font-size:11px;">الدفعة</label>
-          <input class="input" type="number" id="bulk-batch" min="1" max="200" inputmode="numeric" style="padding:6px;" />
+          <input class="input" type="number" id="ps-batch" min="1" max="200" inputmode="numeric" style="padding:6px;" />
         </div>
-        <div class="field" style="width:110px;">
+        <div class="field" style="width:105px; margin-bottom:0;">
           <label style="font-size:11px;">التقديم</label>
-          <input class="input" type="number" id="bulk-lead" min="0" max="50" inputmode="numeric" style="padding:6px;" />
+          <input class="input" type="number" id="ps-lead" min="0" max="50" inputmode="numeric" style="padding:6px;" />
         </div>
-        <div class="field" style="width:110px;">
+        <div class="field" style="width:105px; margin-bottom:0;">
           <label style="font-size:11px;">الإيقاع (مث)</label>
-          <input class="input" type="number" id="bulk-pace" min="0" max="3000" inputmode="numeric" style="padding:6px;" />
+          <input class="input" type="number" id="ps-pace" min="0" max="3000" inputmode="numeric" style="padding:6px;" />
         </div>
       </div>
-      <div id="bulk-status" style="font-size:12px; min-height:16px; margin-bottom:8px;"></div>
+
+      <div style="font-size:12px; font-weight:500; margin-bottom:5px;">🎯 المعايرة</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+        <div class="field" style="width:105px; margin-bottom:0;">
+          <label style="font-size:11px;">يمين/شمال</label>
+          <input class="input" type="number" id="ps-x" step="0.2" inputmode="decimal" style="padding:6px;" />
+        </div>
+        <div class="field" style="width:105px; margin-bottom:0;">
+          <label style="font-size:11px;">فوق/تحت</label>
+          <input class="input" type="number" id="ps-y" step="0.2" inputmode="decimal" style="padding:6px;" />
+        </div>
+        <div class="field" style="width:105px; margin-bottom:0;">
+          <label style="font-size:11px;">تصغير %</label>
+          <input class="input" type="number" id="ps-shrink" step="1" min="0" inputmode="numeric" style="padding:6px;" />
+        </div>
+      </div>
+
+      <div id="ps-printers"></div>
+
+      <div style="font-size:12px; font-weight:500; margin:10px 0 5px;">🧪 المفاتيح المتقدمة</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">سيبها "زي ما هي" عشان ما تتغيّرش.</div>
+      ${PRINT_TWEAKS.map(
+        (t) => `
+        <div style="display:flex; gap:8px; align-items:center; padding:5px 0; border-bottom:1px solid var(--border);">
+          <span style="flex:1; min-width:0; font-size:12px;">${escapeHTML(t.label)}</span>
+          <select class="input" style="width:110px; padding:4px 6px; font-size:12px;" data-ps-tweak="${escapeHTML(t.key)}">
+            <option value="">زي ما هي</option>
+            <option value="1">مفتوح</option>
+            <option value="0">مقفول</option>
+          </select>
+        </div>`
+      ).join('')}
+
+      <div id="ps-warn" style="font-size:11.5px; line-height:1.7; margin:10px 0; display:none;"></div>
+      <div id="ps-status" style="font-size:12px; min-height:16px; margin-bottom:8px;"></div>
       <div style="display:flex; gap:8px;">
-        <button class="btn btn-primary" id="bulk-send" style="flex:1;">ابعت للكل</button>
-        <button class="btn" id="bulk-close">إلغاء</button>
+        <button class="btn btn-primary" id="ps-save" style="flex:1;">احفظ</button>
+        <button class="btn" id="ps-close">إلغاء</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
 
   const close = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
-  overlay.querySelector('#bulk-close').addEventListener('click', close);
+  overlay.querySelector('#ps-close').addEventListener('click', close);
 
-  overlay.querySelector('#bulk-send').addEventListener('click', () =>
-    safeAsync(async () => {
-      const box = overlay.querySelector('#bulk-status');
-      const num = (id) => {
-        const v = overlay.querySelector('#' + id).value;
-        const n = v !== '' ? parseInt(v, 10) : NaN;
-        return Number.isFinite(n) ? n : undefined;
-      };
-      const setup = { batch: num('bulk-batch'), lead: num('bulk-lead'), pace: num('bulk-pace') };
-      if (!Object.keys(cleanSetupOrder(setup)).length) {
-        box.style.color = 'var(--danger-text)';
-        box.textContent = 'اكتب رقم واحد على الأقل.';
+  const targetEl = overlay.querySelector('#ps-target');
+  const noteEl = overlay.querySelector('#ps-scope-note');
+  const printersEl = overlay.querySelector('#ps-printers');
+  const warnEl = overlay.querySelector('#ps-warn');
+
+  // بيجمع اللي اتكتب — الفاضي بيتشال في cleanPrintFields.
+  const collect = () => {
+    const num = (id, dec) => {
+      const el = overlay.querySelector('#' + id);
+      if (!el || el.value === '') return undefined;
+      const n = dec ? Number(el.value) : parseInt(el.value, 10);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const align = {};
+    const x = num('ps-x', true); if (x !== undefined) align.x = x;
+    const y = num('ps-y', true); if (y !== undefined) align.y = y;
+    const sh = num('ps-shrink'); if (sh !== undefined) align.shrink = sh;
+
+    const tweaks = {};
+    overlay.querySelectorAll('[data-ps-tweak]').forEach((sel) => {
+      if (sel.value === '1') tweaks[sel.getAttribute('data-ps-tweak')] = true;
+      else if (sel.value === '0') tweaks[sel.getAttribute('data-ps-tweak')] = false;
+    });
+
+    const pick = (id) => {
+      const el = overlay.querySelector('#' + id);
+      return el && el.value ? el.value : undefined;
+    };
+
+    return {
+      batch: num('ps-batch'),
+      lead: num('ps-lead'),
+      pace: num('ps-pace'),
+      align: Object.keys(align).length ? align : undefined,
+      tweaks: Object.keys(tweaks).length ? tweaks : undefined,
+      labelPrinter: pick('ps-label-printer'),
+      restockPrinter: pick('ps-restock-printer'),
+    };
+  };
+
+  // بيتنده مع كل تغيير: بيوري الطابعات بتاعة الجهاز المختار، وبيحذّر من
+  // الاستثناءات اللي "على الكل" هتمسحها.
+  const refresh = () => {
+    const t = targetEl.value;
+
+    if (t === 'all') {
+      noteEl.textContent = `التعديل هيروح لكل الأجهزة (${stations.length}).`;
+      // ⚠️ اختيار الطابعة **مالوش معنى على الكل** — كل ماكينة ليها
+      // طابعتها باسمها، واسم واحد على الكل معناه إن الباقي هيدوّر على
+      // طابعة مش موجودة عنده.
+      printersEl.innerHTML =
+        '<div style="font-size:11px; color:var(--text-secondary); line-height:1.7;">⚠️ اختيار الطابعة بيتعمل لجهاز واحد بس — كل ماكينة ليها طابعتها باسمها.</div>';
+    } else {
+      const st = stations.find((s) => s.id === t);
+      noteEl.textContent = st && isStationOnline(st)
+        ? '🟢 الجهاز شغّال — التعديل هيوصله خلال ثواني.'
+        : '🔴 الجهاز مقفول — التعديل هيتحفظ وياخده أول ما يفتح.';
+      const printers = (st && Array.isArray(st.printers) ? st.printers : []);
+      printersEl.innerHTML = printers.length
+        ? `<div style="font-size:12px; font-weight:500; margin:10px 0 5px;">🖨️ الطابعات</div>
+           ${[['ps-label-printer', 'طابعة الملصق', st.labelPrinter], ['ps-restock-printer', 'طابعة ورقة التزويد', st.restockPrinter]]
+             .map(
+               ([id, label, cur]) => `
+             <div class="field">
+               <label style="font-size:11px;">${escapeHTML(label)}</label>
+               <select class="input" id="${id}">
+                 <option value="">${escapeHTML(cur || '—')} (زي ما هي)</option>
+                 ${printers.map((n) => `<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('')}
+               </select>
+             </div>`
+             )
+             .join('')}`
+        : `<div style="font-size:11px; color:var(--warning-text); background:var(--warning-bg); padding:8px; border-radius:8px; line-height:1.7; margin-top:8px;">
+             الجهاز ده لسه مابعتش قايمة طابعاته. افتح النظام عليه مرة واستنى دقيقة.
+           </div>`;
+    }
+
+    // ⭐ التحذير: مين هيتمسح استثناءه
+    const patch = cleanPrintFields(collect());
+    const keys = Object.keys(patch);
+    if (t === 'all' && keys.length) {
+      const hit = stations
+        .map((st) => ({ st, own: deviceOverrideKeys(st.id).filter((k) => keys.indexOf(k) > -1) }))
+        .filter((r) => r.own.length);
+      if (hit.length) {
+        warnEl.style.display = 'block';
+        warnEl.style.cssText =
+          'font-size:11.5px; line-height:1.7; margin:10px 0; display:block; background:var(--warning-bg); color:var(--warning-text); padding:9px; border-radius:8px;';
+        warnEl.innerHTML =
+          '⚠️ <strong>تنبيه:</strong> الأجهزة دي عندها إعدادات خاصة هتتمسح وتاخد العام:<br>' +
+          hit
+            .map((r) => `• <strong>${escapeHTML(r.st.deviceName || 'جهاز')}</strong> — ${escapeHTML(r.own.map(printFieldLabel).join('، '))}`)
+            .join('<br>');
         return;
       }
-      let n = 0;
-      for (const st of stations) {
-        // ⚠️ واحد واحد مش Promise.all: لو جهاز فشل، الباقي لازم يعدّي.
-        // وPromise.all بتوقف عند أول فشل وتسيب الباقي مش معروف اتبعت ولا لأ.
-        try {
-          if (await sendPrintSetupOrder(st.id, setup)) n++;
-        } catch (err) {
-          console.warn('تعذّر إرسال الأمر لـ', st.id, err);
-        }
+    }
+    warnEl.style.display = 'none';
+  };
+
+  targetEl.addEventListener('change', refresh);
+  overlay.addEventListener('input', refresh);
+  overlay.addEventListener('change', refresh);
+  refresh();
+
+  overlay.querySelector('#ps-save').addEventListener('click', () =>
+    safeAsync(async () => {
+      const box = overlay.querySelector('#ps-status');
+      const t = targetEl.value;
+      const patch = collect();
+      if (!Object.keys(cleanPrintFields(patch)).length) {
+        box.style.color = 'var(--danger-text)';
+        box.textContent = 'ماكتبتش أي حاجة تتغيّر.';
+        return;
       }
-      box.style.color = 'var(--ok)';
-      box.textContent = `✅ اتبعت لـ${n} من ${stations.length} جهاز.`;
-      setTimeout(close, 1400);
-    }, 'إرسال للكل')
+
+      box.style.color = 'var(--text-secondary)';
+      box.textContent = 'جارٍ الحفظ...';
+      if (t === 'all') {
+        const cleared = await savePrintFieldsForAll(patch, stations.map((s) => s.id));
+        box.style.color = 'var(--ok)';
+        box.textContent = `✅ اتحفظ لكل الأجهزة${cleared ? ` (واتمسح ${cleared} استثناء)` : ''}.`;
+      } else {
+        await savePrintFieldsForDevice(t, patch);
+        box.style.color = 'var(--ok)';
+        box.textContent = '✅ اتحفظ للجهاز ده.';
+      }
+      setTimeout(close, 1200);
+    }, 'حفظ الإعدادات')
   );
 }
 

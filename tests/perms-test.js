@@ -1,5 +1,10 @@
 // المفاتيح في الواجهة + معاينة ورقة التزويد
 const { chromium } = require('playwright');
+const fs = require('fs');
+const path = require('path');
+const root = path.join(__dirname, '..');
+const permsSrc = fs.readFileSync(path.join(root, 'js/permissions.js'), 'utf8');
+const rulesSrc = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
 const pass = [], fail = [];
 const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? ` → ${JSON.stringify(x).slice(0,200)}` : ''));
 
@@ -110,9 +115,20 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   });
   check('شاشة الحسابات بترسم الحسابات', users.rows === 3, users);
   check('معرّف الحساب ظاهر للنسخ', users.uid === 'me', users);
-  // ⚠️ الرقم ده حارس: أي مفتاح جديد في permissions.js لازم يتحدّث هنا،
-  // وده بيفكّرك تضيفه في firestore.rules كمان (presetHas).
-  check('جدول المفاتيح كامل (17 مفتاح)', users.perms === 17, users);
+  // ⚠️ الحارس ده كان **رقم ثابت (17)** لازم يتحدّث بإيدك مع كل مفتاح
+  // جديد. الغرض منه كان يفكّرك تضيف المفتاح في firestore.rules كمان —
+  // بس رقم ثابت بيفشل حتى لما تكون عملت الصح، وبيتحدّث من غير ما حد
+  // يبص على القواعد أصلًا.
+  //
+  // بقى بيتحسب من permissions.js نفسه، **وبنفحص القواعد فعليًا** تحت.
+  const allKeys = [...permsSrc.matchAll(/key: '([a-zA-Z]+)'/g)].map((m) => m[1]);
+  check(`جدول المفاتيح كامل (${allKeys.length} مفتاح)`, users.perms === allKeys.length, [users.perms, allKeys.length]);
+
+  // ⭐⭐ ده الفحص اللي كان الرقم بيحاول يعمله: أي مفتاح مش مذكور في
+  // القواعد بيبقى **مجرد ديكور** — الزرار بيتقفل في الشاشة والسحابة
+  // بتقبل الطلب عادي.
+  const notInRules = allKeys.filter((k) => !rulesSrc.includes(`'${k}'`));
+  check('⭐⭐ كل مفتاح موجود في firestore.rules', notInRules.length === 0, notInRules);
   check('الاستثناء المحفوظ ظاهر في مكانه', users.val === 'false', users);
   check('رتبة حساب عادي بتتغيّر', users.roleLocked === false, users);
   check('⭐ رتبة منشئ النظام مقفولة', users.meLocked === true, users);
