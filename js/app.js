@@ -137,10 +137,32 @@ let unsubActivityLog = null;
 // ============================================================
 // أدوات مساعدة
 // ============================================================
+// ============================================================
+// ⚠️⚠️ علامة التنصيص لازم تتهرّب — وده مش تنظير
+// ============================================================
+// الطريقة القديمة (textContent → innerHTML) بتهرّب `&` و`<` و`>` **بس**.
+// علامة التنصيص `"` بتعدّي زي ما هي.
+//
+// والنتيجة اتقاست على صنف اسمه `خمار 30" اسدال`:
+//
+//   data-print-product="خمار 30" اسدال"
+//                                ↑ السمة بتقفل هنا
+//
+// السمة بتتقص عند العلامة، والباقي بيتحوّل لسمات خردة. يعني اسم الصنف
+// اللي بيتقرا وقت الطباعة بقى `خمار 30` — **صنف تاني خالص**.
+//
+// ⚠️ ودي مش حالة نادرة في محل قماش: المقاسات بتتكتب بالبوصة (30" و40")،
+// وفي خانة البحث كمان لو كتبت علامة تنصيص.
+//
+// الإصلاح في **مكان واحد** عن قصد: فيه 327 استخدام للدالة دي في 12 ملف،
+// و23 منهم جوّه سمات بتحمل كلام المستخدم. تصليحهم واحد واحد معناه إن أي
+// سطر جديد بكرة يرجّع العطل.
+//
+// ⚠️ والعرض مايتأثرش: `&quot;` جوّه HTML بتتعرض علامة تنصيص عادية.
 function escapeHTML(value) {
   const div = document.createElement('div');
   div.textContent = value ?? '';
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function statusLabel(status) {
@@ -1304,6 +1326,8 @@ function qtyCellHTML(categoryId, gradeId, field, value, canEdit) {
         <input
           class="qty-input"
           type="number"
+          inputmode="numeric"
+          min="0" max="${MAX_GRADE_QTY}" step="1"
           value="${escapeHTML(value ?? 0)}"
           data-category-id="${escapeHTML(categoryId)}"
           data-grade-id="${escapeHTML(gradeId)}"
@@ -1420,6 +1444,10 @@ function defaultRestockQty() {
 // ⚠️ والطلبات القديمة (اللي اتعملت قبل التحديث ده) مالهاش علامة —
 // بنعاملها **بشرية**. الأأمن: أسوأ حالة إنك تلغي طلب بإيدك، بدل إن طلب
 // مهم يضيع من غير ما تعرف.
+// أقصى كمية للدرجة الواحدة. مش حد مخزون — ده حارس ضد غلطة الصباع:
+// 55555555 كانت بتعدّي وتترفع للسحابة.
+const MAX_GRADE_QTY = 9999;
+
 function isManualRequest(data) {
   return (data || {}).manualRequest !== false;
 }
@@ -1599,7 +1627,9 @@ function qtyControlsHTML(categoryId, gradeId, field, value, canEdit) {
   return `
     <div class="qty-cell">
       <button class="qty-btn" data-action="dec" ${attrs}>−</button>
-      <input class="qty-input" type="number" value="${escapeHTML(value ?? 0)}" ${attrs} />
+      <input class="qty-input" type="number" inputmode="numeric"
+             min="0" max="${MAX_GRADE_QTY}" step="1"
+             value="${escapeHTML(value ?? 0)}" ${attrs} />
       <button class="qty-btn" data-action="inc" ${attrs}>+</button>
     </div>`;
 }
@@ -2491,9 +2521,44 @@ function setupGradeDelegates() {
     changeQuantity(categoryId, gradeId, field, delta);
   });
 
+  // ============================================================
+  // ⚠️⚠️ أخطر خانة في النظام — وكان فيها تلات ثقوب
+  // ============================================================
+  // الكود القديم: `Math.max(0, Number(input.value) || 0)`
+  //
+  // 1) ⚠️⚠️ **الخانة الفاضية كانت بتتحسب صفر.** وصفر في المخزنين معناه
+  //    "خلصت نهائيًا". والخانة بتفضى لوحدها في حالة حقيقية: كيبورد
+  //    بيكتب أرقام عربية (٥٧). خانة `type=number` **بتمسح** أي رقم مش
+  //    إنجليزي فورًا — يعني المستخدم يكتب ٥٧، الخانة تبان فاضية، يشيل
+  //    صباعه، والدرجة تتعلّم "خلصت". اتقاس فعلًا: Number('٥٧') = NaN،
+  //    و`|| 0` بتبلعها.
+  //    القاعدة دلوقتي: **فاضي = ما اتكتبش حاجة**، مش صفر. اللي عايز صفر
+  //    يكتب صفر.
+  //
+  // 2) الكسور كانت بتعدّي: 5.7 قطعة قماش. بقت بتتقرّب لأقرب رقم صحيح.
+  //
+  // 3) مافيش حد أقصى: غلطة صباع في 55555555 كانت بتترفع للسحابة.
+  //
+  // ⚠️ وفي كل حالة رفض، بنرجّع الرقم القديم للخانة — عشان ما تفضلش
+  // فاضية قدام المستخدم وهو فاكر إنها اتحفظت.
   on('change', '.qty-input', (input) => {
     const { categoryId, gradeId, field } = input.dataset;
-    const newValue = Math.max(0, Number(input.value) || 0);
+    const raw = String(input.value == null ? '' : input.value).trim();
+    const restore = () => {
+      const g = (state.grades || []).find((x) => x.id === gradeId);
+      input.value = g ? Number(g[field]) || 0 : 0;
+    };
+    if (raw === '') {
+      restore();
+      return;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n)) {
+      restore();
+      return;
+    }
+    const newValue = Math.max(0, Math.min(MAX_GRADE_QTY, Math.round(n)));
+    if (newValue !== n) input.value = newValue;
     setQuantity(categoryId, gradeId, field, newValue);
   });
 
