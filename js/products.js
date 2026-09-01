@@ -526,7 +526,7 @@ function openProductsImportDialog(onDone) {
   });
 
   confirmBtn.addEventListener('click', async () => {
-    if (!state.isOnline) {
+    if (!isServerReachable()) {
       statusEl.innerHTML = '⚠️ الاستيراد محتاج إنترنت (بيرفع الأصناف للسحابة). اتصل وحاول تاني.';
       return;
     }

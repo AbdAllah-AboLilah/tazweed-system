@@ -163,7 +163,7 @@ async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML
   fireWrite(ref.set(payload), 'طلب طباعة');
   const deviceLabel = station ? station.deviceName : 'الجهاز التاني';
   alert(
-    state.isOnline
+    isServerReachable()
       ? `اتبعت طلب الطباعة لـ"${deviceLabel}". هيوصلك تأكيد أول ما يطبع.`
       : `⚠️ انت مش متصل بالإنترنت دلوقتي.\nالطلب اتسجّل، وهيتبعت لـ"${deviceLabel}" أول ما النت يرجع.`
   );

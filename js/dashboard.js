@@ -180,7 +180,31 @@ let allGradesCache = null; // آخر نسخة من درجات كل الفئات
 function subscribeOverview() {
   if (unsubAllGrades) unsubAllGrades();
   unsubAllGrades = db.collectionGroup('grades').onSnapshot(
+    // ============================================================
+    // ⭐⭐⭐ ده مصدر الحقيقة الوحيد لـ"متصل ولا لأ"
+    // ============================================================
+    // ⚠️ العطل اللي خلّى ده يتضاف: النظام كان بيقول "متصل" والنت مفصول.
+    //
+    // السبب إنه كان معتمد على `navigator.onLine` **لوحدها**، ودي بتقول
+    // حاجة تانية خالص: إن الجهاز **متوصّل بشبكة**، مش إن الإنترنت شغّال.
+    // فالواي فاي اللي الراوتر بتاعه مقطوع = onLine true، والداتا اللي
+    // مفيش رصيد عليها = onLine true.
+    //
+    // `snap.metadata.fromCache` بيقول الحقيقة: البيانات دي جاية من
+    // الذاكرة المحلية عشان **إحنا مش واصلين للسيرفر**. ده الاشتراك
+    // الوحيد الشغّال دايمًا بعد الدخول، فهو المكان الصح للقياس.
+    { includeMetadataChanges: true },
     (snap) => {
+      const wasCache = state.fromCache;
+      state.fromCache = !!(snap.metadata && snap.metadata.fromCache);
+
+      // ⚠️ التغيير في الـmetadata لوحده **مش** سبب لإعادة حساب 3600 درجة.
+      // من غير الشرط ده، كل تغيير في حالة الاتصال كان هيعيد الحساب كله.
+      if (!snap.docChanges().length && allGradesCache) {
+        if (state.fromCache !== wasCache) renderFromData();
+        return;
+      }
+
       allGradesCache = snap.docs.map((d) => {
         const g = d.data();
         return {

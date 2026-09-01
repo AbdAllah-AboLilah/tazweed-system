@@ -41,10 +41,10 @@ const USERS = [
     const uWide = usersScreenHTML();
     const aWide = activityLogHTML();
 
-    out.usersCards = (uNarrow.match(/grade-card"/g) || []).length;
+    out.usersCards = (uNarrow.match(/grade-card(?![s-])/g) || []).length;
     out.usersNoTable = !uNarrow.includes('<table');
     out.usersWideTable = uWide.includes('<table');
-    out.actCards = (aNarrow.match(/grade-card"/g) || []).length;
+    out.actCards = (aNarrow.match(/grade-card(?![s-])/g) || []).length;
     out.actNoTable = !aNarrow.includes('<table');
     out.actWideTable = aWide.includes('<table');
 

@@ -59,6 +59,10 @@ const state = {
   confirmingOutGradeId: null,
   isOnline: navigator.onLine,
   hasPendingWrites: false,
+  // ⭐ "البيانات جاية من الذاكرة المحلية" = مش واصلين للسيرفر.
+  // ده اللي بيقول الحقيقة عن الاتصال، مش navigator.onLine.
+  // (الشرح المطوّل عند subscribeOverview في js/dashboard.js)
+  fromCache: false,
   bulkRequestMode: false,
   printStations: [], // الأجهزة المسجّلة كنقاط طباعة (اللي عليها QZ Tray وطابعة)
   users: [], // حسابات المستخدمين (بتتحمّل بس وقت فتح شاشة الحسابات)
@@ -2022,6 +2026,65 @@ function gradeTableHTML() {
 }
 
 // ============================================================
+// ⭐ أقسام السجل
+// ============================================================
+// التقسيمة مبنية على **إيه اللي بيتعمل فعلًا في المحل**، مش على أسماء
+// العمليات في الكود. صاحب المحل بيفكر بالشكل ده:
+//   • غيّرت كميات؟   • زوّدت حاجة؟   • ضفت؟   • حذفت؟   • عدّلت بيانات؟
+//
+// ⚠️ **الطباعة مش موجودة هنا لأنها مش بتتسجّل في السجل أصلًا** — ولا
+// عملية طباعة واحدة بتكتب سطر. لو اتطلب تسجيلها، محتاج يتضاف عند
+// deliverPrint، وساعتها يتضاف قسم سادس.
+const LOG_KINDS = [
+  { key: 'qty',     icon: '📦', label: 'الكميات',  actions: ['edit', 'bulk_branch_qty'] },
+  { key: 'restock', icon: '🔄', label: 'التزويد',  actions: ['request_shortage', 'cancel_shortage', 'fulfill_shortage', 'mark_out_of_stock', 'reset_available'] },
+  { key: 'add',     icon: '➕', label: 'إضافة',    actions: ['add_category', 'add_grade', 'add_base_grades'] },
+  { key: 'del',     icon: '🗑️', label: 'حذف',      actions: ['delete_category', 'delete_grade'] },
+  { key: 'info',    icon: '⚙️', label: 'بيانات',   actions: ['edit_category_info', 'set_critical_qty'] },
+];
+
+const LOG_KIND_OF = {};
+LOG_KINDS.forEach((k) => k.actions.forEach((a) => (LOG_KIND_OF[a] = k.key)));
+
+const LOG_KINDS_STORE = 'tazweed_log_kinds';
+const LOG_DAYS_STORE = 'tazweed_log_days';
+const LOG_DAY_CHOICES = [3, 7, 30, 0]; // 0 = من غير حد
+
+// الأقسام المعروضة — الافتراضي كلها
+function getLogKinds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LOG_KINDS_STORE));
+    if (Array.isArray(raw)) {
+      const valid = raw.filter((k) => LOG_KINDS.some((x) => x.key === k));
+      // ⚠️ لو المستخدم شال الكل، بنرجّع الكل بدل شاشة فاضية مالهاش معنى
+      return valid.length ? valid : LOG_KINDS.map((k) => k.key);
+    }
+  } catch (err) {
+    /* قيمة تالفة — الافتراضي */
+  }
+  return LOG_KINDS.map((k) => k.key);
+}
+
+function setLogKinds(list) {
+  try {
+    localStorage.setItem(LOG_KINDS_STORE, JSON.stringify(list));
+  } catch (err) {
+    /* التخزين مقفول */
+  }
+}
+
+// عدد الأيام المعروضة — الافتراضي 3
+function getLogDays() {
+  const raw = parseInt(localStorage.getItem(LOG_DAYS_STORE), 10);
+  return LOG_DAY_CHOICES.includes(raw) ? raw : 3;
+}
+
+function setLogDays(n) {
+  const v = parseInt(n, 10);
+  if (LOG_DAY_CHOICES.includes(v)) localStorage.setItem(LOG_DAYS_STORE, String(v));
+}
+
+// ============================================================
 // سطر السجل — الوصف بيتحسب مرة واحدة للجدول وللكارت
 // ============================================================
 // ⚠️ الوصف ده كان مكتوب **جوّه** بنّاء الجدول. لما بقى فيه شكلين (جدول
@@ -2083,8 +2146,65 @@ function activityEntryParts(entry) {
 }
 
 function activityLogHTML() {
-  if (state.activityLog.length === 0) {
-    return `<div style="padding:1rem; color:var(--text-secondary);">لا يوجد أي عمليات مسجّلة بعد.</div>`;
+  const kinds = getLogKinds();
+  const days = getLogDays();
+  const cutoff = days ? Date.now() - days * 86400000 : 0;
+
+  const all = state.activityLog || [];
+  const rows = all.filter((e) => {
+    const kind = LOG_KIND_OF[e.action];
+    if (kind && kinds.indexOf(kind) === -1) return false;
+    if (!cutoff) return true;
+    // ⭐ السطر اللي لسه مترفعش بيفضل ظاهر مهما كانت المدة — ده اللي
+    // انت لسه عامله وانت مفصول، وأكتر حاجة محتاج تتطمّن إنها اتسجّلت.
+    if (e.pending) return true;
+    const t = e.timestamp && e.timestamp.toDate ? e.timestamp.toDate().getTime() : 0;
+    return t >= cutoff;
+  });
+
+  const counts = {};
+  LOG_KINDS.forEach((k) => (counts[k.key] = 0));
+  all.forEach((e) => {
+    const k = LOG_KIND_OF[e.action];
+    if (k) counts[k]++;
+  });
+  const pendingCount = all.filter((e) => e.pending).length;
+
+  const dayLabel = (n) => (n === 0 ? 'الكل' : n === 3 ? '٣ أيام' : n === 7 ? 'أسبوع' : 'شهر');
+
+  const toolbar = `
+    <div class="card log-tools">
+      <div class="log-row">
+        <span class="log-lbl">يعرض</span>
+        <div class="log-days">
+          ${LOG_DAY_CHOICES.map(
+            (n) => `<button type="button" class="log-day ${n === days ? 'on' : ''}" data-log-days="${n}">${dayLabel(n)}</button>`
+          ).join('')}
+        </div>
+        <button class="btn log-refresh" id="log-refresh">🔄 حدّث</button>
+      </div>
+
+      <div class="log-kinds">
+        ${LOG_KINDS.map(
+          (k) => `
+          <label class="log-kind ${kinds.indexOf(k.key) > -1 ? 'on' : ''}">
+            <input type="checkbox" data-log-kind="${k.key}" ${kinds.indexOf(k.key) > -1 ? 'checked' : ''} />
+            <span>${k.icon} ${escapeHTML(k.label)}</span>
+            <span class="log-count">${escapeHTML(counts[k.key])}</span>
+          </label>`
+        ).join('')}
+      </div>
+
+      <div class="log-note">
+        شيل العلامة عن أي قسم عشان يختفي من القايمة. اختيارك بيتحفظ.
+        ${pendingCount ? `<br>⏳ <strong>${escapeHTML(pendingCount)}</strong> عملية لسه مترفعتش — محفوظة على الجهاز وهترفع أول ما النت يرجع.` : ''}
+      </div>
+    </div>`;
+
+  if (!rows.length) {
+    return `${toolbar}<div class="home-empty" style="padding:2rem; text-align:center;">${
+      all.length ? 'مفيش عمليات في المدة/الأقسام دي.' : 'لا يوجد أي عمليات مسجّلة بعد.'
+    }</div>`;
   }
 
   // ============================================================
@@ -2092,16 +2212,13 @@ function activityLogHTML() {
   // ============================================================
   // "الوقت" أطول عمود فيهم (تاريخ + ساعة بالعربي)، وكان بياكل نص عرض
   // الشاشة ويسيب "العملية" — اللي هي أهم عمود — مقصوصة.
-  //
-  // في الكارت: العملية هي العنوان، والصنف تحتيها، والوقت والشخص سطر
-  // خفيف تحت. **نفس البيانات بالحرف**، مافيش حقل بيتشال.
   if (state.isNarrow) {
-    const cards = state.activityLog
+    const cards = rows
       .map((entry) => {
         const { when, itemLabel, detailLabel } = activityEntryParts(entry);
         return `
-        <div class="grade-card">
-          <div class="act-what">${detailLabel}</div>
+        <div class="${entry.pending ? 'grade-card act-pending' : 'grade-card'}">
+          <div class="act-what">${detailLabel}${entry.pending ? '<span class="act-wait">⏳ لسه مترفعش</span>' : ''}</div>
           ${itemLabel ? `<div class="act-item">${itemLabel}</div>` : ''}
           <div class="act-meta">
             <span>👤 ${escapeHTML(entry.userName)}</span>
@@ -2110,16 +2227,15 @@ function activityLogHTML() {
         </div>`;
       })
       .join('');
-    // ⚠️ من غير غلاف هامش هنا — اللي بينده الدالة بيلفّها في padding:1rem
-    return `<div class="grade-cards">${cards}</div>`;
+    return `${toolbar}<div class="grade-cards">${cards}</div>`;
   }
 
-  const rows = state.activityLog
+  const trs = rows
     .map((entry) => {
       const { when, itemLabel, detailLabel } = activityEntryParts(entry);
       return `
-        <tr>
-          <td>${escapeHTML(when)}</td>
+        <tr class="${entry.pending ? 'act-pending' : ''}">
+          <td>${escapeHTML(when)}${entry.pending ? ' <span class="act-wait">⏳</span>' : ''}</td>
           <td>${escapeHTML(entry.userName)}</td>
           <td>${itemLabel}</td>
           <td>${detailLabel}</td>
@@ -2128,6 +2244,7 @@ function activityLogHTML() {
     .join('');
 
   return `
+    ${toolbar}
     <div class="card" style="padding:0; overflow-x:auto;">
       <table>
         <thead>
@@ -2138,9 +2255,39 @@ function activityLogHTML() {
             <th>العملية</th>
           </tr>
         </thead>
-        <tbody>${rows}</tbody>
+        <tbody>${trs}</tbody>
       </table>
     </div>`;
+}
+
+function attachActivityLogEvents() {
+  document.querySelectorAll('[data-log-days]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setLogDays(btn.getAttribute('data-log-days'));
+      renderFromData();
+    });
+  });
+
+  document.querySelectorAll('[data-log-kind]').forEach((box) => {
+    box.addEventListener('change', () => {
+      const on = [...document.querySelectorAll('[data-log-kind]')]
+        .filter((b) => b.checked)
+        .map((b) => b.getAttribute('data-log-kind'));
+      setLogKinds(on);
+      renderFromData();
+    });
+  });
+
+  const refresh = document.getElementById('log-refresh');
+  if (refresh) {
+    refresh.addEventListener('click', () => {
+      refresh.disabled = true;
+      refresh.textContent = '🔄 بيحدّث…';
+      // الاشتراك لايف أصلًا، فده بيعيد فتحه عشان يجيب أحدث لقطة
+      subscribeActivityLog();
+      setTimeout(renderFromData, 400);
+    });
+  }
 }
 
 // ------------------------------------------------------------
@@ -2307,6 +2454,7 @@ function attachDashboardEvents() {
   if (state.screen === 'print') attachPrintScreenEvents();
   if (state.screen === 'users') attachUsersScreenEvents();
   if (state.screen === 'movement') attachMovementEvents();
+  if (state.screen === 'activity') attachActivityLogEvents();
 
   // ---- التنقّل بين الشاشات ----
   document.querySelectorAll('[data-screen]').forEach((btn) => {
@@ -4207,7 +4355,7 @@ function openBulkBranchQtyDialog(categoryId) {
 
   overlay.querySelector('#bulk-all').addEventListener('click', () =>
     safeAsync(async () => {
-      if (!state.isOnline) {
+      if (!isServerReachable()) {
         say('⚠️ العملية دي بتلمس كل الفئات، فمحتاجة إنترنت.');
         return;
       }
@@ -5138,15 +5286,34 @@ async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldVal
   }
 }
 
+// عدد السطور اللي بنجيبها. الشاشة بتفلتر منها بالأيام والأقسام.
+const LOG_FETCH_LIMIT = 400;
+
 function subscribeActivityLog() {
   if (unsubActivityLog) unsubActivityLog();
   unsubActivityLog = db
     .collection('activityLog')
     .orderBy('timestamp', 'desc')
-    .limit(50)
+    .limit(LOG_FETCH_LIMIT)
     .onSnapshot(
+      { includeMetadataChanges: true },
       (snap) => {
-        state.activityLog = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        // ============================================================
+        // ⭐⭐ serverTimestamps: 'estimate' — مش رفاهية
+        // ============================================================
+        // العملية اللي بتتعمل والنت مقفول بيتحطّ لها وقت من السيرفر،
+        // والوقت ده **مابيتحسبش غير لما ترفع**. من غير 'estimate'،
+        // القيمة بترجع null والسطر بيظهر وقته "—".
+        //
+        // القياس (على محاكي Firestore الحقيقي، 60 سطر قديم + سطر مفصول):
+        //   • بالتقدير  → السطر بيطلع **أول القايمة** بوقت صحيح
+        //   • من غيره   → الوقت null
+        // يعني اللي بتعمله وانت مفصول بيبان لك فورًا وفي مكانه الصح.
+        state.activityLog = snap.docs.map((d) => ({
+          id: d.id,
+          pending: d.metadata.hasPendingWrites,
+          ...d.data({ serverTimestamps: 'estimate' }),
+        }));
         renderFromData();
       },
       (err) => console.warn('تعذّر قراءة سجل العمليات:', err)
@@ -5424,9 +5591,24 @@ function undoButtonHTML() {
 // الشاشات — النتيجة إن الشريط بقى **دايمًا** أطول على الموبايل (105px بدل
 // 65px). يعني حلّينا القفزة بإننا خلّينا المشكلة دايمة. النص القصير
 // بيخلّي العرض الثابت صغير، فالشريط مابيعلاش لا في الحالة دي ولا دي.
+// ============================================================
+// ⭐ "واصلين للسيرفر فعلًا؟" — استخدمها بدل state.isOnline لوحدها
+// ============================================================
+// navigator.onLine بتقول إن الجهاز متوصّل بشبكة، مش إن الإنترنت شغّال.
+// fromCache بيقول إن Firestore بيقرا من الذاكرة المحلية، يعني **مش
+// واصل**. الاتنين مع بعض هما الحقيقة.
+function isServerReachable() {
+  return state.isOnline && !state.fromCache;
+}
+
 function connectionDotHTML() {
   let colorVar, label, short;
-  if (!state.isOnline) {
+  // ⚠️ الشرطين مع بعض مقصودين:
+  //   • navigator.onLine  → الجهاز متوصّل بشبكة أصلًا؟
+  //   • state.fromCache   → واصلين لسيرفر Firestore فعلًا؟
+  // الأولى لوحدها كانت بتقول "متصل" والنت مفصول — الواي فاي شغّال
+  // والراوتر مقطوع، أو داتا من غير رصيد.
+  if (!state.isOnline || state.fromCache) {
     colorVar = 'var(--danger-text)';
     label = 'غير متصل بالإنترنت';
     short = 'مفصول';
