@@ -16,9 +16,57 @@
 // بترجّع true لو الطباعة اتبعتت فعلًا (لطابعة هنا أو لجهاز تاني)، وfalse
 // لو المستخدم ألغى أو حصلت مشكلة — الشاشات بتستخدم ده عشان تعرف تفضّي
 // السلة ولا لأ.
+// ============================================================
+// تسجيل الطباعة في سجل العمليات
+// ============================================================
+// ⭐ **الطبعة كلها سطر واحد** — مش سطر لكل ملصق. طبعة 100 ملصق كانت
+// هتبقى 100 سطر وتغرق السجل وتخلّيه بلا فايدة، والمعلومة اللي محتاجها
+// واحدة: مين طبع إيه وكام وإمتى.
+//
+// ⚠️ ومابنسجّلش غير لما الطباعة **تتأكد** — الإلغاء من المعاينة أو من
+// شاشة اختيار الجهاز مش عملية.
+function logPrintJob(type, spec, sizeOptions) {
+  if (typeof logActivity !== 'function') return;
+  // ⚠️ ورقة التزويد بتتنده من غير spec — لازم تتسجّل برضه.
+  if (!spec) {
+    if (type !== 'restock') return;
+    logActivity({ action: 'print', printKind: 'restock', printLabel: 'ورقة تزويد', newValue: 1 });
+    return;
+  }
+  const kindName = {
+    item: 'ملصق صنف',
+    quarter: 'ملصق مقسوم ٤',
+    text: 'ملصق مسمّى',
+    many: 'سلة طباعة',
+  }[spec.kind] || (type === 'restock' ? 'ورقة تزويد' : 'طباعة');
+
+  let count = 0;
+  let what = '';
+  if (spec.kind === 'many' && Array.isArray(spec.items)) {
+    count = spec.items.reduce((n, it) => n + (parseInt(it.copies, 10) || 1), 0);
+    what = `${spec.items.length} صنف`;
+  } else {
+    count = parseInt(spec.copies, 10) || 1;
+    what = (spec.cat && (spec.cat.itemName || spec.cat.name)) || spec.text || '';
+  }
+
+  logActivity({
+    action: 'print',
+    printKind: spec.kind || type,
+    printLabel: kindName,
+    itemName: String(what || '').slice(0, 120),
+    newValue: count,
+    categoryId: (spec.cat && spec.cat.id) || null,
+    categoryName: (spec.cat && spec.cat.name) || '',
+  });
+}
+
 async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, spec) {
   const target = await choosePrintTarget();
   if (target === null) return false;
+
+  // ⭐ بعد اختيار الجهاز = الطباعة اتأكدت فعلًا
+  logPrintJob(type, spec, sizeOptions);
 
   if (target !== 'local') {
     await sendPrintJob(type, target, html, sizeOptions, browserHTML, spec);

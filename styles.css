@@ -391,6 +391,30 @@ html, body {
   flex: 0 0 auto;
 }
 
+/* اسم اللي ماسك الجهاز — بيظهر بس لو الحساب متعلّم "مشترك".
+   بيفضل ظاهر حتى على أضيق شاشة: ده أهم من الرتبة، لأن الحساب المشترك
+   رتبته واحدة دايمًا واللي بيفرق هو الشخص. */
+.topbar-op {
+  flex: 0 0 auto;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--purple-text);
+  background: var(--purple-bg);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.topbar-op:hover {
+  border-color: var(--purple-text);
+}
+
 .topbar-app {
   white-space: nowrap;
   flex: 0 0 auto;
@@ -2454,4 +2478,14 @@ tr.grade-base td:first-child {
   font-weight: 500;
   color: var(--text-secondary);
   white-space: nowrap;
+}
+
+/* سطر "آخر تحديث لملف الأصناف" — صغير ومش مزاحم */
+.prod-updated {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.7;
 }

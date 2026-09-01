@@ -155,6 +155,14 @@ function printScreenHTML() {
                 الحساب ده مقصود إنه مايشوفش المخزن. */ ''}
           ${canManageProducts(state.profile) ? `<button class="btn" id="print-products-import-btn">📥 حدّث ملف الأصناف</button>` : ''}
         </div>
+        ${
+          // سطر صغير تحت الأزرار — بيقول آخر مرة الملف اتحدّث فيها.
+          // ⚠️ مكانه هنا عن قصد: تحت أزرار الأدوات، مش جنب زرار الطباعة —
+          // عشان مايزاحمش الفعل الأساسي في الشاشة.
+          typeof productsUpdatedText === 'function' && productsUpdatedText()
+            ? `<div class="prod-updated">📅 آخر تحديث لملف الأصناف: ${escapeHTML(productsUpdatedText())}</div>`
+            : ''
+        }
       </div>
     </div>`;
 }
