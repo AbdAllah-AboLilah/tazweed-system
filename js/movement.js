@@ -32,7 +32,11 @@ const MOVEMENT_SPANS = [
   { key: '3', label: '٣ شهور', months: 3 },
 ];
 const MOVEMENT_MAX_STATS = 4000;
-const MOVEMENT_LIST_CAP = 100;
+// ⚠️ الحد **جوّه الفئة الواحدة**، مش على الصفوف كلها مع بعض.
+// أول نسخة كانت بتحد 100 صف إجمالي، فأول فئة كانت بتاكل الحد كله
+// و**باقي الفئات تختفي خالص** — يعني الشاشة بتوريك فئة واحدة من 39
+// وتقول "دي أول 100"، وانت مش عارف إن فيه فئات تانية أصلًا.
+const MOVEMENT_ROWS_PER_GROUP = 60;
 
 let movementStats = null;    // آخر لقطة من gradeStats
 let movementLoading = false;
@@ -75,33 +79,51 @@ function getMovementOpen() {
 }
 
 // ============================================================
-// الفئات المقفولة جوّه الأقسام
+// ⭐⭐⭐ الفئات المفتوحة — والسبب رقم، مش ذوق
 // ============================================================
-// بنخزّن **المقفول** مش المفتوح: الافتراضي إن الفئة مفتوحة، فالقايمة
-// بتفضل فاضية لحد ما المستخدم يقفل حاجة بنفسه.
+// قِسنا الشاشة ببيانات المحل الحقيقية (39 فئة · 3642 درجة) على معالج
+// مبطّأ 4 أضعاف عشان يحاكي تليفون:
 //
-// ⚠️ المفتاح فيه اسم الفئة، والاسم بيتحط في خاصية HTML. `escapeHTML`
-// **مابتهربش علامة التنصيص** (بتستخدم textContent)، فاسم فيه `"` كان
-// هيكسر الخاصية. بنستخدم encodeURIComponent — مافيهوش تنصيص ولا مسافات.
-function getClosedGroups() {
+//   كل الفئات مفتوحة  →  4758 صف  →  البناء 771ms + **الرسم 5947ms**
+//
+// ست ثواني. ده مرفوض — أهم شرط في النظام كله إن السرعة ماتقلش.
+//
+// فالافتراضي: **أول 3 فئات بس مفتوحة** في كل قسم. والأقسام مرتّبة
+// بالأهم الأول (الأكتر بيعًا / الأكتر قطع واقفة)، يعني اللي بيتفتح
+// لوحده هو بالظبط اللي محتاج تشوفه. والباقي عناوين بتتفتح بضغطة.
+//
+// ⚠️ والفئة المقفولة **مابترسمش صفوفها خالص** — مش بترسمهم وتخبّيهم.
+//
+// التخزين بقى **اختيارات صريحة** (مفتاح → مفتوح/مقفول) بدل قايمة
+// "المقفول": عشان "مقفول افتراضيًا" لازم يفرق عن "المستخدم قفلها".
+const MOVEMENT_OPEN_GROUPS = 3;
+
+function getGroupStates() {
   try {
     const raw = JSON.parse(localStorage.getItem(MOVEMENT_GROUPS_KEY));
-    return Array.isArray(raw) ? new Set(raw) : new Set();
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   } catch (err) {
-    return new Set();
+    return {};
   }
 }
 
-function setClosedGroups(set) {
+function setGroupStates(map) {
   try {
-    localStorage.setItem(MOVEMENT_GROUPS_KEY, JSON.stringify([...set]));
+    localStorage.setItem(MOVEMENT_GROUPS_KEY, JSON.stringify(map));
   } catch (err) {
-    /* التخزين مقفول — الفئات هتفضل مفتوحة وبس */
+    /* التخزين مقفول — الاختيار مش هيتفتكر وبس */
   }
 }
 
 function groupKey(kind, name) {
   return kind + '::' + name;
+}
+
+// الفئة مفتوحة؟ الاختيار الصريح بيغلب، وإلا الترتيب هو اللي بيحكم.
+function isGroupOpen(states, kind, name, index) {
+  const key = groupKey(kind, name);
+  if (Object.prototype.hasOwnProperty.call(states, key)) return states[key] === true;
+  return index < MOVEMENT_OPEN_GROUPS;
 }
 
 function setMovementOpen(map) {
@@ -404,14 +426,13 @@ function movementRowsHTML(groups, kind) {
   // ⭐ كل فئة ليها زرار قفل لوحدها — نفس فكرة الأقسام الكبيرة.
   // من غيره لازم تنزل تحت الفئة كلها عشان توصل للي بعدها، والفئة ممكن
   // تكون فيها 69 درجة.
-  const closed = getClosedGroups();
-  let shown = 0;
+  const states = getGroupStates();
   const out = [];
-  for (const grp of groups) {
-    if (shown >= MOVEMENT_LIST_CAP) break;
-    const rows = grp.rows.slice(0, MOVEMENT_LIST_CAP - shown);
-    shown += rows.length;
-    const shut = closed.has(groupKey(kind, grp.name));
+  groups.forEach((grp, gi) => {
+    const shut = !isGroupOpen(states, kind, grp.name, gi);
+    // ⭐ الفئة المقفولة **مابترسمش صفوفها خالص** — مش بترسمهم وتخبّيهم.
+    // ده اللي بيخلّي الشاشة تفتح بسرعة مهما كان عدد الفئات.
+    const rows = shut ? [] : grp.rows.slice(0, MOVEMENT_ROWS_PER_GROUP);
     out.push(`
       <div class="mv-group">
         <button type="button" class="mv-group-head ${shut ? 'shut' : ''}"
@@ -443,11 +464,14 @@ function movementRowsHTML(groups, kind) {
               </div>`;
             })
             .join('')}
+          ${
+            !shut && grp.rows.length > rows.length
+              ? `<div class="mv-more">وفيه ${escapeHTML(grp.rows.length - rows.length)} كمان في الفئة دي</div>`
+              : ''
+          }
         </div>
       </div>`);
-  }
-  const total = groups.reduce((n, g) => n + g.rows.length, 0);
-  if (total > shown) out.push(`<div class="mv-more">وفيه ${escapeHTML(total - shown)} كمان — دي أول ${escapeHTML(shown)}</div>`);
+  });
   return out.join('');
 }
 
@@ -484,13 +508,11 @@ function movementScreenHTML() {
   }
 
   // فيه فئة واحدة على الأقل مفتوحة؟ الزرار بيقلب حسب ده.
-  const closedNow = getClosedGroups();
-  const allKeys = [
-    ...rep.fast.map((g) => groupKey('fast', g.name)),
-    ...rep.idle.map((g) => groupKey('idle', g.name)),
-    ...rep.unknown.map((g) => groupKey('unknown', g.name)),
-  ];
-  const anyOpen = allKeys.some((k) => !closedNow.has(k));
+  const states = getGroupStates();
+  const anyOpen =
+    rep.fast.some((g, i) => isGroupOpen(states, 'fast', g.name, i)) ||
+    rep.idle.some((g, i) => isGroupOpen(states, 'idle', g.name, i)) ||
+    rep.unknown.some((g, i) => isGroupOpen(states, 'unknown', g.name, i));
 
   return `
     <div style="padding:1rem;">
@@ -674,20 +696,17 @@ function attachMovementEvents() {
     });
   }
 
-  // قفل/فتح الفئة الواحدة — معالج واحد لكلهم
+  // قفل/فتح الفئة الواحدة
+  // ⚠️ الفتح بيحتاج **إعادة رسم**: صفوف الفئة المقفولة مش مرسومة أصلًا،
+  // فمفيش حاجة نشيل عنها hidden. القفل كان ممكن يبقى فوري، بس بنعدّي
+  // على نفس الطريق عشان السلوك يفضل واحد.
   document.querySelectorAll('.mv-group-head[data-mv-group]').forEach((btn) => {
-    const box = btn.nextElementSibling;
-    if (!box) return;
     btn.addEventListener('click', () => {
       const key = decodeURIComponent(btn.getAttribute('data-mv-group'));
-      const willOpen = box.hidden;
-      box.hidden = !willOpen;
-      btn.classList.toggle('shut', !willOpen);
-      btn.setAttribute('aria-expanded', String(willOpen));
-      const set = getClosedGroups();
-      if (willOpen) set.delete(key);
-      else set.add(key);
-      setClosedGroups(set);
+      const states = getGroupStates();
+      states[key] = btn.classList.contains('shut');
+      setGroupStates(states);
+      renderFromData();
     });
   });
 
@@ -695,13 +714,13 @@ function attachMovementEvents() {
   if (fold) {
     fold.addEventListener('click', () => {
       const heads = [...document.querySelectorAll('.mv-group-head[data-mv-group]')];
-      const keys = heads.map((h) => decodeURIComponent(h.getAttribute('data-mv-group')));
-      const set = getClosedGroups();
-      const anyOpen = keys.some((k) => !set.has(k));
+      const anyOpen = heads.some((h) => !h.classList.contains('shut'));
+      const states = getGroupStates();
       // مفتوح واحد على الأقل → اقفل الكل. كلهم مقفولين → افتح الكل.
-      if (anyOpen) keys.forEach((k) => set.add(k));
-      else keys.forEach((k) => set.delete(k));
-      setClosedGroups(set);
+      heads.forEach((h) => {
+        states[decodeURIComponent(h.getAttribute('data-mv-group'))] = !anyOpen;
+      });
+      setGroupStates(states);
       renderFromData();
     });
   }
