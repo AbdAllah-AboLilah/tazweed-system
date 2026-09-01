@@ -200,27 +200,35 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ الأساسية مش درجة جديدة', r.baseNoCycle);
   check('⭐ الفئة المعلّم عليها مش درجة جديدة', r.repeatCatNoCycle);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
-  // ---- قفل/فتح الفئة الواحدة ----
+  // ---- قفل/فتح الفئة، والافتراضي: أول 3 فئات بس ----
   // ⚠️ اسم الفئة بيتحط في خاصية HTML، و`escapeHTML` مابتهربش علامة
   // التنصيص (بتستخدم textContent) — فبنجرّب باسم فيه `"` بالتحديد.
+  //
+  // ⚠️⚠️ وبنقيس **الإخفاء الفعلي** مش خاصية hidden. العطل اللي علّم
+  // الدرس: الخاصية بتتحط والسهم بيلف، والمحتوى يفضل ظاهر — لأن
+  // `.grade-cards` عليها `display:flex` وبتغلب قاعدة المتصفح لـ[hidden].
   const fold = await p.evaluate(() => {
     state.isNarrow = true;
     state.profile = { name: 'A', role: 'owner' };
-    state.categories = [{ id: 'c1', name: 'كريب "سادة" لوكس' }, { id: 'c2', name: 'بونيه' }];
-    const M = movementMonthKey(), now = Date.now(), day = 86400000;
-    const mk = (d) => ({ toDate: () => new Date(d) });
+    // 6 فئات: الافتراضي لازم يفتح 3 بس
+    state.categories = [];
     allGradesCache = [];
     movementStats = {};
-    [['c1', '56', 1, 34, 5], ['c1', '8', 2, 21, 7], ['c2', '6', 40, 0, 3]].forEach(
-      ([cat, num, idle, sold, bq], i) => {
-        const gid = 'x' + i;
-        allGradesCache.push({ catId: cat, gradeId: gid, name: num, branchQty: bq, mainQty: 0 });
-        movementStats[cat + '__' + gid] = {
-          gradeNumber: num, lastMovedAt: mk(now - idle * day),
-          soldByMonth: { [M]: sold }, soldTotal: sold, moves: 3,
+    const M = movementMonthKey(), now = Date.now(), day = 86400000;
+    const mk = (d) => ({ toDate: () => new Date(d) });
+    const names = ['كريب "سادة" لوكس', 'فئة ب', 'فئة ج', 'فئة د', 'فئة هـ', 'فئة و'];
+    names.forEach((nm, c) => {
+      const cid = 'k' + c;
+      state.categories.push({ id: cid, name: nm });
+      for (let i = 0; i < 3; i++) {
+        const gid = cid + '_' + i;
+        allGradesCache.push({ catId: cid, gradeId: gid, name: String(i), branchQty: 5, mainQty: 0 });
+        movementStats[cid + '__' + gid] = {
+          gradeNumber: String(i), lastMovedAt: mk(now - day),
+          soldByMonth: { [M]: 20 - c }, soldTotal: 9, moves: 3,
         };
       }
-    );
+    });
     setMovementDays(15);
     setMovementSpan('1');
     localStorage.removeItem('tazweed_movement_groups');
@@ -231,38 +239,55 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     };
     renderFromData();
 
-    // ⚠️⚠️ بنقيس **الإخفاء الفعلي** مش خاصية hidden.
-    // العطل اللي علّم الدرس: الخاصية بتتحط والسهم بيلف، والمحتوى يفضل
-    // ظاهر — لأن `.grade-cards` عليها `display:flex` وبتغلب قاعدة
-    // المتصفح لـ[hidden]. الفحص القديم كان بيشوف `box.hidden` وبينجح
-    // وهو **مش شايف الشاشة**.
     const isGone = (el) => getComputedStyle(el).display === 'none' && el.getBoundingClientRect().height === 0;
-    const heads = [...document.querySelectorAll('.mv-group-head[data-mv-group]')];
-    const first = heads[0];
+    const heads = () => [...document.querySelectorAll('.mv-group-head[data-mv-group]')];
+
+    // ⭐ الافتراضي: أول 3 فئات مفتوحة والباقي مقفول
+    const openAtStart = heads().filter((h) => !h.classList.contains('shut')).length;
+    const rowsAtStart = document.querySelectorAll('.mv-row').length;
+    // والفئة المقفولة **صفوفها مش مرسومة أصلًا**
+    const shutHead = heads().find((h) => h.classList.contains('shut'));
+    const shutHasNoRows = shutHead.nextElementSibling.querySelectorAll('.mv-row').length === 0;
+
+    const first = heads()[0];
     const nameKept = first.textContent.includes('كريب "سادة" لوكس');
-    first.click();
-    const shut = isGone(first.nextElementSibling) && first.classList.contains('shut');
-    const saved = JSON.parse(localStorage.getItem('tazweed_movement_groups') || '[]');
+    first.click(); // بيعيد الرسم
+    const afterClose = heads()[0];
+    const closedOK = afterClose.classList.contains('shut') && isGone(afterClose.nextElementSibling);
+    const saved = JSON.parse(localStorage.getItem('tazweed_movement_groups') || '{}');
+    const savedOK = saved['fast::كريب "سادة" لوكس'] === false;
+
     renderFromData();
-    const remembered = isGone(document.querySelector('.mv-group-head[data-mv-group]').nextElementSibling);
+    const remembered = heads()[0].classList.contains('shut');
+
+    // فتح فئة كانت مقفولة افتراضيًا
+    const wasShut = heads().find((h) => h.classList.contains('shut') && h !== heads()[0]);
+    const beforeRows = document.querySelectorAll('.mv-row').length;
+    wasShut.click();
+    const grewAfterOpen = document.querySelectorAll('.mv-row').length > beforeRows;
 
     document.getElementById('mv-fold').click();
-    const allShut = [...document.querySelectorAll('.mv-group-head[data-mv-group]')]
-      .every((h) => isGone(h.nextElementSibling));
+    const allShut = heads().every((h) => h.classList.contains('shut'));
+    const noRows = document.querySelectorAll('.mv-row').length === 0;
     const label = document.getElementById('mv-fold').textContent.trim();
     document.getElementById('mv-fold').click();
-    const allOpen = [...document.querySelectorAll('.mv-group-head[data-mv-group]')]
-      .every((h) => !isGone(h.nextElementSibling));
+    const allOpen = heads().every((h) => !h.classList.contains('shut'));
+
     localStorage.removeItem('tazweed_movement_groups');
-    return { count: heads.length, nameKept, shut, saved, remembered, allShut, label, allOpen };
+    return { count: heads().length, openAtStart, rowsAtStart, shutHasNoRows, nameKept,
+             closedOK, savedOK, remembered, grewAfterOpen, allShut, noRows, label, allOpen };
   });
 
-  check('كل فئة ليها زرار قفل', fold.count >= 2, fold);
+  check('كل فئة ليها زرار قفل', fold.count >= 6, fold);
+  check('⭐ الافتراضي: ٣ فئات بس مفتوحة', fold.openAtStart === 3, fold);
+  check('⭐ الفئة المقفولة صفوفها مش مرسومة أصلًا', fold.shutHasNoRows, fold);
   check('⭐ اسم فيه علامة تنصيص مابيكسرش الخاصية', fold.nameKept, fold);
-  check('⭐ الفئة بتختفي فعلًا من الشاشة (مش الخاصية بس)', fold.shut, fold);
-  check('والقفل بيتخزّن', fold.saved.length === 1, fold);
+  check('⭐ الفئة بتختفي فعلًا من الشاشة (مش الخاصية بس)', fold.closedOK, fold);
+  check('والقفل بيتخزّن كاختيار صريح', fold.savedOK, fold);
   check('وبيتفتكر بعد إعادة الرسم', fold.remembered, fold);
+  check('فتح فئة مقفولة بيرسم صفوفها', fold.grewAfterOpen, fold);
   check('"اقفل كل الفئات" بتقفل الكل', fold.allShut, fold);
+  check('وولا صف بيتبقى مرسوم', fold.noRows, fold);
   check('والزرار بيقلب لـ"افتح"', fold.label.includes('افتح'), fold);
   check('و"افتح الكل" بترجّعهم', fold.allOpen, fold);
 
