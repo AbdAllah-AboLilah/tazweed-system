@@ -2677,3 +2677,14 @@ tr.grade-base td:first-child {
 }
 
 .dev-btns .btn { font-size: 12px; padding: 6px 11px; min-height: 34px; }
+
+/* تحذير جوه شاشة حركة المخزون — حافة الشهر، وحد القراءة */
+.mv-warn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 11.5px;
+  line-height: 1.8;
+}

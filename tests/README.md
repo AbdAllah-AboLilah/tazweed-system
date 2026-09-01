@@ -145,6 +145,7 @@ node tests/theme-test.js
 node tests/label-bidi-test.js
 node tests/mobile-cards-test.js
 node tests/movement-test.js
+node tests/movement-audit-test.js
 node tests/topbar-menu-test.js
 node tests/no-barcode-test.js
 node tests/activity-log-test.js
