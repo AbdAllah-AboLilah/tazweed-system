@@ -107,13 +107,19 @@ function productsStampOf(meta) {
 // لسه مأكّدتش). النص الفاضي أحسن من "غير معروف" — السطر بيختفي خالص
 // بدل ما ياخد مساحة ويقول حاجة مالهاش قيمة.
 function productsUpdatedText() {
-  const at = productsMeta && productsMeta.updatedAt;
-  const d = at && typeof at.toDate === 'function' ? at.toDate() : null;
+  const meta = productsMeta || null;
+  const at = meta && meta.updatedAt;
+  // تاريخ السيرفر الأول، وبعدين التقدير المحلي اللي بيتحط لحظة الاستيراد
+  // (شوف saveProducts) — عشان السطر يتحدّث من غير ريفريش.
+  let d = at && typeof at.toDate === 'function' ? at.toDate() : null;
+  if (!d && meta && meta.localUpdatedAt instanceof Date) d = meta.localUpdatedAt;
   if (!d) return '';
-  return d.toLocaleString('ar-EG', {
+  const when = d.toLocaleString('ar-EG', {
     year: 'numeric', month: 'numeric', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
   });
+  const by = (meta && meta.updatedByName) || '';
+  return by ? `${when} — بواسطة ${by}` : when;
 }
 
 function readChunks(snap) {
@@ -279,15 +285,39 @@ async function saveProducts(list, onProgress) {
     }
   }
 
+  const by = (state.profile && state.profile.name) || '';
   await db.collection('products').doc('meta').set({
     count: list.length,
     chunks: chunks.length,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    updatedByName: (state.profile && state.profile.name) || '',
+    updatedByName: by,
   });
 
   productsCache = list;
   productsIndex = buildProductsIndex(list);
+
+  // ============================================================
+  // ⭐ سطر "آخر تحديث" لازم يتغيّر **دلوقتي**، مش بعد ريفريش
+  // ============================================================
+  // ⚠️ العطل اللي بيصلحه: بعد ما تستورد الملف، السطر كان لسه بيقول
+  // التاريخ **القديم** — لأن productsMeta هنا كانت بتفضل زي ما هي، وما
+  // بتتقراش من الأول غير في تحميل جديد للصفحة. النتيجة إن اللي استورد
+  // يفتكر إن الاستيراد ماتمّش ويرجع يستورد تاني.
+  //
+  // ⚠️ وليه تاريخ محلي مش serverTimestamp؟ لأن serverTimestamp بترجع
+  // **null** لحظة الكتابة لحد ما السيرفر يأكّدها — فلو استنينا عليها
+  // السطر هيختفي خالص بدل ما يتحدّث.
+  //
+  // ⚠️⚠️ و`updatedAt` بتفضل null عن قصد: productsStampOf بتقرا منها،
+  // ولو حطّينا فيها تاريخ محلي هتتحسب بصمة **غلط** وكل الأجهزة تفضل
+  // على نسخة قديمة. البصمة بتتحسب من السيرفر بس.
+  productsMeta = {
+    count: list.length,
+    chunks: chunks.length,
+    updatedAt: null,
+    updatedByName: by,
+    localUpdatedAt: new Date(),
+  };
   // ⚠️ البصمة القديمة بقت غلط دلوقتي. بنشيلها بدل ما نحاول نحسب الجديدة:
   // `serverTimestamp` لسه ماتأكدتش من السيرفر لحظة الكتابة، فأي بصمة
   // نحسبها هنا هتبقى ناقصة — والنتيجة إن الأجهزة تفضل على نسخة قديمة.

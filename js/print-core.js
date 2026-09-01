@@ -25,6 +25,25 @@
 //
 // ⚠️ ومابنسجّلش غير لما الطباعة **تتأكد** — الإلغاء من المعاينة أو من
 // شاشة اختيار الجهاز مش عملية.
+// اسم عنصر السلة — السلة فيها أنواع مختلفة (صنف من الفئات، صنف من ملف
+// الأصناف، ملصق مكتوب بالإيد)، وكل واحد اسمه في حتة.
+function cartItemName(it) {
+  if (!it) return '';
+  if (it.cat) return it.cat.itemName || it.cat.name || '';
+  return it.itemName || it.name || it.text || '';
+}
+
+// أول 3 أسماء و"و N غيرهم" — مع سقف طول عشان السطر مايتفركشش.
+function summarizeNames(names, keep, maxLen) {
+  const k = keep || 3;
+  const cap = maxLen || 120;
+  if (!names.length) return '';
+  const head = names.slice(0, k).join('، ');
+  const rest = names.length - k;
+  const out = rest > 0 ? `${head} و${rest} غيرهم` : head;
+  return out.length > cap ? out.slice(0, cap - 1) + '…' : out;
+}
+
 function logPrintJob(type, spec, sizeOptions) {
   if (typeof logActivity !== 'function') return;
   // ⚠️ ورقة التزويد بتتنده من غير spec — لازم تتسجّل برضه.
@@ -44,7 +63,14 @@ function logPrintJob(type, spec, sizeOptions) {
   let what = '';
   if (spec.kind === 'many' && Array.isArray(spec.items)) {
     count = spec.items.reduce((n, it) => n + (parseInt(it.copies, 10) || 1), 0);
-    what = `${spec.items.length} صنف`;
+    // ⚠️ العدد لوحده مابيقولش **إيه** اللي اتطبع. "١ صنف" في السجل
+    // مالهاش أي قيمة لما تكون بتدوّر على مين طبع الحاجة الفلانية.
+    // فبنكتب الأسماء نفسها — أول 3 وبعدين "و N غيرهم"، عشان سلة 20 صنف
+    // ماتعملش سطر طوله متر ولا مستند كبير في السحابة.
+    const names = spec.items
+      .map((it) => String(cartItemName(it) || '').trim())
+      .filter(Boolean);
+    what = summarizeNames(names);
   } else {
     count = parseInt(spec.copies, 10) || 1;
     what = (spec.cat && (spec.cat.itemName || spec.cat.name)) || spec.text || '';
@@ -2556,9 +2582,22 @@ async function openPrinterSettings() {
                 بعد كل طبعة كبيرة هيظهر لك تحت <strong>الدفعة طلعت كام فعلًا</strong>.
                 <br>⚠️ <strong>عدد الدفعة سقف مش أمر</strong>: لو الملصق تقيل (بباركود مثلًا)
                 النظام هيقلّل لوحده عشان الرسالة ماتضيعش في سكوت. هيقولك لما ده يحصل.
-                <br>⚡ ولو شغّلت مفتاح <strong>"اطبع العدد كنسخ"</strong> فوق، الرقم بيتنفّذ
-                زي ما هو من غير أي تقليل.
               </div>
+              ${/* ⚠️ المفتاح ده كان تحت في "إعدادات متقدمة" آخر النافذة —
+                    والقسم ده كان بيقول عنه "فوق" وهو تحت. اللي بيدوّر على
+                    "ليه الـ30 بتطبع 4" بيدوّر **هنا**، فمكانه هنا. */ ''}
+              ${(() => {
+                const t = PRINT_TWEAKS.find((x) => x.key === 'fastCopies');
+                return t ? `
+              <label style="display:flex; gap:8px; align-items:flex-start; padding:8px; margin-bottom:8px; font-size:12px; cursor:pointer; background:var(--surface-muted); border-radius:8px;">
+                <input type="checkbox" data-tweak="fastCopies" ${getPrintTweak('fastCopies') ? 'checked' : ''}
+                       style="margin-top:2px; flex:0 0 auto;" />
+                <span>
+                  <span style="display:block; font-weight:500;">${escapeHTML(t.label)}</span>
+                  <span style="display:block; font-size:10px; color:var(--text-muted); line-height:1.6;">${escapeHTML(t.hint)}</span>
+                </span>
+              </label>` : '';
+              })()}
               <div style="display:flex; gap:6px; align-items:flex-end; flex-wrap:wrap;">
                 <div class="field" style="width:135px; margin-bottom:0;">
                   <label style="font-size:11px;">أقصى عدد في الدفعة</label>
@@ -2671,7 +2710,7 @@ async function openPrinterSettings() {
             <strong>واحد بس</strong> وجرّب. وهي كمان
             <strong>☁️ بتتحفظ لكل الأجهزة</strong>.
           </div>
-          ${PRINT_TWEAKS.map(
+          ${PRINT_TWEAKS.filter((t) => t.key !== 'fastCopies').map(
             (t) => `
             <label style="display:flex; gap:8px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer;">
               <input type="checkbox" data-tweak="${escapeHTML(t.key)}" ${getPrintTweak(t.key) ? 'checked' : ''}

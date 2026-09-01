@@ -2419,6 +2419,57 @@ tr.grade-base td:first-child {
   min-height: 34px;
 }
 
+/* ============================================================
+   تابات الأقسام — بتتزحلق يمين وشمال على الموبايل
+   ============================================================
+   ⚠️ `nowrap` + تزحلق أفقي **جوه الشريط نفسه** مقصود: لو سيبناها تلف
+   لسطرين، الشريط بياخد نص الشاشة على الموبايل والسجل نفسه بيتزنق تحت.
+   والتزحلق هنا مالوش أي علاقة بتزحلق الصفحة — ده جوه العنصر ده بس. */
+.log-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-top: 10px;
+  padding-top: 10px;
+  padding-bottom: 2px;
+  border-top: 1px solid var(--border);
+}
+
+.log-tabs::-webkit-scrollbar { display: none; }
+
+.log-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.log-tab.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* العدّاد جوه التاب المختار لازم يفضل مقروء على خلفية الأكسنت */
+.log-tab.on .log-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--accent-text);
+}
+
 .log-kinds {
   display: flex;
   gap: 6px;
