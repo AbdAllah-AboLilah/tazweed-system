@@ -195,6 +195,43 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.phXAll = document.querySelector('#ps-x').placeholder;
     out.tweakLabelAll = document.querySelector('[data-ps-tweak="noScale"]').options[0].textContent;
 
+    // ============================================================
+    // ⭐⭐ (٨) "كل الأجهزة" = اللي الجهاز الجديد هيبدأ بيه
+    // ============================================================
+    // العام هنا فيه batch وlead وpace ومعايرة، ومفيهوش حاجة تانية —
+    // فاللي متظبط يبان كرقم، واللي لأ يتقال إنه لسه على الافتراضي.
+    out.allNote = document.querySelector('#ps-scope-note').textContent;
+    out.saysNewDevice = out.allNote.indexOf('أي جهاز جديد') !== -1;
+    // كلهم متظبطين هنا → مفيش سطر "افتراضي"
+    out.noDefaultLine = out.allNote.indexOf('لسه على الافتراضي') === -1;
+
+    // ⭐ دلوقتي عام **فاضي خالص** — زي أول يوم في النظام
+    sharedPrintSettings = {};
+    document.querySelector('#ps-target').dispatchEvent(new Event('change', { bubbles: true }));
+    out.emptyNote = document.querySelector('#ps-scope-note').textContent;
+    out.saysDefault = out.emptyNote.indexOf('لسه على الافتراضي') !== -1;
+    out.namesAllFour =
+      out.emptyNote.indexOf('الدفعة') !== -1 && out.emptyNote.indexOf('التقديم') !== -1 &&
+      out.emptyNote.indexOf('الإيقاع') !== -1 && out.emptyNote.indexOf('المعايرة') !== -1;
+    // والأرقام الافتراضية نفسها بتبان
+    out.defBatch = document.querySelector('#ps-batch').placeholder;
+    out.defLead = document.querySelector('#ps-lead').placeholder;
+    out.defPace = document.querySelector('#ps-pace').placeholder;
+    out.defX = document.querySelector('#ps-x').placeholder;
+    // والمفاتيح على قيمتها الافتراضية
+    out.defTweak = document.querySelector('[data-ps-tweak="noScale"]').options[0].textContent;
+    out.wantBatch = PRINT_BATCH_DEFAULT;
+    out.wantLead = PRINT_LEAD_DEFAULT;
+    out.wantPace = PRINT_PACE_MS_PER_LABEL;
+
+    // ⭐ وعام متظبط جزئيًا: اللي متظبط مايتقالش عليه افتراضي
+    sharedPrintSettings = { batch: 33 };
+    document.querySelector('#ps-target').dispatchEvent(new Event('change', { bubbles: true }));
+    const partial = document.querySelector('#ps-scope-note').textContent;
+    out.partialBatchSet = partial.indexOf('الدفعة') === -1;
+    out.partialRestDefault = partial.indexOf('التقديم') !== -1 && partial.indexOf('الإيقاع') !== -1;
+    out.partialBatchPh = document.querySelector('#ps-batch').placeholder;
+
     // ⚠️⚠️ وأهم من ده كله: الحفظ **مايبعتش** القيم الباهتة.
     // مافيش دالة نندهها من بره، فبنفحص المصدر: أي خانة فيها قيمة هي
     // اللي بتتبعت — فلو كلهم فاضيين يبقى مفيش حاجة هتتبعت.
@@ -259,6 +296,16 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('جهاز تاني = أرقامه هو', r.phBatch2 === '20', r.phBatch2);
   check('و"كل الأجهزة" بياخد من العام', r.phBatchAll === '44' && r.phXAll === '1.5', [r.phBatchAll, r.phXAll]);
   check('والمفتاح العام كمان', r.tweakLabelAll === 'زي ما هي (مقفول)', r.tweakLabelAll);
+  check('⭐ "كل الأجهزة" بتقول إن الجهاز الجديد هياخدها', r.saysNewDevice, r.allNote);
+  check('وعام متظبط = مفيش كلام عن افتراضي', r.noDefaultLine, r.allNote);
+  check('⭐⭐ عام فاضي: بيقول إن دي القيم الافتراضية', r.saysDefault, r.emptyNote);
+  check('⭐⭐ وبيسمّي الأربعة', r.namesAllFour, r.emptyNote);
+  check('⭐⭐ والأرقام الافتراضية نفسها بتبان', 
+    r.defBatch === String(r.wantBatch) && r.defLead === String(r.wantLead) && r.defPace === String(r.wantPace) && r.defX === '0',
+    [r.defBatch, r.defLead, r.defPace, r.defX]);
+  check('⭐ والمفاتيح على قيمتها الافتراضية', r.defTweak === 'زي ما هي (مفتوح)', r.defTweak);
+  check('⭐ عام جزئي: اللي متظبط مايتقالش عليه افتراضي', r.partialBatchSet && r.partialBatchPh === '33', [r.partialBatchSet, r.partialBatchPh]);
+  check('واللي لسه متظبطش يتقال', r.partialRestDefault);
   check('⭐⭐ والحفظ مابيبعتش القيم الباهتة (كل الخانات فاضية)', r.filledInputs === 0, r.filledInputs);
   check('والنافذة بتقفل', r.dialogClosed);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);

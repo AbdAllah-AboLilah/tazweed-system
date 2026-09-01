@@ -619,14 +619,27 @@ function openPrintSettingsDialog(preselectDeviceId) {
   // "الفاضي مايتلمسش" تروح، ومعاها القدرة إنك تغيّر حاجة واحدة بس.
   const currentFor = (t) => {
     if (t === 'all') {
+      // ⭐⭐ دي بالظبط الأرقام اللي **جهاز جديد** هيشتغل بيها أول ما
+      // يتوصّل: العام لو متظبط، وإلا المدفون في النظام.
+      //
+      // ⚠️ والفرق بين الاتنين **لازم يبان**. رقم لوحده مابيقولش هو ده
+      // إعداد انت ظبطته ولا افتراضي محدش لمسه — والفرق مهم: الافتراضي
+      // معناه إن الخانة دي لسه محدش قرّر فيها حاجة.
       const sh = getSharedPrintSettings() || {};
       const a = sh.align || {};
+      const has = (v) => v !== undefined && v !== null;
+      const fromDefault = [];
+      if (!has(sh.batch)) fromDefault.push('الدفعة');
+      if (!has(sh.lead)) fromDefault.push('التقديم');
+      if (!has(sh.pace)) fromDefault.push('الإيقاع');
+      if (!has(sh.align)) fromDefault.push('المعايرة');
       return {
-        batch: sh.batch !== undefined && sh.batch !== null ? sh.batch : PRINT_BATCH_DEFAULT,
-        lead: sh.lead !== undefined && sh.lead !== null ? sh.lead : PRINT_LEAD_DEFAULT,
-        pace: sh.pace !== undefined && sh.pace !== null ? sh.pace : PRINT_PACE_MS_PER_LABEL,
+        batch: has(sh.batch) ? sh.batch : PRINT_BATCH_DEFAULT,
+        lead: has(sh.lead) ? sh.lead : PRINT_LEAD_DEFAULT,
+        pace: has(sh.pace) ? sh.pace : PRINT_PACE_MS_PER_LABEL,
         x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
         tweaks: sh.tweaks || {},
+        fromDefault,
       };
     }
     // ⭐ الجهاز بينشر إعداداته **النافذة فعلًا** مع كل نبضة — فدي الحقيقة
@@ -705,7 +718,14 @@ function openPrintSettingsDialog(preselectDeviceId) {
     });
 
     if (t === 'all') {
-      noteEl.textContent = `التعديل هيروح لكل الأجهزة (${stations.length}).`;
+      // ⭐ الأرقام دي هي نفسها اللي جهاز جديد هيبدأ بيها — وده اللي
+      // بيخلّي "كل الأجهزة" مفهومة: مش بس بتغيّر الموجود، دي بتحدّد
+      // الجديد كمان.
+      noteEl.innerHTML =
+        `التعديل هيروح لكل الأجهزة (<strong>${escapeHTML(stations.length)}</strong>) — و<strong>أي جهاز جديد</strong> هيبدأ بنفس الأرقام دي.` +
+        (cur.fromDefault && cur.fromDefault.length
+          ? `<br>⚙️ <strong>${escapeHTML(cur.fromDefault.join('، '))}</strong>: لسه على الافتراضي — محدش غيّرها.`
+          : '');
       // ⚠️ اختيار الطابعة **مالوش معنى على الكل** — كل ماكينة ليها
       // طابعتها باسمها، واسم واحد على الكل معناه إن الباقي هيدوّر على
       // طابعة مش موجودة عنده.
