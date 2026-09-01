@@ -538,7 +538,8 @@ function openPrintSettingsDialog(preselectDeviceId) {
       </div>
 
       <div style="font-size:11px; color:var(--text-muted); line-height:1.7; margin:4px 0 10px;">
-        سيب أي خانة <strong>فاضية</strong> عشان ما تتغيّرش.
+        الرقم الباهت جوه كل خانة هو <strong>اللي شغّال دلوقتي</strong>.
+        سيب الخانة <strong>فاضية</strong> عشان ما تتغيّرش.
       </div>
 
       <div style="font-size:12px; font-weight:500; margin-bottom:5px;">📦 الدفعات</div>
@@ -606,6 +607,42 @@ function openPrintSettingsDialog(preselectDeviceId) {
   const printersEl = overlay.querySelector('#ps-printers');
   const warnEl = overlay.querySelector('#ps-warn');
 
+  // ============================================================
+  // ⭐ القيمة الشغّالة دلوقتي — بتتكتب جوه الخانة كـplaceholder
+  // ============================================================
+  // ⚠️ العطل اللي بيصلحه: الخانات كانت **فاضية** وبس. فانت تفتح النافذة
+  // على جهاز ومتعرفش هو واقف على كام أصلًا — تضطر تقفل وتبص على كارت
+  // الجهاز وترجع تفتح.
+  //
+  // ⚠️ وليه placeholder مش قيمة حقيقية في الخانة؟ لأن القيمة الحقيقية
+  // معناها إن كل خانة "اتكتبت"، فأي حفظ هيبعت **كل** الإعدادات — وقاعدة
+  // "الفاضي مايتلمسش" تروح، ومعاها القدرة إنك تغيّر حاجة واحدة بس.
+  const currentFor = (t) => {
+    if (t === 'all') {
+      const sh = getSharedPrintSettings() || {};
+      const a = sh.align || {};
+      return {
+        batch: sh.batch !== undefined && sh.batch !== null ? sh.batch : PRINT_BATCH_DEFAULT,
+        lead: sh.lead !== undefined && sh.lead !== null ? sh.lead : PRINT_LEAD_DEFAULT,
+        pace: sh.pace !== undefined && sh.pace !== null ? sh.pace : PRINT_PACE_MS_PER_LABEL,
+        x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
+        tweaks: sh.tweaks || {},
+      };
+    }
+    // ⭐ الجهاز بينشر إعداداته **النافذة فعلًا** مع كل نبضة — فدي الحقيقة
+    // اللي على الماكينة، مش تخميننا.
+    const st = stations.find((x) => x.id === t) || {};
+    const ps = st.printSetup || {};
+    const a = ps.align || {};
+    return {
+      batch: ps.batch ?? PRINT_BATCH_DEFAULT,
+      lead: ps.lead ?? PRINT_LEAD_DEFAULT,
+      pace: ps.pace ?? PRINT_PACE_MS_PER_LABEL,
+      x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
+      tweaks: ps.tweaks || {},
+    };
+  };
+
   // بيجمع اللي اتكتب — الفاضي بيتشال في cleanPrintFields.
   const collect = () => {
     const num = (id, dec) => {
@@ -645,6 +682,27 @@ function openPrintSettingsDialog(preselectDeviceId) {
   // الاستثناءات اللي "على الكل" هتمسحها.
   const refresh = () => {
     const t = targetEl.value;
+
+    // القيم الشغّالة دلوقتي جوه الخانات
+    const cur = currentFor(t);
+    const ph = (id, v) => {
+      const el = overlay.querySelector('#' + id);
+      if (el) el.placeholder = String(v);
+    };
+    ph('ps-batch', cur.batch);
+    ph('ps-lead', cur.lead);
+    ph('ps-pace', cur.pace);
+    ph('ps-x', cur.x);
+    ph('ps-y', cur.y);
+    ph('ps-shrink', cur.shrink);
+    // والمفاتيح: "زي ما هي" بتقول هي دلوقتي إيه
+    overlay.querySelectorAll('[data-ps-tweak]').forEach((sel) => {
+      const key = sel.getAttribute('data-ps-tweak');
+      const on = typeof cur.tweaks[key] === 'boolean'
+        ? cur.tweaks[key]
+        : !!(PRINT_TWEAKS.find((x) => x.key === key) || {}).defaultOn;
+      sel.options[0].textContent = `زي ما هي (${on ? 'مفتوح' : 'مقفول'})`;
+    });
 
     if (t === 'all') {
       noteEl.textContent = `التعديل هيروح لكل الأجهزة (${stations.length}).`;

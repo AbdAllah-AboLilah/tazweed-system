@@ -164,6 +164,43 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.offlineNote = document.querySelector('#ps-scope-note').textContent.indexOf('مقفول') !== -1;
     out.noPrinterListMsg = document.querySelector('#ps-printers').textContent.indexOf('لسه مابعتش قايمة طابعاته') !== -1;
 
+    // ============================================================
+    // ⭐⭐ (٧) القيمة الشغّالة دلوقتي لازم تبان جوه الخانة
+    // ============================================================
+    // ⚠️ بنفضّي اللي الفحص نفسه كتبه فوق — وإلا فحص "كل الخانات فاضية"
+    // تحت هيفشل على قيمة إحنا اللي حطّيناها.
+    document.querySelector('#ps-pace').value = '';
+    // العطل: الخانات كانت فاضية وبس، فمتعرفش الجهاز واقف على كام.
+    // d1 بينشر batch:30 lead:5 pace:420 مع نبضته.
+    document.querySelector('#ps-target').value = 'd1';
+    document.querySelector('#ps-target').dispatchEvent(new Event('change', { bubbles: true }));
+    out.phBatch = document.querySelector('#ps-batch').placeholder;
+    out.phLead = document.querySelector('#ps-lead').placeholder;
+    out.phPace = document.querySelector('#ps-pace').placeholder;
+    // ⚠️ والأهم: الخانة نفسها لازم تفضل **فاضية** — الـplaceholder مش قيمة
+    out.valueStillEmpty = document.querySelector('#ps-batch').value === '';
+    // والمفاتيح بتقول هي دلوقتي إيه
+    out.tweakLabel = document.querySelector('[data-ps-tweak="noScale"]').options[0].textContent;
+
+    // جهاز تاني بأرقام تانية → الـplaceholder بيتغيّر معاه
+    document.querySelector('#ps-target').value = 'd2';
+    document.querySelector('#ps-target').dispatchEvent(new Event('change', { bubbles: true }));
+    out.phBatch2 = document.querySelector('#ps-batch').placeholder;
+
+    // "كل الأجهزة" بياخد من العام
+    sharedPrintSettings = { batch: 44, lead: 3, pace: 700, align: { x: 1.5 }, tweaks: { noScale: false } };
+    document.querySelector('#ps-target').value = 'all';
+    document.querySelector('#ps-target').dispatchEvent(new Event('change', { bubbles: true }));
+    out.phBatchAll = document.querySelector('#ps-batch').placeholder;
+    out.phXAll = document.querySelector('#ps-x').placeholder;
+    out.tweakLabelAll = document.querySelector('[data-ps-tweak="noScale"]').options[0].textContent;
+
+    // ⚠️⚠️ وأهم من ده كله: الحفظ **مايبعتش** القيم الباهتة.
+    // مافيش دالة نندهها من بره، فبنفحص المصدر: أي خانة فيها قيمة هي
+    // اللي بتتبعت — فلو كلهم فاضيين يبقى مفيش حاجة هتتبعت.
+    out.filledInputs = [...document.querySelectorAll('.card input, .card select')]
+      .filter((el) => el.id !== 'ps-target' && el.value !== '').length;
+
     document.querySelector('#ps-close').click();
     out.dialogClosed = !document.querySelector('#ps-target');
     out.limit = PRINT_ALIGN_LIMIT_MM;
@@ -214,6 +251,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('ومكتوب إنه شغّال', r.onlineNote);
   check('والمقفول مكتوب إنه مقفول', r.offlineNote);
   check('واللي مابعتش طابعاته بيتقاله السبب', r.noPrinterListMsg);
+  check('⭐⭐ الدفعة الشغّالة بتبان جوه الخانة', r.phBatch === '30', r.phBatch);
+  check('⭐⭐ والتقديم', r.phLead === '5', r.phLead);
+  check('⭐⭐ والإيقاع', r.phPace === '420', r.phPace);
+  check('⭐⭐ والخانة نفسها فاضلة فاضية (مش قيمة)', r.valueStillEmpty);
+  check('⭐ والمفتاح بيقول هو دلوقتي إيه', r.tweakLabel === 'زي ما هي (مفتوح)', r.tweakLabel);
+  check('جهاز تاني = أرقامه هو', r.phBatch2 === '20', r.phBatch2);
+  check('و"كل الأجهزة" بياخد من العام', r.phBatchAll === '44' && r.phXAll === '1.5', [r.phBatchAll, r.phXAll]);
+  check('والمفتاح العام كمان', r.tweakLabelAll === 'زي ما هي (مقفول)', r.tweakLabelAll);
+  check('⭐⭐ والحفظ مابيبعتش القيم الباهتة (كل الخانات فاضية)', r.filledInputs === 0, r.filledInputs);
   check('والنافذة بتقفل', r.dialogClosed);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
