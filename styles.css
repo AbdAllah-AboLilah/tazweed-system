@@ -2341,3 +2341,117 @@ tr.grade-base td:first-child {
 @media (prefers-reduced-motion: reduce) {
   .mv-bar-wait span { animation: none; width: 100%; }
 }
+
+/* ============================================================
+   سجل العمليات — الفلاتر
+   ============================================================ */
+.log-tools {
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.log-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.log-lbl {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
+
+.log-days {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.log-day {
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.log-day.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.log-refresh {
+  margin-inline-start: auto;
+  font-size: 12px;
+  padding: 6px 12px;
+  min-height: 34px;
+}
+
+.log-kinds {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.log-kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.log-kind.on {
+  opacity: 1;
+  background: var(--surface-muted);
+}
+
+.log-kind input { width: 16px; height: 16px; flex: 0 0 auto; }
+
+.log-count {
+  min-width: 20px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-note {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.8;
+}
+
+/* العملية اللي لسه مترفعتش */
+.act-pending { border-inline-start: 3px solid var(--gold); }
+
+.act-wait {
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
