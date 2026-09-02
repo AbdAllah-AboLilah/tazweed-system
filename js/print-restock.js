@@ -621,36 +621,10 @@ async function printRestockPaper(cat, grades) {
     }
   }
 
-  // 🧪 المفتاح التجريبي: صورة بطولها الكامل بدل ما التعريف يصغّرها.
-  // ⚠️ مقفول = السطر ده بيعدّي على طول والباقي زي ما هو بالحرف.
-  if (typeof getPrintTweak === 'function' && getPrintTweak('sheetImage')) {
-    const shot = await renderSheetImage(html);
-    // ⚠️ الحجم بيتفحص **هنا** مش بعد ما نبعت: الرسالة الأكبر من الحد
-    // بتتضاع في صمت والطابعة "بتاخد الأمر ومفيش حاجة بتتطبع".
-    if (shot && shot.bytes <= SHEET_IMG_MAX_BYTES) {
-      // ⚠️⚠️ لازم الـHTML يتبعت **مع** الصورة، مش الصورة لوحدها.
-      // normalizePrintJobs بترمي أي وظيفة مالهاش `html` — وكانت الطباعة
-      // بتوقف عند "محتوى الملصق وصل بايظ". (الفحص مسكها.)
-      // ومفيش حجم زيادة على الطابعة: pageOf بيفضّل الصورة ويسيب الـHTML،
-      // فاللي بيتبعت لـQZ هو الصورة بس — نفس نمط الملصقات بالظبط.
-      await deliverPrint(
-        'restock',
-        [{ html, image: shot.image, copies: 1 }],
-        { pageWidthMm: shot.widthMm, pageHeightMm: shot.heightMm, customSize: true },
-        'width=700,height=800',
-        html
-      );
-      return;
-    }
-    // ⚠️ الرجوع للقديم **بيتقال** مش بيحصل في سكوت — من غير كده المستخدم
-    // هيفتكر إن المفتاح شغّال وهو مش شغّال، ويفضل مستني نتيجة مش جاية.
-    showPrintNotice(
-      shot
-        ? `📄 الورقة كصورة طلعت كبيرة (${Math.round(shot.bytes / 1024)} كيلو) — اتطبعت بالطريقة العادية.`
-        : '📄 مانفعش نرسم الورقة كصورة — اتطبعت بالطريقة العادية.'
-    );
-  }
-
+  // ⚠️⚠️ مفتاح "ورقة التزويد كصورة" **مابيتقراش هنا** — بيتقرا على
+  // الجهاز اللي هيطبع فعلًا (جوه tryPrintViaQZ). الشرح عند
+  // maybeRasterizeSheet في print-core.js.
+  //
   // ورقة التزويد رول مستمر (الارتفاع مفتوح)، فمش بنفرض مقاس على QZ.
   await deliverPrint('restock', html, null, 'width=700,height=800');
 }

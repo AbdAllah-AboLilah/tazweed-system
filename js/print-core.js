@@ -2231,6 +2231,57 @@ function normalizePrintJobs(input) {
   return out;
 }
 
+// ============================================================
+// 🧪 ورقة التزويد كصورة — القرار عند **الجهاز اللي بيطبع**
+// ============================================================
+// ⚠️⚠️ ده اتصلّح بعد تجربة حقيقية. أول نسخة كانت بتقرا المفتاح على
+// الجهاز **الباعت** (جوه printRestockPaper) — والنتيجة إن:
+//
+//   الطباعة من الكمبيوتر اللي عليه الطابعة  → اشتغلت ✅
+//   الطباعة من التليفون لنفس الكمبيوتر       → الورقة رجعت مصغّرة ❌
+//
+// السبب: الإعداد اتحط **استثناء للكمبيوتر**، والتليفون بيقرا استثناءه هو
+// (مش موجود) فبيبعت HTML عادي — والكمبيوتر بيطبع اللي وصله.
+//
+// والقاعدة الصح: المفتاح ده بيخص **الطابعة**، مش اللي ضغط الزرار. الجهاز
+// اللي عليه الطابعة هو اللي عارف نسخة QZ عنده وهو اللي إعداده يهم.
+//
+// tryPrintViaQZ هي **النقطة الوحيدة** اللي بيعدّي منها المسارين:
+//   • محلي  → deliverPrint → tryPrintViaQZ
+//   • بعيد  → executePrintJob → tryPrintViaQZ   (على الجهاز المستقبِل)
+// فالقرار هنا بيغطي الاتنين بقاعدة واحدة.
+//
+// بترجّع { list, sizeOptions } — أو null لو مافيش تغيير.
+async function maybeRasterizeSheet(type, list, sizeOptions) {
+  if (type !== 'restock') return null;
+  if (typeof getPrintTweak !== 'function' || !getPrintTweak('sheetImage')) return null;
+  if (typeof renderSheetImage !== 'function') return null;
+  // ورقة واحدة بس، ولسه نص (لو جاتلنا صورة يبقى حد رسمها قبلنا)
+  if (!Array.isArray(list) || list.length !== 1) return null;
+  if (!list[0] || list[0].image || typeof list[0].html !== 'string') return null;
+
+  const shot = await renderSheetImage(list[0].html);
+  // ⚠️ الحجم بيتفحص **قبل** الإرسال: الرسالة الأكبر من الحد بتتضاع في
+  // صمت والطابعة "بتاخد الأمر ومفيش حاجة بتتطبع".
+  const cap = typeof SHEET_IMG_MAX_BYTES === 'number' ? SHEET_IMG_MAX_BYTES : 44 * 1024;
+  if (!shot || shot.bytes > cap) {
+    // ⚠️ الرجوع للقديم **بيتقال** مش بيحصل في سكوت.
+    showPrintNotice(
+      shot
+        ? `📄 الورقة كصورة طلعت كبيرة (${Math.round(shot.bytes / 1024)} كيلو) — اتطبعت بالطريقة العادية.`
+        : '📄 مانفعش نرسم الورقة كصورة — اتطبعت بالطريقة العادية.'
+    );
+    return null;
+  }
+
+  // ⚠️ الـHTML لازم يفضل جنب الصورة: normalizePrintJobs بترمي أي وظيفة
+  // مالهاش `html`. وpageOf بيفضّل الصورة، فاللي بيتبعت لـQZ هو الصورة بس.
+  return {
+    list: [{ ...list[0], image: shot.image }],
+    sizeOptions: { ...(sizeOptions || {}), pageWidthMm: shot.widthMm, pageHeightMm: shot.heightMm, customSize: true },
+  };
+}
+
 // بيرجع true لو نجحت الطباعة عبر QZ Tray، false لو محتاج نرجع للطريقة
 // العادية (نافذة المتصفح / iframe).
 // ============================================================
@@ -2296,7 +2347,10 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     // عشان كده normalizePrintJobs بترجّع قايمة نضيفة، وتحت السطر ده فيه
     // فحص صارم: لو المحتوى مش نص، بنوقف الطباعة فورًا ونرجع false بدل ما
     // نطبع زبالة على ورق حقيقي.
-    const list = normalizePrintJobs(jobs);
+    let list = normalizePrintJobs(jobs);
+    // 🧪 المفتاح مقفول = السطرين دول بيعدّوا والباقي زي ما هو بالحرف.
+    const rast = await maybeRasterizeSheet(type, list, sizeOptions);
+    if (rast) { list = rast.list; sizeOptions = rast.sizeOptions; }
     if (!list.length) {
       console.error('محتوى الطباعة غير صالح — مش هيتبعت لـQZ:', jobs);
       alert('⚠️ حصلت مشكلة في تجهيز الملصق، فالطباعة ماتمّتش.\n\nحدّث الصفحة وحاول تاني.');
