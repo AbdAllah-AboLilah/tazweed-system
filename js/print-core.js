@@ -1454,16 +1454,52 @@ async function savePrintFieldsForAll(patch, deviceIds) {
 
   // ⚠️ المسح **بعد** ما العام يتحفظ مش قبله: لو المسح نجح والحفظ فشل،
   // الأجهزة كانت هتفقد استثناءاتها وتاخد قيمة قديمة — أسوأ من الاتنين.
+  //
+  // ============================================================
+  // ⚠️⚠️ بنمسح **المفتاح الواحد**، مش الحزمة اللي هو جواها
+  // ============================================================
+  // `tweaks` و`align` مش قيم مفردة — دول **حزم** جواها كذا مفتاح:
+  //     tweaks = { noScale, blackwhite, sheetImage, ... }
+  //     align  = { x, y, shrink }
+  //
+  // والنسخة الأولى كانت بتمسح الحزمة **كلها**. يعني لو غيّرت مفتاح واحد
+  // على كل الأجهزة، الجهاز اللي كان له إعداد خاص بيفقد **كل** مفاتيحه
+  // الخاصة — مش اللي غيّرته بس:
+  //
+  //   قبل:  الكمبيوتر → tweaks = { noScale: مقفول, sheetImage: مفتوح }
+  //   غيّرت blackwhite على الكل
+  //   بعد:  الكمبيوتر → tweaks اتمسحت كلها ← فقد الاتنين
+  //
+  // ⚠️ ومحدش كان هيلاحظ: الإعداد بيرجع للعام في صمت، والورق هو اللي
+  // بيقول. اتمسك بسؤال من صاحب النظام واتأكد بالتشغيل قبل التصليح.
+  //
+  // ⚠️ والمسح المتداخل **لازم** يبقى بـupdate ومسار بالنقطة
+  // ('tweaks.blackwhite'). تعشيش delete جوه كائن مع set/merge مش مضمون،
+  // والنقطة في set بتتحسب **اسم حقل حرفي** مش مسار — يعني كنا هنعمل حقل
+  // اسمه "tweaks.blackwhite" بدل ما نمسح حاجة.
   let cleared = 0;
+  const FV = firebase.firestore.FieldValue;
   const keys = Object.keys(clean);
+  const delPatch = {};
+  keys.forEach((k) => {
+    const v = clean[k];
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      Object.keys(v).forEach((sub) => (delPatch[`${k}.${sub}`] = FV.delete()));
+    } else {
+      delPatch[k] = FV.delete();
+    }
+  });
+  if (!Object.keys(delPatch).length) return 0;
+
   for (const id of deviceIds || []) {
     try {
-      const patch2 = {};
-      keys.forEach((k) => (patch2[k] = firebase.firestore.FieldValue.delete()));
-      await db.collection(DEVICE_SETTINGS).doc(id).set(patch2, { merge: true });
+      // ⚠️ update مش set: مسار النقطة مالوش معنى غير في update.
+      await db.collection(DEVICE_SETTINGS).doc(id).update(delPatch);
       cleared++;
     } catch (err) {
-      // جهاز فشل مايوقفش الباقي — الأهم إن العام اتحفظ خلاص
+      // الجهاز اللي مالوش استثناء أصلًا مالوش مستند — مافيش حاجة تتمسح،
+      // ومش عطل. أي فشل تاني بيتقال، وجهاز فشل مايوقفش الباقي.
+      if (err && err.code === 'not-found') continue;
       console.warn('تعذّر مسح استثناء الجهاز', id, err);
     }
   }
