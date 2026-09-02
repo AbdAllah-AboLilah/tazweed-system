@@ -115,6 +115,9 @@ function productsUpdatedText() {
   if (!d && meta && meta.localUpdatedAt instanceof Date) d = meta.localUpdatedAt;
   if (!d) return '';
   const when = d.toLocaleString('ar-EG', {
+    // ⭐ اسم اليوم الأول: "الأربعاء" بيقولك من غير ما تحسب إن الملف
+    // اتحدّث امبارح ولا من أسبوع — والسطر ده موجود في شاشتين.
+    weekday: 'long',
     year: 'numeric', month: 'numeric', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
   });

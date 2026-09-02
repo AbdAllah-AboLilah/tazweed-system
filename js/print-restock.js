@@ -84,7 +84,11 @@ const HATCH_CELL = `<svg class="hatch"><rect width="100%" height="100%" fill="ur
 // وكمان بيلخبط الفحوصات اللي بتدوّر على كلمات جوه الـHTML.
 // groupName: اسم مجموعة ألوان واحدة عشان تتطبع لوحدها، أو '' للورقة كلها.
 function buildRestockHTML(cat, grades, groupName, withBase) {
-  const now = new Date().toLocaleString('ar-EG');
+  // ⭐ اسم اليوم جنب التاريخ — الورقة بتتعلّق على الرف وبتتقارن بغيرها،
+  // و"السبت" أسرع في القراية من "٢٠٢٦/٩/٥" وانت ماسك الورقة في إيدك.
+  // ⚠️ التاريخ والوقت نفسهم **مالمسناهمش** — بس بنزوّد اليوم قبلهم.
+  const sheetDate = new Date();
+  const now = `${sheetDate.toLocaleDateString('ar-EG', { weekday: 'long' })} ${sheetDate.toLocaleString('ar-EG')}`;
   // الدرجات الأساسية (أبيض/أسود/أوف وايت) مالهاش أرقام، والورقة شبكة
   // أرقام بتمشي بيها على الرف — فوجودها وسط الأرقام بيلخبط الشبكة.
   // عشان كده بتتعرض في **شبكة أسماء منفصلة تحت أرقام مجموعتها**.
