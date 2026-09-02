@@ -110,6 +110,48 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ والخروج بيلغي اللقطة المستنية', r.heavyAfterStop === 0, r.heavyAfterStop);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
+  // ============================================================
+  // ⚠️⚠️ سجل العمليات كان بيرسم الشاشة كلها وهو مش ظاهر
+  // ============================================================
+  // كل تعديل كمية بيكتب سطر في السجل. والاشتراك بيسمع الكتابة دي
+  // **مرتين** (محلية + تأكيد السيرفر، عشان includeMetadataChanges) —
+  // وكان بيرسم الشاشة كلها في المرتين.
+  //
+  // يعني وانت في الشيت بتدوس زاد/ناقص، السجل — اللي مش ظاهر على الشاشة
+  // دي أصلًا — كان بيسبّب **رسمتين كاملتين زيادة لكل ضغطة**.
+  {
+    const p2 = await b.newPage({ viewport: { width: 390, height: 844 } });
+    await p2.goto('http://localhost:8899/tests/harness.html');
+    await p2.waitForFunction(() => typeof subscribeActivityLog === 'function');
+    const lg = await p2.evaluate(() => {
+      const out = {};
+      state.profile = { name: 'A', role: 'owner' }; state.user = { uid: 'u1' };
+      state.categories = [{ id: 'c1', name: 'ك' }]; state.activeCategoryId = 'c1'; state.grades = [];
+      let handler = null;
+      window.db = { collection: () => ({ orderBy: () => ({ limit: () => ({ onSnapshot: (o, cb) => { handler = cb; return () => {}; } }) }) }) };
+      let renders = 0; window.renderFromData = () => { renders++; };
+      subscribeActivityLog();
+      const snap = { docs: [{ id: 'a', metadata: { hasPendingWrites: true }, data: () => ({ action: 'edit', userName: 'A' }) }] };
+      const run = (screen, times) => { state.screen = screen; renders = 0; for (let i = 0; i < times; i++) handler(snap); return renders; };
+      out.sheets = run('sheets', 2);
+      out.activity = run('activity', 2);
+      out.home = run('home', 1);
+      out.print = run('print', 2);
+      // ⚠️ البيانات لازم تفضل بتتحدّث في كل الأحوال — عشان أول ما تفتح
+      // السجل تلاقيه جاهز من غير انتظار
+      state.screen = 'sheets';
+      handler({ docs: [{ id: 'z', metadata: { hasPendingWrites: false }, data: () => ({ action: 'print', userName: 'B' }) }] });
+      out.dataStillUpdates = state.activityLog.length === 1 && state.activityLog[0].id === 'z';
+      return out;
+    });
+    await p2.close();
+    check('⭐⭐ وانت في الشيت: السجل مابيرسمش خالص (كان رسمتين لكل ضغطة)', lg.sheets === 0, lg.sheets);
+    check('⭐ وفي شاشة الطباعة كمان', lg.print === 0, lg.print);
+    check('⭐ بس في شاشة السجل بيرسم عادي', lg.activity === 2, lg.activity);
+    check('وفي الرئيسية (فيها آخر ٨ حركات)', lg.home === 1, lg.home);
+    check('⭐⭐ والبيانات بتفضل بتتحدّث في كل الشاشات', lg.dataStillUpdates);
+  }
+
   // ---- فحوصات على المصدر ----
   check('مدة اللمّ محسوسة بس مش ملحوظة (100-300 مللي)',
     /OVERVIEW_COALESCE_MS = (1[0-9][0-9]|2[0-9][0-9]|300)\b/.test(src),
