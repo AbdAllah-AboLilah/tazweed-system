@@ -177,6 +177,12 @@ function categoryIdOfGrade(doc) {
 let unsubAllGrades = null;
 let allGradesCache = null; // آخر نسخة من درجات كل الفئات
 
+// المدة اللي بنلمّ فيها اللقطات المتتالية. قصيرة كفاية إن محدش يحسّها،
+// وطويلة كفاية إن رشقة ضغطات تبقى حساب واحد.
+const OVERVIEW_COALESCE_MS = 150;
+let overviewCoalesceTimer = null;
+let pendingOverviewSnap = null;
+
 function subscribeOverview() {
   if (unsubAllGrades) unsubAllGrades();
   unsubAllGrades = db.collectionGroup('grades').onSnapshot(
@@ -205,29 +211,65 @@ function subscribeOverview() {
         return;
       }
 
-      allGradesCache = snap.docs.map((d) => {
-        const g = d.data();
-        return {
-          catId: categoryIdOfGrade(d),
-          // ⭐ معرّف الدرجة — تقرير حركة المخزون بيربط بيه مع gradeStats.
-          // من غيره كان لازم استعلام تاني على كل الدرجات.
-          gradeId: d.id,
-          status: g.status,
-          isBase: !!g.isBase,
-          name: g.name,
-          number: g.number,
-          branchQty: Number(g.branchQty) || 0,
-          // ⭐ تقرير الحركة محتاجها: الدرجة اللي مافيهاش بضاعة في المخزنين
-          // **مش راكدة** — هي خلصانة، ومش المفروض تظهر في القايمة.
-          mainQty: Number(g.mainQty) || 0,
-          criticalQty: g.criticalQty,
-        };
-      });
-      recomputeOverview();
-      // ⭐ نفس اللقطة دي هي اللي بتعرف إن فيه طلب تزويد جديد. مافيش
-      // اشتراك تاني ولا قراءة زيادة — الخبر كان واصل أصلًا وكنا بس
-      // مابنعملش بيه حاجة. (الشرح في js/notify.js)
-      if (typeof onGradesSnapshotForNotify === 'function') onGradesSnapshotForNotify(snap);
+      // ============================================================
+      // ⚠️⚠️ الشغل التقيل بيتلمّ — مش بيتعمل مع كل ضغطة
+      // ============================================================
+      // العطل اللي اتبلّغ: "بدوس زاد أو ناقص وبياخد وقت لحد ما يسمع".
+      // وده **مش إحساس** — اتقاس على معالج مبطّأ 4 أضعاف ببيانات المحل
+      // (39 فئة · 3642 درجة):
+      //
+      //   بناء نسخة الدرجات (3642 كائن) ...
+      //   recomputeOverview (لفّة على 3642 + ترتيب) ....  337ms
+      //   رسم الشاشة كلها من الأول ......................   97ms
+      //   ربط 202 مستمع ................................   47ms
+      //   ─────────────────────────────────────────────────────
+      //   ≈ نص ثانية **لكل ضغطة**
+      //
+      // وكل ضغطة بتعمل كتابة محلية → لقطة → الشغل ده كله. عشر ضغطات
+      // ورا بعض = عشر مرات.
+      //
+      // ⭐ والمهم إن الرقم اللي تحت صباعك **مش** جاي من هنا: الفئة
+      // المفتوحة ليها اشتراك لوحدها بيرسم على طول (subscribeGrades في
+      // app.js). اللي هنا هو الملخّص العام — النقط والعدّادات جنب أسماء
+      // الفئات. تأخيره جزء من ثانية محدش هيحسّه.
+      //
+      // فبنلمّ اللقطات المتتالية في واحدة: عشر ضغطات سريعة = حساب واحد
+      // في الآخر بدل عشرة.
+      pendingOverviewSnap = snap;
+      if (overviewCoalesceTimer) return;
+      overviewCoalesceTimer = setTimeout(() => {
+        overviewCoalesceTimer = null;
+        const latest = pendingOverviewSnap;
+        pendingOverviewSnap = null;
+        if (!latest) return;
+
+        allGradesCache = latest.docs.map((d) => {
+          const g = d.data();
+          return {
+            catId: categoryIdOfGrade(d),
+            // ⭐ معرّف الدرجة — تقرير حركة المخزون بيربط بيه مع gradeStats.
+            // من غيره كان لازم استعلام تاني على كل الدرجات.
+            gradeId: d.id,
+            status: g.status,
+            isBase: !!g.isBase,
+            name: g.name,
+            number: g.number,
+            branchQty: Number(g.branchQty) || 0,
+            // ⭐ تقرير الحركة محتاجها: الدرجة اللي مافيهاش بضاعة في المخزنين
+            // **مش راكدة** — هي خلصانة، ومش المفروض تظهر في القايمة.
+            mainQty: Number(g.mainQty) || 0,
+            criticalQty: g.criticalQty,
+          };
+        });
+        recomputeOverview();
+        // ⭐ نفس اللقطة دي هي اللي بتعرف إن فيه طلب تزويد جديد. مافيش
+        // اشتراك تاني ولا قراءة زيادة — الخبر كان واصل أصلًا وكنا بس
+        // مابنعملش بيه حاجة. (الشرح في js/notify.js)
+        //
+        // ⚠️ بنبعت **آخر** لقطة مش الأولانية: لو اتلمّت كذا لقطة، الأخيرة
+        // هي اللي فيها الحقيقة الكاملة.
+        if (typeof onGradesSnapshotForNotify === 'function') onGradesSnapshotForNotify(latest);
+      }, OVERVIEW_COALESCE_MS);
     },
     (err) => reportOverviewError('درجات كل الفئات', err)
   );
@@ -328,6 +370,10 @@ function subscribeLowStock() {
 function stopOverview() {
   if (overviewRetryTimer) { clearTimeout(overviewRetryTimer); overviewRetryTimer = null; }
   overviewRetries = 0;
+  // ⚠️ لازم يتلغي: لو المستخدم خرج واللقطة الملمومة لسه مستنية، كانت
+  // هتشتغل بعد الخروج وتحسب على بيانات حساب خرج خلاص.
+  if (overviewCoalesceTimer) { clearTimeout(overviewCoalesceTimer); overviewCoalesceTimer = null; }
+  pendingOverviewSnap = null;
   if (unsubAllGrades) { unsubAllGrades(); unsubAllGrades = null; }
   allGradesCache = null;
   stopPresenceHeartbeat();
