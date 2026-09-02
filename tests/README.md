@@ -158,6 +158,7 @@ node tests/log-tabs-test.js
 node tests/products-updated-test.js
 node tests/remote-setup-test.js
 node tests/restock-print-test.js
+node tests/sheet-image-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
 node tests/grade-add-test.js
