@@ -606,12 +606,132 @@ function render() {
   }
 
   if (state.view === 'dashboard') {
+    const html = dashboardHTML();
+    // ⭐ لو اللي اتغيّر أرقام كميات وبس، بنحدّثها في مكانها من غير ما
+    // نهدّ الشاشة (شوف patchQuantitiesOnly).
+    if (patchQuantitiesOnly(html)) return;
     const scroll = captureScrollState();
-    root.innerHTML = dashboardHTML();
+    root.innerHTML = html;
     attachDashboardEvents();
     restoreScrollState(scroll);
+    lastDashboardHTML = html;
     return;
   }
+}
+
+// ============================================================
+// ⭐⭐ تعديل الكمية من غير ما الشاشة تتهدّ
+// ============================================================
+// القياس اللي أدّى للحاجة دي: لما تدوس زاد أو ناقص والحالة ماتتغيّرش،
+// **منطقة واحدة بس** في الشاشة بتختلف — من 62,665 حرف:
+//
+//   value="5"  →  value="6"
+//
+// وإحنا كنا بنهدّ 2000 عنصر ونخلّي المتصفح يرتّبهم من الأول (~300 مللي)
+// عشان **حرف واحد**.
+//
+// ------------------------------------------------------------
+// ⚠️⚠️ ليه الطريقة دي آمنة، والطريقة "الذكية" مش آمنة
+// ------------------------------------------------------------
+// الطريقة الخطر إنك تقول: "أنا عارف إن تغيير الكمية بيأثّر على الرقم
+// وبس" — وده **افتراض بشري** بيقع أول ما حاجة تتغيّر: الشارة تتحوّل
+// لـ"معلّق"، أو الصف يخرج من الفلتر، أو التحذير البرتقالي يظهر.
+//
+// الطريقة دي **مابتفترضش حاجة**. بتبني نص الشاشة الجديد كامل (28 مللي
+// بس)، وتقارنه بالقديم **بعد ما تشيل أرقام الكميات من الاتنين**. لو
+// الباقي مش مطابق **حرف بحرف** → رسم كامل عادي.
+//
+// يعني الأمان مش جاي من فهمنا للنظام — جاي من **مقارنة الناتج النهائي**.
+// أي حاجة تتغيّر في المستقبل ومش في بالنا دلوقتي، المقارنة هتمسكها.
+let lastDashboardHTML = '';
+
+// بتشيل الحاجات اللي بتتغيّر مع كل تعديل كمية من النص، عشان نقارن الباقي.
+// بترجّع { هيكل، قيم، عنوان_التراجع }.
+const QTY_INPUT_RE = /(<input class="qty-input"[^>]*?value=")([^"]*)("[^>]*?data-category-id="[^"]*"[^>]*?data-grade-id="([^"]*)"[^>]*?data-field="([^"]*)"[^>]*>)/g;
+
+// ⚠️⚠️ زرار التراجع كان بيقتل التحسين كله — والفحص الأول فاته
+// ============================================================
+// عنوان الزرار (اللي بيظهر لما تحط الماوس عليه) فيه **اسم آخر حركة**:
+//   title="تراجع عن: درجة 5 — الفرع: 5 ← 6"
+//
+// يعني بيتغيّر مع **كل** تعديل كمية. فالمقارنة كانت بتلاقي فرق وتعمل
+// رسم كامل **دايمًا** — التحسين كان شغّال في الفحص المصنوع وميت تمامًا
+// في الاستخدام الحقيقي.
+//
+// ⚠️ ودي بالظبط نوع الحاجة اللي بتخلّي "التحديث الجزئي" خطر: حاجة صغيرة
+// ومخفية بتتغيّر ومحدش واخد باله. عشان كده الحل مش إننا نفتكر — الحل إن
+// المقارنة تمسك أي فرق، وإحنا نضيف اللي نعرف نحدّثه بأمان **واحدة واحدة**.
+const UNDO_TITLE_RE = /(<button class="btn undo-btn" id="undo-btn" title=")([^"]*)(")/;
+
+function splitLiveBits(html) {
+  const values = [];
+  let undoTitle = null;
+  let shape = html.replace(QTY_INPUT_RE, (m, pre, val, post, gradeId, field) => {
+    values.push({ gradeId, field, val });
+    return pre + '\u0000' + post;
+  });
+  shape = shape.replace(UNDO_TITLE_RE, (m, pre, title, post) => {
+    undoTitle = title;
+    return pre + '\u0000' + post;
+  });
+  return { shape, values, undoTitle };
+}
+
+function patchQuantitiesOnly(html) {
+  if (!lastDashboardHTML) return false;
+  // الشاشة اللي فيها خانات كميات بس — غيرها مالوش لازمة
+  if (state.screen !== 'sheets') return false;
+
+  const a = splitLiveBits(lastDashboardHTML);
+  const b = splitLiveBits(html);
+
+  // ⚠️ الحارس الأساسي: أي اختلاف في أي حتة تانية → رسم كامل.
+  if (a.shape !== b.shape) return false;
+  if (a.values.length !== b.values.length) return false;
+
+  const changed = [];
+  for (let i = 0; i < a.values.length; i++) {
+    const x = a.values[i];
+    const y = b.values[i];
+    // ⚠️ الترتيب لازم يفضل هو هو — لو صف اتحرّك مكانه، مانلمسش حاجة
+    if (x.gradeId !== y.gradeId || x.field !== y.field) return false;
+    if (x.val !== y.val) changed.push(y);
+  }
+  if (!changed.length && a.undoTitle === b.undoTitle) {
+    // مفيش أي فرق خالص — مافيش داعي حتى للتحديث
+    lastDashboardHTML = html;
+    return true;
+  }
+
+  // ⚠️ العناصر لازم تكون موجودة فعلًا في الصفحة. لو واحد ناقص لأي سبب،
+  // بنرجع للرسم الكامل بدل ما نسيب الشاشة بترقم غلط.
+  const targets = [];
+  for (const c of changed) {
+    const el = document.querySelector(
+      `.qty-input[data-grade-id="${c.gradeId}"][data-field="${c.field}"]`
+    );
+    if (!el) return false;
+    targets.push([el, c.val]);
+  }
+
+  // ⚠️ ومانلمسش خانة المستخدم واقف فيها — هيلاقي رقمه بيتغيّر تحت إيده.
+  const active = document.activeElement;
+  for (const [el, val] of targets) {
+    if (el === active) return false;
+  }
+
+  // عنوان زرار التراجع — بيتغيّر مع كل تعديل، فبنحدّثه هو كمان.
+  // ⚠️ لو الزرار نفسه ظهر أو اختفى، الهيكل بيبقى مختلف والمقارنة فوق
+  // بترجّع رسم كامل — فمابنوصلش هنا أصلًا.
+  if (a.undoTitle !== b.undoTitle) {
+    const undoEl = document.getElementById('undo-btn');
+    if (!undoEl) return false;
+    undoEl.title = b.undoTitle == null ? '' : b.undoTitle;
+  }
+
+  targets.forEach(([el, val]) => { el.value = val; });
+  lastDashboardHTML = html;
+  return true;
 }
 
 // ============================================================
