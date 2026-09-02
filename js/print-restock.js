@@ -254,6 +254,179 @@ function restockGroupNames(cat, grades, withBase) {
 //                 مع مستند واحد بس)
 //   previewHTML → نفس الورق ورا بعض بخط فاصل بدل فاصل الصفحة، عشان
 //                 تشوفهم كلهم في معاينة واحدة قبل ما تأكّد
+// ============================================================
+// 🧪 ورقة التزويد كصورة — تحت مفتاح `sheetImage` بس
+// ============================================================
+// ⚠️⚠️ الكود اللي تحت **مابيشتغلش خالص** والمفتاح مقفول (وهو مقفول
+// افتراضيًا). فيه فحص بيتأكد إن الورقة والمفتاح مقفول **مطابقة حرف
+// بحرف** للي النظام بيطلّعه من غير الكود ده أصلًا.
+//
+// ليه أصلًا: الورقة الأطول من فورم التعريف بتتصغّر. الشرح الكامل والقياسات
+// عند مفتاح `sheetImage` في print-core.js.
+//
+// ⚠️ وأي فشل هنا **بيرجع للطريقة القديمة**، مايوقّفش الطباعة. الورقة
+// الوحشة أحسن من ورقة مافيش.
+
+const SHEET_DPI = 203;              // Xprinter XP-80C
+const SHEET_PRINTABLE_MM = 72.1;    // اللي رأس الطباعة بيغطيه فعلًا (مش 80)
+const SHEET_IMG_MAX_BYTES = 44 * 1024;  // نفس هامش RESTOCK_SAFE_BYTES
+
+// ------------------------------------------------------------
+// PNG بعمق 1 بت — مكتوب بإيدنا عن قصد
+// ------------------------------------------------------------
+// ⚠️⚠️ `canvas.toDataURL()` بيطلّع PNG بـ32 بت **دايمًا** ومافيش خيار.
+// والورقة أصلًا لونين. القياس على ورقة 245 درجة:
+//     32 بت → 154 كيلو  ← فوق حد رسالة QZ (48) → **بتتضاع في صمت**
+//      1 بت →  22 كيلو  ← أصغر من الـHTML نفسه
+// عشان كده المحوّل ده مش تحسين — من غيره الخاصية كلها مابتشتغلش.
+function sheetCrc32(buf) {
+  let table = sheetCrc32.t;
+  if (!table) {
+    table = sheetCrc32.t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c >>> 0;
+    }
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = table[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function sheetPngChunk(type, data) {
+  const out = new Uint8Array(12 + data.length);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  dv.setUint32(8 + data.length, sheetCrc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+// بترجّع base64 لصورة PNG رمادية بعمق 1 بت (0 = أسود، 1 = أبيض)
+async function canvasToPng1Bit(cv) {
+  if (typeof CompressionStream !== 'function') return null;   // متصفح قديم
+  const w = cv.width, h = cv.height;
+  const px = cv.getContext('2d').getImageData(0, 0, w, h).data;
+  const rowBytes = (w + 7) >> 3;
+  const raw = new Uint8Array((rowBytes + 1) * h);
+  let p = 0;
+  for (let y = 0; y < h; y++) {
+    raw[p++] = 0;                                   // نوع المرشّح: بدون
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const a = px[i + 3] / 255;
+      // الشفاف بيتحسب أبيض — الورق أبيض أصلًا
+      const lum = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) * a + 255 * (1 - a);
+      if (lum >= 128) raw[p + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+    p += rowBytes;
+  }
+  const cs = new CompressionStream('deflate');      // zlib — اللي PNG عايزه
+  const writer = cs.writable.getWriter();
+  writer.write(raw);
+  writer.close();
+  const z = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+
+  const ihdr = new Uint8Array(13);
+  const dv = new DataView(ihdr.buffer);
+  dv.setUint32(0, w);
+  dv.setUint32(4, h);
+  ihdr[8] = 1;   // عمق البت
+  ihdr[9] = 0;   // نوع اللون: رمادي
+  const parts = [
+    new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    sheetPngChunk('IHDR', ihdr),
+    sheetPngChunk('IDAT', z),
+    sheetPngChunk('IEND', new Uint8Array(0)),
+  ];
+  const out = new Uint8Array(parts.reduce((n, x) => n + x.length, 0));
+  let o = 0;
+  for (const x of parts) { out.set(x, o); o += x.length; }
+  let bin = '';
+  const CH = 0x8000;   // على دفعات: String.fromCharCode بيقع على مصفوفة كبيرة
+  for (let i = 0; i < out.length; i += CH) bin += String.fromCharCode.apply(null, out.subarray(i, i + CH));
+  return btoa(bin);
+}
+
+// ------------------------------------------------------------
+// الورقة (HTML) → صورة بدقة الطابعة
+// ------------------------------------------------------------
+// ⚠️ foreignObject بيتقرا **XML صارم**. أول محاولة بعتنا الـHTML زي ما هو
+// والصورة ماحمّلتش خالص (من غير أي رسالة خطأ). الحل: XMLSerializer على
+// شجرة الصفحة نفسها — بيطلّع XML سليم مقفول الوسوم.
+// ⚠️ ولازم نشيل أي <script> — بيوقّع القراءة، وملهوش لازمة في صورة.
+async function renderSheetImage(html) {
+  try {
+    const MM_PX = 96 / 25.4;
+    const cssW = Math.round(SHEET_PRINTABLE_MM * MM_PX);
+    const devW = Math.round((SHEET_PRINTABLE_MM / 25.4) * SHEET_DPI);
+
+    // بنقيس الطول الحقيقي في إطار مخفي — مش بنخمّنه من عدد الصفوف
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = `position:fixed; left:-99999px; top:0; width:${cssW}px; height:100px; border:0;`;
+    document.body.appendChild(frame);
+    let cssH = 0;
+    let xml = '';
+    try {
+      const doc = frame.contentDocument;
+      doc.open();
+      doc.write(html);
+      doc.close();
+      await new Promise((r) => setTimeout(r, 60));
+      cssH = Math.ceil(doc.body.scrollHeight);
+      doc.querySelectorAll('script').forEach((el) => el.remove());
+      doc.documentElement.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+      xml = new XMLSerializer().serializeToString(doc.documentElement);
+    } finally {
+      frame.remove();
+    }
+    if (!cssH || !xml) return null;
+
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${cssH}">` +
+      `<foreignObject width="100%" height="100%">${xml}</foreignObject></svg>`;
+
+    const img = new Image();
+    const ok = await new Promise((res) => {
+      img.onload = () => res(true);
+      img.onerror = () => res(false);
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+    if (!ok) return null;
+
+    const cv = document.createElement('canvas');
+    cv.width = devW;
+    cv.height = Math.round((cssH * devW) / cssW);
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#fff';
+    cx.fillRect(0, 0, cv.width, cv.height);
+    cx.drawImage(img, 0, 0, cv.width, cv.height);
+
+    // ⚠️ شبكة أمان: صورة كلها بيضا معناها إن الرسم فشل في صمت. الطباعة
+    // على ورق فاضي أوحش من إننا نرجع للطريقة القديمة.
+    const data = cx.getImageData(0, 0, cv.width, Math.min(cv.height, 400)).data;
+    let dark = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i] < 128) dark++;
+    if (dark < 50) return null;
+
+    const b64 = await canvasToPng1Bit(cv);
+    if (!b64) return null;
+
+    return {
+      image: 'data:image/png;base64,' + b64,
+      bytes: b64.length,
+      widthMm: SHEET_PRINTABLE_MM,
+      heightMm: +((cv.height / SHEET_DPI) * 25.4).toFixed(1),
+    };
+  } catch (err) {
+    console.warn('تعذّر رسم ورقة التزويد كصورة — هنطبعها بالطريقة العادية:', err);
+    return null;
+  }
+}
+
 function buildRestockBundle(cat, grades, names, withBase) {
   const papers = names.map((name) => buildRestockHTML(cat, grades, name, withBase));
 
@@ -446,6 +619,36 @@ async function printRestockPaper(cat, grades) {
       await deliverPrint('restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML);
       return;
     }
+  }
+
+  // 🧪 المفتاح التجريبي: صورة بطولها الكامل بدل ما التعريف يصغّرها.
+  // ⚠️ مقفول = السطر ده بيعدّي على طول والباقي زي ما هو بالحرف.
+  if (typeof getPrintTweak === 'function' && getPrintTweak('sheetImage')) {
+    const shot = await renderSheetImage(html);
+    // ⚠️ الحجم بيتفحص **هنا** مش بعد ما نبعت: الرسالة الأكبر من الحد
+    // بتتضاع في صمت والطابعة "بتاخد الأمر ومفيش حاجة بتتطبع".
+    if (shot && shot.bytes <= SHEET_IMG_MAX_BYTES) {
+      // ⚠️⚠️ لازم الـHTML يتبعت **مع** الصورة، مش الصورة لوحدها.
+      // normalizePrintJobs بترمي أي وظيفة مالهاش `html` — وكانت الطباعة
+      // بتوقف عند "محتوى الملصق وصل بايظ". (الفحص مسكها.)
+      // ومفيش حجم زيادة على الطابعة: pageOf بيفضّل الصورة ويسيب الـHTML،
+      // فاللي بيتبعت لـQZ هو الصورة بس — نفس نمط الملصقات بالظبط.
+      await deliverPrint(
+        'restock',
+        [{ html, image: shot.image, copies: 1 }],
+        { pageWidthMm: shot.widthMm, pageHeightMm: shot.heightMm, customSize: true },
+        'width=700,height=800',
+        html
+      );
+      return;
+    }
+    // ⚠️ الرجوع للقديم **بيتقال** مش بيحصل في سكوت — من غير كده المستخدم
+    // هيفتكر إن المفتاح شغّال وهو مش شغّال، ويفضل مستني نتيجة مش جاية.
+    showPrintNotice(
+      shot
+        ? `📄 الورقة كصورة طلعت كبيرة (${Math.round(shot.bytes / 1024)} كيلو) — اتطبعت بالطريقة العادية.`
+        : '📄 مانفعش نرسم الورقة كصورة — اتطبعت بالطريقة العادية.'
+    );
   }
 
   // ورقة التزويد رول مستمر (الارتفاع مفتوح)، فمش بنفرض مقاس على QZ.
