@@ -1325,9 +1325,8 @@ function qtyCellHTML(categoryId, gradeId, field, value, canEdit) {
         <button class="qty-btn" data-action="dec" data-category-id="${escapeHTML(categoryId)}" data-grade-id="${escapeHTML(gradeId)}" data-field="${field}">−</button>
         <input
           class="qty-input"
-          type="number"
+          type="text"
           inputmode="numeric"
-          min="0" max="${MAX_GRADE_QTY}" step="1"
           value="${escapeHTML(value ?? 0)}"
           data-category-id="${escapeHTML(categoryId)}"
           data-grade-id="${escapeHTML(gradeId)}"
@@ -1447,6 +1446,17 @@ function defaultRestockQty() {
 // أقصى كمية للدرجة الواحدة. مش حد مخزون — ده حارس ضد غلطة الصباع:
 // 55555555 كانت بتعدّي وتترفع للسحابة.
 const MAX_GRADE_QTY = 9999;
+
+// ⭐ الأرقام العربية (٠١٢…) والفارسية (۰۱۲…) → إنجليزي.
+// من غيرها، اللي كيبورده عربي بيكتب رقم والنظام بيقراه "مش رقم".
+const AR_DIGITS = /[٠-٩۰-۹]/g;
+function arabicDigitsToEnglish(text) {
+  return String(text == null ? '' : text).replace(AR_DIGITS, (d) => {
+    const c = d.charCodeAt(0);
+    // ٠ = 0x0660 (عربي-هندي)، ۰ = 0x06F0 (فارسي)
+    return String(c >= 0x06f0 ? c - 0x06f0 : c - 0x0660);
+  });
+}
 
 function isManualRequest(data) {
   return (data || {}).manualRequest !== false;
@@ -1627,8 +1637,7 @@ function qtyControlsHTML(categoryId, gradeId, field, value, canEdit) {
   return `
     <div class="qty-cell">
       <button class="qty-btn" data-action="dec" ${attrs}>−</button>
-      <input class="qty-input" type="number" inputmode="numeric"
-             min="0" max="${MAX_GRADE_QTY}" step="1"
+      <input class="qty-input" type="text" inputmode="numeric"
              value="${escapeHTML(value ?? 0)}" ${attrs} />
       <button class="qty-btn" data-action="inc" ${attrs}>+</button>
     </div>`;
@@ -2522,43 +2531,59 @@ function setupGradeDelegates() {
   });
 
   // ============================================================
-  // ⚠️⚠️ أخطر خانة في النظام — وكان فيها تلات ثقوب
+  // ⚠️⚠️ أخطر خانة في النظام
   // ============================================================
-  // الكود القديم: `Math.max(0, Number(input.value) || 0)`
+  // الكود القديم: `Math.max(0, Number(input.value) || 0)` — وكان فيه
+  // تلات ثقوب. اتنين منهم مالهمش خلاف، والتالت اتحل بطريقة تانية:
   //
-  // 1) ⚠️⚠️ **الخانة الفاضية كانت بتتحسب صفر.** وصفر في المخزنين معناه
-  //    "خلصت نهائيًا". والخانة بتفضى لوحدها في حالة حقيقية: كيبورد
-  //    بيكتب أرقام عربية (٥٧). خانة `type=number` **بتمسح** أي رقم مش
-  //    إنجليزي فورًا — يعني المستخدم يكتب ٥٧، الخانة تبان فاضية، يشيل
-  //    صباعه، والدرجة تتعلّم "خلصت". اتقاس فعلًا: Number('٥٧') = NaN،
-  //    و`|| 0` بتبلعها.
-  //    القاعدة دلوقتي: **فاضي = ما اتكتبش حاجة**، مش صفر. اللي عايز صفر
-  //    يكتب صفر.
+  // 1) الكسور كانت بتعدّي: 5.7 قطعة قماش. بقت بتتقرّب لأقرب رقم صحيح.
+  // 2) مافيش حد أقصى: غلطة صباع في 55555555 كانت بتترفع للسحابة.
   //
-  // 2) الكسور كانت بتعدّي: 5.7 قطعة قماش. بقت بتتقرّب لأقرب رقم صحيح.
+  // 3) ⚠️⚠️ **الخانة الفاضية.** دي كانت أصعبهم، وليها قصة:
   //
-  // 3) مافيش حد أقصى: غلطة صباع في 55555555 كانت بتترفع للسحابة.
+  //    المشكلة الأصلية إن `type=number` **بيمسح** أي رقم مش إنجليزي
+  //    فورًا. فالكيبورد العربي يكتب ٥٧، الخانة تبان فاضية، والمستخدم
+  //    يشيل صباعه — والقديم كان بيحسبها **صفر**، وصفر في المخزنين معناه
+  //    "خلصت نهائيًا". يعني الدرجة تتعلّم خلصانة وهو ماعملش حاجة.
   //
-  // ⚠️ وفي كل حالة رفض، بنرجّع الرقم القديم للخانة — عشان ما تفضلش
-  // فاضية قدام المستخدم وهو فاكر إنها اتحفظت.
+  //    الحل الأول كان: فاضي = ما اتكتبش حاجة، ونرجّع الرقم القديم.
+  //    ⚠️ وده **اترفض من صاحب النظام لسبب وجيه**: هو بيمسح الرقم وهو
+  //    قاصد يصغّره، فالرجوع للقديم بيقف في وشه.
+  //
+  //    ⭐ الحل اللي بيرضي الاتنين: الخانة بقت `type=text` بكيبورد رقمي
+  //    (inputmode)، والأرقام العربية بتتحوّل لإنجليزي قبل القراءة.
+  //    كده:
+  //      • فاضي فعلًا  →  صفر (زي ما هو مطلوب)
+  //      • ٥٧          →  57 **بيشتغل صح** بدل ما يتمسح
+  //      • كلام        →  يترفض ويرجّع القديم (مش صفر)
+  //
+  //    ⚠️ ليه ماسبناهاش type=number؟ لأن المتصفح بيمسح الأرقام العربية
+  //    قبل ما الكود يشوفها أصلًا — فمافيش طريقة نفرّق بين "فضّاها بإيده"
+  //    و"الكيبورد كتب عربي". بـtext إحنا اللي بنقرا، فبنفرّق.
   on('change', '.qty-input', (input) => {
     const { categoryId, gradeId, field } = input.dataset;
-    const raw = String(input.value == null ? '' : input.value).trim();
-    const restore = () => {
+    const raw = arabicDigitsToEnglish(String(input.value == null ? '' : input.value)).trim();
+
+    // فاضية = صفر. ده اختيار صاحب النظام: المسح غالبًا بداية تصغير رقم.
+    if (raw === '') {
+      setQuantity(categoryId, gradeId, field, 0);
+      input.value = 0;
+      return;
+    }
+
+    const n = Number(raw);
+    // ⚠️ كلام مش رقم **مايتحسبش صفر**: ده غلط في الكتابة، مش نية.
+    if (!Number.isFinite(n)) {
       const g = (state.grades || []).find((x) => x.id === gradeId);
       input.value = g ? Number(g[field]) || 0 : 0;
-    };
-    if (raw === '') {
-      restore();
       return;
     }
-    const n = Number(raw);
-    if (!Number.isFinite(n)) {
-      restore();
-      return;
-    }
+
     const newValue = Math.max(0, Math.min(MAX_GRADE_QTY, Math.round(n)));
-    if (newValue !== n) input.value = newValue;
+    // ⚠️ الخانة بتتكتب دايمًا بالرقم اللي **اتحفظ فعلًا**. لو كتبت ٥٧
+    // هتشوف 57، ولو كتبت 5.7 هتشوف 6 — عشان تعرف اللي اتسجّل، مش اللي
+    // كتبته وانت فاكر إنه اتسجّل زي ما هو.
+    input.value = newValue;
     setQuantity(categoryId, gradeId, field, newValue);
   });
 

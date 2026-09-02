@@ -5,9 +5,12 @@
 //
 //   1) ⚠️⚠️ علامة التنصيص في اسم الصنف كانت بتقص السمة:
 //      `خمار 30" اسدال` → `خمار 30` — يعني الطباعة بتدوّر على صنف تاني
-//   2) ⚠️⚠️ خانة الكمية الفاضية كانت بتتحسب **صفر**، وصفر في المخزنين
-//      معناه "خلصت نهائيًا". والخانة بتفضى لوحدها لو الكيبورد كتب أرقام
-//      عربية (type=number بيمسحها)
+//   2) ⚠️⚠️ الكيبورد العربي: خانة type=number **بتمسح** الأرقام العربية
+//      (٥٧ بتبقى فاضية)، والفاضي كان بيتحسب صفر — وصفر في المخزنين
+//      معناه "خلصت نهائيًا". يعني الدرجة تتعلّم خلصانة وانت ماعملتش حاجة.
+//      ⭐ الخانة بقت type=text بكيبورد رقمي والأرقام بتتحوّل — فـ٥٧ بقت
+//      **بتشتغل صح**. والفاضي بيتحسب صفر (ده اختيار صاحب النظام: المسح
+//      غالبًا بداية تصغير رقم).
 //   3) الكسور والأرقام الضخمة كانت بتعدّي للسحابة
 //   4) زراير ✏️/🗑️ الفئة كانت 27px على الموبايل — و🗑️ بتمسح فئة كاملة
 const { chromium } = require('playwright');
@@ -81,9 +84,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       const root = document.getElementById('root') || (() => { const x = document.createElement('div'); x.id = 'root'; document.body.appendChild(x); return x; })();
       root.innerHTML = dashboardHTML(); attachDashboardEvents();
       const inp = document.querySelector('.qty-input');
-      out.bounds = { min: inp.min, max: inp.max, step: inp.step, mode: inp.getAttribute('inputmode') };
+      out.kind = { type: inp.type, mode: inp.getAttribute('inputmode') };
       const fire = (v) => { sent.length = 0; inp.value = v; inp.dispatchEvent(new Event('change', { bubbles: true })); return { sent: sent.slice(), shown: inp.value }; };
       out.empty = fire('');
+      out.arabic = fire('٥٧');
+      out.persian = fire('۴۵');
       out.zero = fire('0');
       out.frac = fire('5.7');
       out.huge = fire('55555555');
@@ -91,22 +96,29 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       out.ok = fire('12');
       out.junk = fire('abc');
       out.max = typeof MAX_GRADE_QTY !== 'undefined' ? MAX_GRADE_QTY : null;
-      // ⚠️ الأرقام العربية: type=number بيمسحها فالخانة بتفضى
+      // ⚠️ ده سبب المشكلة الأصلية: type=number **بيمسح** الأرقام العربية
+      // قبل ما الكود يشوفها. الفحص ده بيوثّق ليه الخانة مابقتش number.
       const probe = document.createElement('input'); probe.type = 'number';
-      probe.value = '٥٧'; out.arabicDigitsWiped = probe.value === '';
+      probe.value = '٥٧'; out.numberTypeWipesArabic = probe.value === '';
+      // والخانة بتاعتنا بتحتفظ بيها
+      inp.value = '٥٧'; out.ourInputKeepsArabic = inp.value === '٥٧';
+      out.convert = { ar: arabicDigitsToEnglish('٥٧'), fa: arabicDigitsToEnglish('۴۵'), mix: arabicDigitsToEnglish('1٢3'), plain: arabicDigitsToEnglish('57') };
       return out;
     });
-    check('خانة الكمية عليها حدود المتصفح', r.bounds.min === '0' && r.bounds.max === '9999' && r.bounds.step === '1', r.bounds);
-    check('وكيبورد رقمي على الموبايل', r.bounds.mode === 'numeric', r.bounds);
-    check('⚠️ type=number بيمسح الأرقام العربية (سبب العطل)', r.arabicDigitsWiped);
-    check('⭐⭐ خانة فاضية = مايتبعتش صفر', r.empty.sent.length === 0, r.empty);
-    check('⭐⭐ والرقم القديم بيرجع مكانه', r.empty.shown === '7', r.empty);
-    check('⭐ بس صفر صريح لسه بيعدّي', r.zero.sent[0] === 0, r.zero);
+    check('⚠️ type=number بيمسح الأرقام العربية (سبب العطل الأصلي)', r.numberTypeWipesArabic);
+    check('⭐⭐ فعشان كده الخانة بقت text بكيبورد رقمي', r.kind.type === 'text' && r.kind.mode === 'numeric', r.kind);
+    check('⭐ والخانة بتحتفظ بالأرقام العربية', r.ourInputKeepsArabic);
+    check('⭐⭐ ٥٧ بتتحفظ 57 (كانت بتتمسح وتبقى صفر)', r.arabic.sent[0] === 57, r.arabic);
+    check('⭐ والفارسي كمان', r.persian.sent[0] === 45, r.persian);
+    check('والتحويل بيسيب الإنجليزي زي ما هو', r.convert.plain === '57' && r.convert.mix === '123', r.convert);
+    check('⭐ خانة فاضية = صفر (اختيار صاحب النظام)', r.empty.sent[0] === 0, r.empty);
+    check('وصفر صريح كمان', r.zero.sent[0] === 0, r.zero);
     check('الكسر بيتقرّب', r.frac.sent[0] === 6, r.frac);
     check('والرقم الضخم بيتقص عند الحد', r.huge.sent[0] === r.max, r.huge);
     check('والسالب بيبقى صفر', r.neg.sent[0] === 0, r.neg);
     check('والرقم العادي بيعدّي زي ما هو', r.ok.sent[0] === 12, r.ok);
-    check('والكلام مايتبعتش', r.junk.sent.length === 0 && r.junk.shown === '7', r.junk);
+    check('⭐ والكلام مايتحسبش صفر — بيرجّع القديم', r.junk.sent.length === 0 && r.junk.shown === '7', r.junk);
+    check('⭐ والخانة بتوري الرقم اللي اتحفظ فعلًا', r.arabic.shown === '57' && r.frac.shown === '6', [r.arabic.shown, r.frac.shown]);
     check('مفيش أخطاء (الكميات)', errs.length === 0, errs);
     await p.close();
   }
