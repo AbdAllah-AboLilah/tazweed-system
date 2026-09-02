@@ -20,6 +20,15 @@
 //   PNG بعمق 1 بت                    →  22 كيلو ← أصغر من الـHTML
 // حد الرسالة **بيتضاع في صمت** لما يتعدّى، فالفرق مش تحسين — هو الفرق
 // بين إنها تشتغل وإنها تسكت. عشان كده فيه فحص بيقرا عمق البت من الصورة.
+// ------------------------------------------------------------
+// ⚠️⚠️ الدرس اللي جه من تجربة حقيقية على ورق (v0.72.1)
+// ------------------------------------------------------------
+// أول نسخة كانت بتقرا المفتاح على الجهاز **الباعت**. النتيجة:
+//     الطباعة من الكمبيوتر اللي عليه الطابعة → اشتغلت ✅
+//     الطباعة من التليفون لنفس الكمبيوتر      → رجعت مصغّرة ❌
+// السبب إن الإعداد استثناء **للكمبيوتر**، والتليفون بيقرا استثناءه هو.
+// القرار اتنقل للجهاز اللي بيطبع (tryPrintViaQZ) — النقطة الوحيدة اللي
+// المسارين بيعدّوا منها. وفيه فحص تحت للحالة دي بالظبط.
 const { chromium } = require('playwright');
 const pass = [], fail = [];
 const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? ` → ${JSON.stringify(x)}` : ''));
@@ -34,7 +43,6 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   const r = await p.evaluate(async () => {
     const out = {};
 
-    // ---------- بيئة ----------
     state.profile = { name: 'أحمد', role: 'owner' };
     state.user = { uid: 'u1' };
     const cat = { id: 'c1', name: 'كريب سادة لوكس', minQty: 3, groups: [] };
@@ -44,76 +52,66 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       branchQty: i % 7 === 0 ? 0 : (i % 23), mainQty: i % 5 === 0 ? 0 : (i % 17),
       status: i % 7 === 0 ? 'out' : 'normal', isBase: i % 12 === 0,
     }));
+    const html = buildRestockHTML(cat, grades, null, true);
 
-    // ---------- بنمسك اللي بيتبعت للطباعة بدل ما نطبع ----------
-    const calls = [];
-    window.deliverPrint = (type, jobs, sizeOptions, win, browserHTML) => {
-      calls.push({ type, jobs, sizeOptions, browserHTML });
-      return Promise.resolve(true);
+    // ---------- طابعة وهمية: بنمسك اللي بيوصلها فعلًا ----------
+    const sent = [];
+    window.qz = {
+      configs: { create: (n, o) => ({ printer: n, opts: o }) },
+      print: (cfg, pages) => { sent.push({ opts: cfg.opts, pages }); return Promise.resolve(); },
+      printers: { details: () => Promise.resolve([{ name: 'XP-80C' }]) },
     };
-    window.showPrintPreview = () => Promise.resolve(true);   // الموافقة على المعاينة
-    // اختيار المجموعة: "كل المجموعات مع بعض" = الورقة الطويلة اللي بنقيسها
-    window.chooseRestockGroup = () => Promise.resolve({ group: null, withBase: true });
+    window.isQZAvailable = () => true;
+    window.ensureQZConnected = () => Promise.resolve(true);
+    window.getSavedPrinter = () => 'XP-80C';
     const notices = [];
     window.showPrintNotice = (m) => notices.push(m);
 
-    // بنعدّ نداءات الرسم عشان نتأكد إنه مابيتندهش والمفتاح مقفول
-    let renderCalls = 0;
-    const realRender = window.renderSheetImage;
-    window.renderSheetImage = function () { renderCalls++; return realRender.apply(this, arguments); };
-
     const setTweak = (on) => { try { localStorage.setItem('tazweed_qz_tweak_sheetImage', on ? '1' : '0'); } catch (e) {} };
-    const run = async () => { calls.length = 0; notices.length = 0; renderCalls = 0; await printRestockPaper(cat, grades); };
+    // الطلب زي ما بيوصل بالظبط: نص HTML، من غير أي مقاس
+    const printAsDevice = async (tweakOn) => {
+      setTweak(tweakOn);
+      sent.length = 0; notices.length = 0;
+      await tryPrintViaQZ('restock', [{ html, copies: 1 }], null);
+      return sent[0] || {};
+    };
 
     // ============================================================
-    // ⭐⭐⭐ (١) المفتاح مقفول → مفيش أي فرق عن القديم
+    // ⭐ (١) المفتاح مقفول افتراضيًا
     // ============================================================
-    out.defaultOff = !!(PRINT_TWEAKS.find((t) => t.key === 'sheetImage') || {}).defaultOn === false;
+    out.defaultOff = (PRINT_TWEAKS.find((t) => t.key === 'sheetImage') || {}).defaultOn !== true;
     try { localStorage.removeItem('tazweed_qz_tweak_sheetImage'); } catch (e) {}
     out.offByDefault = getPrintTweak('sheetImage') === false;
 
-    setTweak(false);
-    await run();
-    const off = calls[0] || {};
-    out.offCalls = calls.length;
-    out.offRenderCalls = renderCalls;
-    out.offSizeIsNull = off.sizeOptions === null;
-    out.offIsString = typeof off.jobs === 'string';
-    // ⭐ المقارنة الحقيقية: الناتج مطابق **حرف بحرف** للي buildRestockHTML بتطلّعه
-    const expected = buildRestockHTML(cat, grades, null, true);
-    const strip = (s) => String(s || '').replace(/\d{1,2}:\d{2}:\d{2}[^<]*/g, '');  // الوقت بيتغيّر
-    out.offIdentical = strip(off.jobs) === strip(expected);
-    out.offLen = String(off.jobs || '').length;
-    out.offNotices = notices.length;
+    // ============================================================
+    // ⭐⭐⭐ (٢) مقفول → اللي بيوصل الطابعة **نص زي الأول** ومفيش مقاس
+    // ============================================================
+    const off = await printAsDevice(false);
+    const offPage = (off.pages || [])[0] || {};
+    out.offIsHtml = offPage.format === 'html';
+    out.offNoImage = offPage.format !== 'image';
+    out.offNoSize = !(off.opts && off.opts.size);
+    out.offNoNotice = notices.length === 0;
+    // ⭐ ومحتوى الصفحة مطابق حرف بحرف للي buildRestockHTML بتطلّعه
+    out.offIdentical = offPage.data === html;
 
     // ============================================================
-    // (٢) المفتاح مفتوح → صورة
+    // ⭐⭐⭐ (٣) مفتوح → صورة + مقاس مخصّص
     // ============================================================
-    setTweak(true);
-    await run();
-    const on = calls[0] || {};
-    out.onCalls = calls.length;
-    out.onRenderCalls = renderCalls;
-    out.onIsArray = Array.isArray(on.jobs);
-    const job = out.onIsArray ? on.jobs[0] : null;
-    out.onHasImage = !!(job && typeof job.image === 'string' && job.image.startsWith('data:image/png;base64,'));
-    // ⚠️ الـHTML لازم يفضل جنب الصورة وإلا normalizePrintJobs بترمي الوظيفة
-    out.onJobHasHtml = !!(job && typeof job.html === 'string' && job.html.length > 1000);
-    out.onSurvivesNormalize = normalizePrintJobs(on.jobs).length === 1;
-    out.onCustom = !!(on.sizeOptions && on.sizeOptions.customSize === true);
-    out.onWidthMm = on.sizeOptions && on.sizeOptions.pageWidthMm;
-    out.onHeightMm = on.sizeOptions && on.sizeOptions.pageHeightMm;
-    // ⚠️ نسخة الـHTML لازم تفضل موجودة — دي اللي نافذة المتصفح بتستخدمها
-    out.onKeptBrowserHTML = typeof on.browserHTML === 'string' && on.browserHTML.length > 1000;
+    const on = await printAsDevice(true);
+    const onPage = (on.pages || [])[0] || {};
+    out.onIsImage = onPage.format === 'image' && onPage.flavor === 'base64';
+    out.onCustom = !!(on.opts && on.opts.size && on.opts.size.custom === true);
+    out.onWidth = on.opts && on.opts.size && on.opts.size.width;
+    out.onHeight = on.opts && on.opts.size && on.opts.size.height;
+    out.onUnits = on.opts && on.opts.units;
 
-    // ---------- الصورة نفسها: عمق البت والحجم والمحتوى ----------
-    if (out.onHasImage) {
-      const b64 = job.image.split(',')[1];
-      out.imgKB = +((b64.length) / 1024).toFixed(1);
+    if (out.onIsImage) {
+      const b64 = onPage.data;
+      out.imgKB = +(b64.length / 1024).toFixed(1);
       const bin = atob(b64.slice(0, 120));
       const by = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) by[i] = bin.charCodeAt(i);
-      // ترويسة PNG: التوقيع، وIHDR فيه العرض/الطول/عمق البت/نوع اللون
       out.isPng = by[0] === 137 && by[1] === 80 && by[2] === 78 && by[3] === 71;
       const dv = new DataView(by.buffer);
       out.imgW = dv.getUint32(16);
@@ -121,9 +119,8 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       out.bitDepth = by[24];
       out.colorType = by[25];
 
-      // ⚠️ الصورة مش فاضية — بنحمّلها ونعدّ النقط السودا فعلًا
       const im = new Image();
-      await new Promise((res) => { im.onload = res; im.onerror = res; im.src = job.image; });
+      await new Promise((res) => { im.onload = res; im.onerror = res; im.src = 'data:image/png;base64,' + b64; });
       const cv = document.createElement('canvas');
       cv.width = im.width; cv.height = Math.min(im.height, 500);
       const cx = cv.getContext('2d');
@@ -136,46 +133,80 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     }
 
     // ============================================================
-    // ⚠️ (٣) الرسم فشل → بيرجع للقديم ويقول
+    // ⚠️⚠️⚠️ (٤) الحالة اللي فشلت على الورق: الطلب جاي من جهاز تاني
     // ============================================================
+    // الجهاز الباعت (التليفون) المفتاح عنده **مقفول**، فبيبعت نص عادي.
+    // الجهاز اللي بيطبع المفتاح عنده **مفتوح** → المفروض يحوّلها هو.
+    setTweak(true);
+    sent.length = 0;
+    const remoteJob = { type: 'restock', jobs: [{ html, copies: 1 }], sizeOptions: null };
+    await tryPrintViaQZ(remoteJob.type, remoteJob.jobs, remoteJob.sizeOptions);
+    const rp = ((sent[0] || {}).pages || [])[0] || {};
+    out.remoteBecameImage = rp.format === 'image';
+    out.remoteCustom = !!((sent[0] || {}).opts && sent[0].opts.size && sent[0].opts.size.custom === true);
+
+    // وبالعكس: الجهاز اللي بيطبع مقفول عنده → يفضل نص مهما كان الباعت
+    setTweak(false);
+    sent.length = 0;
+    await tryPrintViaQZ('restock', [{ html, copies: 1 }], null);
+    const rp2 = ((sent[0] || {}).pages || [])[0] || {};
+    out.remoteOffStaysHtml = rp2.format === 'html';
+
+    // ============================================================
+    // ⚠️ (٥) الرجوع للقديم لما الرسم يفشل أو الحجم يكبر
+    // ============================================================
+    const realRender = window.renderSheetImage;
+    setTweak(true);
+
     window.renderSheetImage = () => Promise.resolve(null);
-    calls.length = 0; notices.length = 0;
-    await printRestockPaper(cat, grades);
-    out.failFellBack = calls.length === 1 && typeof calls[0].jobs === 'string' && calls[0].sizeOptions === null;
+    sent.length = 0; notices.length = 0;
+    await tryPrintViaQZ('restock', [{ html, copies: 1 }], null);
+    out.failStaysHtml = (((sent[0] || {}).pages || [])[0] || {}).format === 'html';
+    out.failNoSize = !((sent[0] || {}).opts && sent[0].opts.size);
     out.failToldUser = notices.length === 1;
 
-    // ============================================================
-    // ⚠️ (٤) الصورة أكبر من الحد → بيرجع للقديم ويقول
-    // ============================================================
     window.renderSheetImage = () => Promise.resolve({ image: 'data:image/png;base64,AA', bytes: 99 * 1024, widthMm: 72.1, heightMm: 500 });
-    calls.length = 0; notices.length = 0;
-    await printRestockPaper(cat, grades);
-    out.bigFellBack = calls.length === 1 && typeof calls[0].jobs === 'string' && calls[0].sizeOptions === null;
+    sent.length = 0; notices.length = 0;
+    await tryPrintViaQZ('restock', [{ html, copies: 1 }], null);
+    out.bigStaysHtml = (((sent[0] || {}).pages || [])[0] || {}).format === 'html';
     out.bigToldUser = notices.length === 1 && /كبيرة/.test(notices[0] || '');
 
+    // ============================================================
+    // ⚠️ (٦) الملصقات مالهاش دعوة — المفتاح مفتوح وبرضه نص
+    // ============================================================
     window.renderSheetImage = realRender;
+    sent.length = 0;
+    await tryPrintViaQZ('label', [{ html: '<html><body>ملصق</body></html>', copies: 1 }], { pageWidthMm: 38, pageHeightMm: 25 });
+    const lp = ((sent[0] || {}).pages || [])[0] || {};
+    out.labelUntouched = lp.format === 'html';
+    out.labelNoCustom = !((sent[0] || {}).opts && sent[0].opts.size && sent[0].opts.size.custom);
+
+    // ============================================================
+    // ⭐⭐ (٧) المسار المحلي كامل: من الزرار لحد الطابعة
+    // ============================================================
+    // ⚠️ ده اللي اشتغل على ورق حقيقي. القرار اتنقل مكان تاني، فلازم
+    // نتأكد إنه **لسه** شغّال من نفس الجهاز، مش بس عن بُعد.
+    window.showPrintPreview = () => Promise.resolve(true);
+    window.chooseRestockGroup = () => Promise.resolve({ group: null, withBase: true });
+    window.choosePrintTarget = () => Promise.resolve('local');
+    window.logPrintJob = () => {};   // بتكتب في السحابة — مالهاش لازمة هنا
+
+    setTweak(true);
+    sent.length = 0;
+    await printRestockPaper(cat, grades);
+    const lo = ((sent[0] || {}).pages || [])[0] || {};
+    out.localOnIsImage = lo.format === 'image';
+    out.localOnCustom = !!((sent[0] || {}).opts && sent[0].opts.size && sent[0].opts.size.custom === true);
+
+    setTweak(false);
+    sent.length = 0;
+    await printRestockPaper(cat, grades);
+    const lf = ((sent[0] || {}).pages || [])[0] || {};
+    out.localOffIsHtml = lf.format === 'html';
+    out.localOffNoSize = !((sent[0] || {}).opts && sent[0].opts.size);
+
     setTweak(false);
     return out;
-  });
-
-  // ---------- (٥) المقاس المخصّص بيوصل لـQZ فعلًا ----------
-  const qzCfg = await p.evaluate(async () => {
-    const seen = [];
-    window.qz = {
-      configs: { create: (n, o) => ({ printer: n, opts: o }) },
-      print: (cfg) => { seen.push(cfg.opts); return Promise.resolve(); },
-      printers: { details: () => Promise.resolve([{ name: 'XP-80C' }]) },
-    };
-    window.isQZAvailable = () => true;
-    window.ensureQZConnected = () => Promise.resolve(true);
-    window.getSavedPrinter = () => 'XP-80C';
-    window.qzPrinterExists = () => Promise.resolve(true);
-    const jobs = [{ html: '<html><body>x</body></html>', image: 'data:image/png;base64,iVBORw0KGgo=', copies: 1 }];
-    await tryPrintViaQZ('restock', jobs, { pageWidthMm: 72.1, pageHeightMm: 332, customSize: true });
-    const withCustom = seen.slice();
-    seen.length = 0;
-    await tryPrintViaQZ('restock', jobs, { pageWidthMm: 72.1, pageHeightMm: 332 });
-    return { withCustom, without: seen.slice() };
   });
 
   // ---------- (٦) الطباعة عن بُعد: المقاس والصورة بيوصلوا للجهاز التاني ----------
@@ -209,40 +240,43 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ بالطول الصح', remote.h === 332, remote.h);
   check('⭐⭐ والصورة وصلت معاه', remote.hasImage);
 
-  const c1 = (qzCfg.withCustom[0] || {}).size || {};
-  const c2 = (qzCfg.without[0] || {}).size || {};
-
   check('⭐ المفتاح مقفول افتراضيًا في التعريف', r.defaultOff);
   check('⭐ وبيرجع "مقفول" من غير أي اختيار محفوظ', r.offByDefault);
-  check('⭐⭐⭐ مقفول: الكود الجديد **مااتندهش خالص**', r.offRenderCalls === 0, r.offRenderCalls);
-  check('⭐⭐⭐ مقفول: الورقة مطابقة حرف بحرف للقديم', r.offIdentical, { len: r.offLen });
-  check('⭐⭐ مقفول: بتتبعت نص زي الأول (مش مصفوفة)', r.offIsString);
-  check('⭐⭐ مقفول: مفيش مقاس بيتبعت لـQZ', r.offSizeIsNull);
-  check('⭐ مقفول: ومفيش أي رسالة للمستخدم', r.offNotices === 0, r.offNotices);
 
-  check('⭐⭐ مفتوح: بتتبعت صورة', r.onHasImage);
+  check('⭐⭐⭐ مقفول: اللي بيوصل الطابعة **نص** زي الأول', r.offIsHtml);
+  check('⭐⭐⭐ مقفول: ومطابق حرف بحرف للي buildRestockHTML بتطلّعه', r.offIdentical);
+  check('⭐⭐ مقفول: ومفيش أي مقاس بيتبعت', r.offNoSize);
+  check('⭐ مقفول: ومفيش أي رسالة للمستخدم', r.offNoNotice);
+
+  check('⭐⭐ مفتوح: اللي بيوصل الطابعة **صورة**', r.onIsImage);
+  check('⭐⭐⭐ ومعاها custom:true', r.onCustom);
+  check('⭐ بالعرض المطبوع فعلًا (72.1 مش 80)', r.onWidth === 72.1, r.onWidth);
+  check('⭐ وبالطول الحقيقي المقيس', r.onHeight > 300 && r.onHeight < 500, r.onHeight);
+  check('⭐ وبوحدة مم', r.onUnits === 'mm', r.onUnits);
   check('⭐⭐⭐ والصورة بعمق **1 بت** (مش 32)', r.bitDepth === 1, r.bitDepth);
-  check('⭐ ونوعها رمادي', r.colorType === 0, r.colorType);
-  check('⭐ وترويستها PNG سليمة', r.isPng);
+  check('⭐ ونوعها رمادي وترويستها سليمة', r.isPng && r.colorType === 0, [r.isPng, r.colorType]);
   check('⭐⭐ وعرضها 576 نقطة (72.1مم × 203)', r.imgW === 576, r.imgW);
-  check('⭐ وطولها معقول للورقة الطويلة', r.imgH > 2000 && r.imgH < 4000, r.imgH);
-  check('⭐⭐⭐ وحجمها **تحت حد الرسالة** (48 كيلو)', r.imgKB > 0 && r.imgKB < 44, r.imgKB);
-  check('⭐⭐ والصورة **مش فاضية** (فيها رسم فعلًا)', r.darkPixels > 5000, r.darkPixels);
-  check('⭐⭐ والمقاس المخصّص اتبعت معاها', r.onCustom);
-  check('⭐ بالطول الحقيقي المقيس', r.onHeightMm > 300 && r.onHeightMm < 500, r.onHeightMm);
-  check('⭐ والعرض المطبوع فعلًا (72.1 مش 80)', r.onWidthMm === 72.1, r.onWidthMm);
-  check('⭐ ونسخة الـHTML فضلت لنافذة المتصفح', r.onKeptBrowserHTML);
-  check('⚠️⚠️ والـHTML جنب الصورة في الوظيفة نفسها', r.onJobHasHtml);
-  check('⚠️⚠️ فالوظيفة **بتعدّي** من normalizePrintJobs', r.onSurvivesNormalize);
+  check('⭐ وطولها معقول', r.imgH > 2000 && r.imgH < 4000, r.imgH);
+  check('⭐⭐⭐ وحجمها تحت حد الرسالة (48 كيلو)', r.imgKB > 0 && r.imgKB < 44, r.imgKB);
+  check('⭐⭐ والصورة مش فاضية (فيها رسم فعلًا)', r.darkPixels > 5000, r.darkPixels);
 
-  check('⚠️⚠️ الرسم فشل → رجع للطريقة القديمة', r.failFellBack);
+  check('⚠️⚠️⚠️ طلب جاي كنص من جهاز تاني → الجهاز اللي بيطبع بيحوّله صورة', r.remoteBecameImage);
+  check('⚠️⚠️ ومعاه المقاس المخصّص', r.remoteCustom);
+  check('⚠️⚠️ والعكس: الجهاز اللي بيطبع مقفول عنده → يفضل نص', r.remoteOffStaysHtml);
+
+  check('⚠️⚠️ الرسم فشل → فضل نص وطبع عادي', r.failStaysHtml);
+  check('⚠️ ومن غير مقاس مخصّص', r.failNoSize);
   check('⚠️ وقال للمستخدم (مش في سكوت)', r.failToldUser);
-  check('⚠️⚠️ الصورة كبيرة → رجع للطريقة القديمة', r.bigFellBack);
+  check('⚠️⚠️ الصورة كبيرة → فضل نص', r.bigStaysHtml);
   check('⚠️ وقال السبب', r.bigToldUser);
 
-  check('⭐⭐⭐ QZ بيوصله custom:true', c1.custom === true, c1);
-  check('⭐ بالمقاس الصح', c1.width === 72.1 && c1.height === 332, c1);
-  check('⭐⭐ ومن غير المفتاح **مفيش** custom', c2.custom === undefined, c2);
+  check('⚠️⚠️ الملصقات مااتلمستش (المفتاح مفتوح وبرضه نص)', r.labelUntouched);
+  check('⚠️ ومفيش custom عليها', r.labelNoCustom);
+
+  check('⭐⭐ المسار المحلي (نفس الجهاز): مفتوح → صورة', r.localOnIsImage);
+  check('⭐⭐ ومعاها المقاس المخصّص', r.localOnCustom);
+  check('⭐⭐ والمسار المحلي: مقفول → نص زي الأول', r.localOffIsHtml);
+  check('⭐ ومن غير أي مقاس', r.localOffNoSize);
 
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
