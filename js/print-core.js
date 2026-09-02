@@ -1420,6 +1420,8 @@ function subscribeDeviceSettings() {
           if (deviceOverrides.labelPrinter) saveSelectedPrinter('label', deviceOverrides.labelPrinter);
           if (deviceOverrides.restockPrinter) saveSelectedPrinter('restock', deviceOverrides.restockPrinter);
           if (deviceOverrides.deviceName) saveDeviceName(String(deviceOverrides.deviceName).slice(0, 40));
+          // ⭐ نفس السبب: الاستثناء اتغيّر من بعيد → ننشر على طول.
+          republishStationSoon();
         },
         (err) => console.warn('تعذّر قراءة إعدادات الجهاز:', err)
       );
@@ -1783,6 +1785,38 @@ function applyPrintTweaks(config) {
 // ولو النت مقطوع، الجهاز بيشتغل بآخر نسخة محفوظة عنده.
 const SHARED_PRINT_DOC = 'print';
 
+// ============================================================
+// ⚠️⚠️ الإعداد اتغيّر من بعيد → الجهاز يعيد نشر نفسه **فورًا**
+// ============================================================
+// العطل اللي بيحله ده (اتبلّغ من صاحب النظام):
+//   فتحت مفتاح على "كل الأجهزة" وحفظت، ودخلت على جهاز من القايمة
+//   لقيته **لسه مقفول** — والإعداد كان اتحفظ فعلًا.
+//
+// السبب: شاشة الجهاز المعيّن بتعرض **آخر حاجة الجهاز ده أذاعها عن
+// نفسه** (printSetup في نبضته)، مش الإعداد العام. والنبضة كل **45
+// ثانية** — والجهاز ماكانش بيعيد النشر لما إعداده يتغيّر من بعيد.
+//
+// يعني الإعداد وصل، بس الشاشة بتوريك صورة قديمة لحد 45 ثانية. والمستخدم
+// بيفتكر إن الحفظ ماتمّش ويعيده — وده أسوأ من التأخير نفسه.
+//
+// الحل: أول ما أي إعداد (عام أو استثناء الجهاز) يتغيّر، الجهاز ينشر
+// نفسه على طول. الشاشة بتتحدّث في ثانية بدل 45.
+//
+// ⚠️ مافيش دايرة لا نهائية: النشر بيكتب في printStations، والاشتراكين
+// دول على settings وdeviceSettings — مجموعات تانية خالص.
+//
+// ⚠️ وبنلمّ النداءات المتلاصقة: الاشتراكين بيولّعوا مع بعض أول ما النظام
+// يفتح، ومن غير اللمّ ده كنا هنكتب مرتين على الفاضي.
+let stationRepublishTimer = null;
+
+function republishStationSoon() {
+  if (stationRepublishTimer) clearTimeout(stationRepublishTimer);
+  stationRepublishTimer = setTimeout(() => {
+    stationRepublishTimer = null;
+    if (typeof safeRegisterPrintStation === 'function') safeRegisterPrintStation();
+  }, 400);
+}
+
 let sharedPrintSettings = null;
 
 let unsubPrintSettings = null;
@@ -1801,6 +1835,9 @@ function subscribePrintSettings() {
           } catch (err) {
             /* التخزين المحلي ممكن يكون مقفول — مش مشكلة */
           }
+          // ⭐ الجهاز ينشر إعداده الجديد فورًا بدل ما اللي على بعد يستنى
+          // النبضة الجاية (45 ثانية) ويفتكر إن الحفظ ماتمّش.
+          republishStationSoon();
         },
         (err) => console.warn('تعذّر قراءة إعدادات الطباعة المشتركة:', err)
       );
