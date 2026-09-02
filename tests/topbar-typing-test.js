@@ -1,4 +1,10 @@
 // v0.27.1 — الشريط في صف واحد + الكيبورد مايتقفلش وقت الحفظ
+// ⚠️⚠️ المحدِّد هنا كان `input[type="number"]`، وخانات الكميات اتغيّرت
+// لـtype="text" (عشان type=number كان **بيمسح** الأرقام العربية قبل ما
+// الكود يقراها). فالفحص بقى مش لاقي الخانة و**بيقع بخطأ** بدل ما يفحص.
+//
+// ⭐ الدرس: المحدِّد لازم يبقى على **الحاجة نفسها** (.qty-input) مش على
+// تفصيلة في شكلها ممكن تتغيّر لسبب تاني خالص.
 const { chromium } = require('playwright');
 const pass = [], fail = [];
 const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? ` → ${JSON.stringify(x).slice(0,220)}` : ''));
@@ -90,16 +96,22 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   // ---------- الكيبورد: الرسم بيتأجّل والمستخدم بيكتب ----------
   const typing = await p.evaluate(async () => {
     // نلاقي أي خانة رقم في الجدول
-    const input = document.querySelector('input[type="number"]');
+    const input = document.querySelector('.qty-input');
     if (!input) return { noInput: true };
     input.focus();
     const before = input;
 
+    // ⚠️⚠️ لازم البيانات **تتغيّر فعلًا** مع التبليغ.
+    // من v0.71.3 الشاشة ماتتهدّش لما مافيش حاجة اتغيّرت، فلو ندهنا الرسم
+    // والبيانات زي ما هي، الخانة بتفضل موجودة **من غير أي فضل للحارس** —
+    // والفحص بيعدّي وهو مش بيفحص حاجة (اتأكدنا بالتخريب: شيلنا الحارس
+    // والفحص عدّى 11/11).
     // تبليغ جاي من السحابة (زي تأكيد السيرفر بعد ثانيتين)
     state.hasPendingWrites = false;
+    state.categories[0].name = 'فئة من السحابة ٩٩';
     renderFromData();
 
-    const after = document.querySelector('input[type="number"]');
+    const after = document.querySelector('.qty-input');
     const stillFocused = document.activeElement === after;
     const sameEl = before === after;
 
@@ -113,27 +125,36 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ المؤشر فضل في الخانة (الكيبورد مايتقفلش)', typing.stillFocused, typing);
   check('الرسم المتأجّل بيتنفّذ أول ما تسيب الخانة', typing.flushed, typing);
 
+  // ============================================================
+  // ⚠️⚠️ الفحصين دول كانوا بيقيسوا **هوية العنصر** (اتبنى من جديد ولا لأ)
+  // ============================================================
+  // ومن v0.71.3 الشاشة بقت **ماتتهدّش** لما مافيش حاجة اتغيّرت — ده
+  // المقصود مش عطل. فالقياس القديم بقى بيفشل على سلوك سليم.
+  //
+  // ⭐ الصح إننا نقيس **اللي عايزينه فعلًا**: إن الرسم حصل (الشاشة بقت
+  // بتوري البيانات الجديدة) وإنه **مااتأجّلش**. ده بيفضل صح مهما اتغيّرت
+  // طريقة الرسم من جوّه.
   // الرسم اللي انت طلبته بنفسك بيتنفّذ فورًا حتى والخانة مفتوحة
   const direct = await p.evaluate(() => {
-    const input = document.querySelector('input[type="number"]');
+    const input = document.querySelector('.qty-input');
     input.focus();
-    const before = input;
+    state.categories[0].name = 'فئة مباشرة ٧٧';
     render();                       // زي ما بيحصل لما تضغط زرار
-    const after = document.querySelector('input[type="number"]');
+    const showed = document.getElementById('root').textContent.indexOf('فئة مباشرة ٧٧') !== -1;
     input.blur();
-    return { rebuilt: before !== after };
+    return { showed, pending: dataRenderPending };
   });
-  check('الرسم اللي انت طلبته بيتنفّذ فورًا (مش متأجّل)', direct.rebuilt, direct);
+  check('الرسم اللي انت طلبته بيتنفّذ فورًا (مش متأجّل)', direct.showed && !direct.pending, direct);
 
   // مفيش تأجيل لو مفيش حد بيكتب
   const idle = await p.evaluate(() => {
     document.activeElement && document.activeElement.blur();
-    const before = document.querySelector('input[type="number"]');
+    state.categories[0].name = 'فئة ساكنة ٨٨';
     renderFromData();
-    const after = document.querySelector('input[type="number"]');
-    return { rebuilt: before !== after, pending: dataRenderPending };
+    const showed = document.getElementById('root').textContent.indexOf('فئة ساكنة ٨٨') !== -1;
+    return { showed, pending: dataRenderPending };
   });
-  check('من غير كتابة: التبليغ بيترسم على طول', idle.rebuilt && !idle.pending, idle);
+  check('من غير كتابة: التبليغ بيترسم على طول', idle.showed && !idle.pending, idle);
 
   check('مفيش أخطاء صفحة', errors.length === 0, errors);
   console.log('\n✅ نجح (' + pass.length + ')');

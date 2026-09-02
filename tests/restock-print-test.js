@@ -138,18 +138,42 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   // ---------- 3) الكيبورد: كل مصادر التبليغ ----------
   await boot();
   const kb = await p.evaluate(async () => {
-    const input = document.querySelector('input[type="number"]');
+    // ⚠️⚠️ المحدِّد ده كان `input[type="number"]` — وخانات الكميات
+    // اتغيّرت لـtype="text" (عشان type=number كان **بيمسح** الأرقام
+    // العربية قبل ما الكود يقراها). فالفحص فضل يدوّر على حاجة مابقتش
+    // موجودة، ورجع noInput وفشل — من غير ما يكون فيه أي عطل حقيقي.
+    //
+    // ⭐ الدرس: المحدِّد لازم يبقى على **الحاجة نفسها** (.qty-input) مش
+    // على تفصيلة في شكلها ممكن تتغيّر لسبب تاني خالص.
+    const input = document.querySelector('.qty-input');
     if (!input) return { noInput: true };
     input.focus();
     const before = input;
     const results = {};
+    // ⚠️⚠️ لازم البيانات **تتغيّر فعلًا** مع كل نداء.
+    //
+    // من v0.71.3 تعديل الكمية بيتحدّث في مكانه من غير ما الشاشة تتهدّ.
+    // فلو ندهنا الرسم والبيانات زي ما هي، الخانة بتفضل موجودة **من غير
+    // أي فضل للحارس** — والفحص بيعدّي وهو مش بيفحص حاجة.
+    //
+    // اتأكدنا من ده بالتخريب: شيلنا حارس "المستخدم بيكتب" والفحص عدّى
+    // 41/41. فالتغيير تحت مقصود — بيجبر الشاشة على رسمة كاملة، واللي
+    // بيمنعها ساعتها هو الحارس وبس.
+    let tick = 0;
+    const touchData = () => {
+      tick++;
+      state.categories[0].name = 'كريب سادة ' + tick;   // بيغيّر شكل الشاشة
+    };
     // كل المصادر اللي بتوصل من السحابة
+    touchData();
     renderIfOpen();                                  // ملخّص النواقص (أكتر واحد بيضرب)
-    results.afterOverview = document.querySelector('input[type="number"]') === before;
+    results.afterOverview = document.querySelector('.qty-input') === before;
+    touchData();
     state.users = []; renderFromData();
-    results.afterUsers = document.querySelector('input[type="number"]') === before;
+    results.afterUsers = document.querySelector('.qty-input') === before;
+    touchData();
     state.activityLog = []; renderFromData();
-    results.afterLog = document.querySelector('input[type="number"]') === before;
+    results.afterLog = document.querySelector('.qty-input') === before;
     results.stillFocused = document.activeElement === before;
     input.blur();
     await new Promise(r => setTimeout(r, 250));
