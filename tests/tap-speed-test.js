@@ -152,6 +152,60 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     check('⭐⭐ والبيانات بتفضل بتتحدّث في كل الشاشات', lg.dataStillUpdates);
   }
 
+  // ============================================================
+  // ⭐ الدرج المقفول مابيتبنيش
+  // ============================================================
+  // على الموبايل القايمة الجانبية **درج**: مقفول يبقى برّه الشاشة. ومع
+  // كده كانت بتتبني كاملة (39 فئة × 3 زراير = 249 عنصر) مع كل رسمة —
+  // يعني مع كل ضغطة زاد/ناقص.
+  //
+  // ⚠️ وده آمن لأن طول الصفحة **مايتأثرش**: الدرج بيقعد فوق الشاشة مش
+  // جواها. الفحوصات تحت بتتأكد من ده بالذات.
+  {
+    const p3 = await b.newPage({ viewport: { width: 390, height: 844 } });
+    await p3.goto('http://localhost:8899/tests/harness.html');
+    await p3.waitForFunction(() => typeof sideMenuHTML === 'function');
+    const sm = await p3.evaluate(() => {
+      const out = {};
+      state.profile = { name: 'A', role: 'owner' }; state.user = { uid: 'u1' };
+      state.view = 'dashboard'; state.screen = 'sheets';
+      state.categories = Array.from({ length: 39 }, (_, i) => ({ id: 'c' + i, name: 'فئة ' + i, minQty: 3 }));
+      state.activeCategoryId = 'c0';
+      state.grades = Array.from({ length: 30 }, (_, i) => ({ id: 'g' + i, number: String(i + 1), branchQty: i % 9, mainQty: i % 5, status: 'normal' }));
+      allGradesCache = [];
+      const count = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.querySelectorAll('*').length; };
+      const cats = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.querySelectorAll('.side-item').length; };
+
+      // موبايل + مقفول → فاضي
+      state.isNarrow = true; state.sideMenuOpen = false;
+      out.mobileClosed = count(sideMenuHTML());
+      out.mobileClosedCats = cats(sideMenuHTML());
+      // موبايل + مفتوح → كامل
+      state.sideMenuOpen = true;
+      out.mobileOpenCats = cats(sideMenuHTML());
+      // ⚠️⚠️ كمبيوتر → **دايمًا كامل** حتى لو sideMenuOpen = false،
+      // لأنه عمود ثابت مش درج. من غير الشرط ده القايمة تختفي خالص.
+      state.isNarrow = false; state.sideMenuOpen = false;
+      out.desktopCats = cats(sideMenuHTML());
+
+      // ⭐ وطول الصفحة واحد في الحالتين على الموبايل
+      const root = document.getElementById('root');
+      state.isNarrow = true; state.sideMenuOpen = false;
+      root.innerHTML = dashboardHTML(); void document.body.offsetHeight;
+      out.heightClosed = document.documentElement.scrollHeight;
+      state.sideMenuOpen = true;
+      root.innerHTML = dashboardHTML(); void document.body.offsetHeight;
+      out.heightOpen = document.documentElement.scrollHeight;
+      state.sideMenuOpen = false;
+      return out;
+    });
+    await p3.close();
+    check('⭐ موبايل + الدرج مقفول: مابيتبنيش', sm.mobileClosed <= 1 && sm.mobileClosedCats === 0, sm.mobileClosed);
+    check('⭐ ولما يتفتح: كل الـ39 فئة موجودة', sm.mobileOpenCats === 39, sm.mobileOpenCats);
+    check('⭐⭐ وعلى الكمبيوتر بيفضل كامل دايمًا (عمود مش درج)', sm.desktopCats === 39, sm.desktopCats);
+    check('⭐⭐ وطول الصفحة مايتأثرش (مفيش قفز في التمرير)', sm.heightClosed === sm.heightOpen, [sm.heightClosed, sm.heightOpen]);
+  }
+
   // ---- فحوصات على المصدر ----
   check('مدة اللمّ محسوسة بس مش ملحوظة (100-300 مللي)',
     /OVERVIEW_COALESCE_MS = (1[0-9][0-9]|2[0-9][0-9]|300)\b/.test(src),
