@@ -1644,6 +1644,38 @@ const PRINT_TWEAKS = [
     apply: () => {},
   },
   {
+    // ============================================================
+    // 🧪 مقسوم ٤ كصورة — مفتاح مستقل عن الملصق العادي
+    // ============================================================
+    // ⚠️ ليه مفتاح لوحده: مقسوم ٤ كان مربوط بمفتاح "ابعت الملصق كنص"
+    // بتاع **كل** الملصقات. يعني عشان تجرّبه كصورة، لازم تغيّر الملصق
+    // العادي معاه — فمستحيل تجرّب واحد لوحده.
+    //
+    // ⚠️⚠️ والحكم القديم ("الصورة أهرى من النص") اتاخد في **v0.36**،
+    // ومسار الصورة النضيف (تنعيم فائق + متوسط 9 عيّنات + عتبة 50٪)
+    // اتبنى في **v0.38** — الإصدار اللي اسمه بالحرف "المسمّى المنغمش".
+    // يعني الحكم اتاخد على نسخة **مابقتش موجودة**، ويستاهل يتعاد.
+    key: 'quarterImage',
+    label: '🧪 "مقسوم ٤" كصورة (تجريبي)',
+    hint:
+      'بيرسم مقسوم ٤ عندنا كصورة بدقة الطابعة بالظبط بدل ما محرّك الطباعة ' +
+      'يرسم الحروف بنفسه (والتنعيم بتاعه هو اللي بيطلّع النغمشة). ' +
+      'التصميم والخطوط والمقاسات زي ما هي بالحرف — اللي بيتغيّر مين بيرسم. ' +
+      'الملصق العادي والمسمّى **مايتأثروش**. جرّبه على ملصق واحد وقارن.',
+    apply: () => {},
+  },
+  {
+    // 🧪 المسمّى كصورة — نفس الكلام بالظبط، بس لملصق الدرجة/المسمّى.
+    // ⚠️ ده أهم واحد في التجربة: "المسمّى المنغمش" هو الشكوى الأصلية.
+    key: 'gradeImage',
+    label: '🧪 "المسمّى" كصورة (تجريبي)',
+    hint:
+      'نفس فكرة اللي فوق بس لملصق المسمّى/الدرجة. التصميم زي ما هو — ' +
+      'اللي بيتغيّر إن الحروف بترتسم عندنا بدقة الطابعة بدل ما محرّك ' +
+      'الطباعة يرسمها. مقسوم ٤ والملصق العادي مايتأثروش.',
+    apply: () => {},
+  },
+  {
     // ⭐ مفتوح افتراضيًا من v0.36 بعد تجربة على ورق حقيقي.
     //
     // الملصق بيتبعت لـQZ كـ**نص HTML** فبيرسمه بمحرّكه على دقة الطابعة
@@ -2268,6 +2300,156 @@ function normalizePrintJobs(input) {
 }
 
 // ============================================================
+// PNG بعمق 1 بت — مكتوب بإيدنا عن قصد
+// ============================================================
+// ⚠️⚠️ `canvas.toDataURL()` بيطلّع PNG بـ32 بت **دايمًا** ومافيش خيار.
+// وكل اللي إحنا بنطبعه (ورقة التزويد والملصقات) **لونين بس** — الطابعة
+// الحرارية مفيهاش رمادي أصلًا. يعني بنحجز 32 خانة لحاجة محتاجة واحدة.
+// القياسات الحقيقية:
+//     ورقة تزويد 245 درجة   32بت: 154 كيلو  →  1بت:  22 كيلو
+//     ملصق مقسوم أربعة       32بت:  10 كيلو  →  1بت: 0.9 كيلو  (٩١٪)
+//     ملصق مسمّى             32بت: 6.1 كيلو  →  1بت: 1.3 كيلو  (٧٨٪)
+//
+// ⚠️ وده **مش تجميل**: حد رسالة QZ 48 كيلو، واللي بيعدّيه **بيتضاع في
+// صمت**. للورقة ده الفرق بين إنها تشتغل وإنها تسكت. وللملصقات ده الفرق
+// بين 4 ملصقات في الأمر الواحد وعشرات.
+//
+// ⚠️⚠️ والنقط **مابتتغيّرش ولا نقطة** — نفس الصورة بالظبط، متخزّنة صح بس.
+// فيه فحص بيقارن الناتج بكسل ببكسل.
+function sheetCrc32(buf) {
+  let table = sheetCrc32.t;
+  if (!table) {
+    table = sheetCrc32.t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      table[n] = c >>> 0;
+    }
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = table[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function sheetPngChunk(type, data) {
+  const out = new Uint8Array(12 + data.length);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  dv.setUint32(8 + data.length, sheetCrc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+// بترجّع base64 لصورة PNG رمادية بعمق 1 بت (0 = أسود، 1 = أبيض)
+async function canvasToPng1Bit(cv) {
+  if (typeof CompressionStream !== 'function') return null;   // متصفح قديم
+  const w = cv.width, h = cv.height;
+  const px = cv.getContext('2d').getImageData(0, 0, w, h).data;
+  const rowBytes = (w + 7) >> 3;
+  const raw = new Uint8Array((rowBytes + 1) * h);
+  let p = 0;
+  for (let y = 0; y < h; y++) {
+    raw[p++] = 0;                                   // نوع المرشّح: بدون
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const a = px[i + 3] / 255;
+      // الشفاف بيتحسب أبيض — الورق أبيض أصلًا
+      const lum = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) * a + 255 * (1 - a);
+      if (lum >= 128) raw[p + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+    p += rowBytes;
+  }
+  const cs = new CompressionStream('deflate');      // zlib — اللي PNG عايزه
+  const writer = cs.writable.getWriter();
+  writer.write(raw);
+  writer.close();
+  const z = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+
+  const ihdr = new Uint8Array(13);
+  const dv = new DataView(ihdr.buffer);
+  dv.setUint32(0, w);
+  dv.setUint32(4, h);
+  ihdr[8] = 1;   // عمق البت
+  ihdr[9] = 0;   // نوع اللون: رمادي
+  const parts = [
+    new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    sheetPngChunk('IHDR', ihdr),
+    sheetPngChunk('IDAT', z),
+    sheetPngChunk('IEND', new Uint8Array(0)),
+  ];
+  const out = new Uint8Array(parts.reduce((n, x) => n + x.length, 0));
+  let o = 0;
+  for (const x of parts) { out.set(x, o); o += x.length; }
+  let bin = '';
+  const CH = 0x8000;   // على دفعات: String.fromCharCode بيقع على مصفوفة كبيرة
+  for (let i = 0; i < out.length; i += CH) bin += String.fromCharCode.apply(null, out.subarray(i, i + CH));
+  return btoa(bin);
+}
+
+// ============================================================
+// الملصق كصورة → إعادة ترميز بـ1 بت قبل ما يتبعت
+// ============================================================
+// ⚠️ ليه إعادة ترميز مش رسم من جديد: الملصق **مرسوم صح خلاص**. مسار
+// shrinkToPrinterDots بيرسم بحجم أكبر ٣ مرات، وياخد متوسط ٩ عيّنات لكل
+// نقطة طابعة، ويحط عتبة ٥٠٪ — والقياس بيقول **صفر نقطة رمادية**.
+//
+// يعني الصورة مثالية، والغلط الوحيد إنها بتتخزّن بـ32 بت. فإحنا بنعيد
+// **التخزين** بس — التصميم والرسم والنقط زي ما هم بالحرف.
+//
+// ⚠️ وأي فشل هنا بيرجّع الصورة الأصلية زي ما هي. الملصق التقيل أحسن من
+// ملصق مافيش.
+async function imageJobTo1Bit(dataUrl) {
+  try {
+    if (typeof dataUrl !== 'string' || dataUrl.indexOf('data:image/png;base64,') !== 0) return null;
+    if (typeof canvasToPng1Bit !== 'function' || typeof CompressionStream !== 'function') return null;
+
+    const img = new Image();
+    const ok = await new Promise((res) => {
+      img.onload = () => res(true);
+      img.onerror = () => res(false);
+      img.src = dataUrl;
+    });
+    if (!ok || !img.width || !img.height) return null;
+
+    const cv = document.createElement('canvas');
+    cv.width = img.width;
+    cv.height = img.height;
+    const cx = cv.getContext('2d');
+    if (!cx) return null;
+    // ⚠️ خلفية بيضا الأول: الشفاف في PNG بيتقرا أسود من غيرها.
+    cx.fillStyle = '#fff';
+    cx.fillRect(0, 0, cv.width, cv.height);
+    cx.drawImage(img, 0, 0);
+
+    const b64 = await canvasToPng1Bit(cv);
+    if (!b64) return null;
+    const out = 'data:image/png;base64,' + b64;
+    // مانرجعش نسخة أكبر من الأصل — لو حصل، الأصل أولى
+    return out.length < dataUrl.length ? out : null;
+  } catch (err) {
+    console.warn('تعذّرت إعادة ترميز الملصق — هيتبعت زي ما هو:', err);
+    return null;
+  }
+}
+
+// بتعيد ترميز كل الصور في قايمة الوظايف. بترجّع قايمة جديدة أو null.
+async function shrinkImageJobs(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  if (!list.some((j) => j && typeof j.image === 'string' && j.image)) return null;
+  let changed = false;
+  const out = [];
+  for (const job of list) {
+    if (job && typeof job.image === 'string' && job.image) {
+      const small = await imageJobTo1Bit(job.image);
+      if (small) { out.push({ ...job, image: small }); changed = true; continue; }
+    }
+    out.push(job);
+  }
+  return changed ? out : null;
+}
+
+// ============================================================
 // 🧪 ورقة التزويد كصورة — القرار عند **الجهاز اللي بيطبع**
 // ============================================================
 // ⚠️⚠️ ده اتصلّح بعد تجربة حقيقية. أول نسخة كانت بتقرا المفتاح على
@@ -2387,6 +2569,12 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     // 🧪 المفتاح مقفول = السطرين دول بيعدّوا والباقي زي ما هو بالحرف.
     const rast = await maybeRasterizeSheet(type, list, sizeOptions);
     if (rast) { list = rast.list; sizeOptions = rast.sizeOptions; }
+
+    // ⭐ أي صورة رايحة للطابعة بتتخزّن بـ1 بت بدل 32 — **نفس النقط
+    // بالظبط**، حجم أقل بكتير. ده بيخلّي ملصقات أكتر تدخل في الأمر
+    // الواحد بدل ما الحجم يوقفها عند 4.
+    const smaller = await shrinkImageJobs(list);
+    if (smaller) list = smaller;
     if (!list.length) {
       console.error('محتوى الطباعة غير صالح — مش هيتبعت لـQZ:', jobs);
       alert('⚠️ حصلت مشكلة في تجهيز الملصق، فالطباعة ماتمّتش.\n\nحدّث الصفحة وحاول تاني.');

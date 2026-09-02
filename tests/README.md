@@ -161,6 +161,7 @@ node tests/restock-print-test.js
 node tests/sheet-image-test.js
 node tests/day-name-test.js
 node tests/all-devices-test.js
+node tests/label-image-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
 node tests/grade-add-test.js
