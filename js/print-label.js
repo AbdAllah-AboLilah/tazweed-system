@@ -859,7 +859,10 @@ function buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
 // ده بالظبط اللي خلّى المسمّى يطلع بشكلين مختلفين قبل كده.
 async function buildQuarterLabel(cat, sizeOptions, copies) {
   const n = Math.max(1, parseInt(copies, 10) || 1);
-  if (!getPrintTweak('htmlLabels')) {
+  // ⚠️ مفتاحين مش واحد: `htmlLabels` بيخص **كل** الملصقات (زي الأول
+  // بالظبط)، و`quarterImage` بيخص **ده لوحده** — عشان تقدر تجرّب مقسوم ٤
+  // كصورة من غير ما تلمس الملصق العادي ولا المسمّى.
+  if (!getPrintTweak('htmlLabels') || getPrintTweak('quarterImage')) {
     const png = renderQuarterLabelPNG(cat, sizeOptions);
     if (png) {
       const d = labelDots(sizeOptions);
@@ -1258,7 +1261,10 @@ async function buildItemLabel(cat, sizeOptions, copies) {
 // بترجّع نفس شكل buildItemLabel بالظبط عشان الاتنين يتعاملوا بنفس الطريقة.
 function buildTextLabel(text, sizeOptions, copies) {
   const n = Math.max(1, parseInt(copies, 10) || 1);
-  if (!getPrintTweak('htmlLabels')) {
+  // ⚠️ زي مقسوم ٤: `gradeImage` مفتاح مستقل للمسمّى لوحده.
+  // ⚠️⚠️ والشكوى الأصلية ("المسمّى المنغمش") هي دي بالذات — فده أهم
+  // مفتاح في التجربة.
+  if (!getPrintTweak('htmlLabels') || getPrintTweak('gradeImage')) {
     const png = renderGradeLabelPNG(text, sizeOptions);
     if (png) {
       const d = labelDots(sizeOptions);
