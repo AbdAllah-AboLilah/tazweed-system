@@ -258,6 +258,20 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const qJob = await buildQuarterLabel(cat, size, 1);
     out.imgCustom = await sendAndRead([{ html: qJob.jobHTML, image: qJob.image, copies: 1 }]);
 
+    // ⚠️⚠️ والمسمّى كمان — مش مقسوم ٤ بس.
+    // القاعدة مش مربوطة بنوع الملصق: **أي طبعة كل صفحاتها صور** بتاخد
+    // المقاس المخصّص. الفحص ده اتضاف بعد ما صاحب النظام سأل "عملتها
+    // للمسمّى ولا لمقسوم ٤ بس؟" — والإجابة كانت من التشغيل مش من فحص
+    // ثابت، وده مايكفيش.
+    reset(); set(K.g, true);
+    const gJob = buildTextLabel('كريب سادة لوكس درجة 56', size, 1);
+    out.gradeCustom = await sendAndRead([{ html: gJob.jobHTML, image: gJob.image, copies: 1 }]);
+
+    // والملصق العادي لما المفتاح القديم يتقفل
+    reset(); set(K.html, false);
+    const iJob = await buildItemLabel(cat, size, 1);
+    out.itemCustom = await sendAndRead([{ html: iJob.jobHTML, image: iJob.image, copies: 1 }]);
+
     // ⚠️ والنص **مايتأثرش**: QZ بيتجاهل custom مع HTML أصلًا، فلو حطيناه
     // عليه بنكون بنغيّر حاجة من غير سبب.
     reset();
@@ -321,6 +335,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐ بالمقاس الحقيقي للملصق (38×25)',
     r.imgCustom && r.imgCustom.size && r.imgCustom.size.width === 38 && r.imgCustom.size.height === 25, r.imgCustom);
   check('⭐ واللي بيتبعت صورة فعلًا', r.imgCustom && r.imgCustom.fmt === 'image', r.imgCustom);
+  check('⭐⭐⭐ والمسمّى كصورة → custom:true كمان (مش مقسوم ٤ بس)',
+    r.gradeCustom && r.gradeCustom.size && r.gradeCustom.size.custom === true && r.gradeCustom.fmt === 'image', r.gradeCustom);
+  check('⭐⭐ والملصق العادي كصورة → custom:true',
+    r.itemCustom && r.itemCustom.size && r.itemCustom.size.custom === true && r.itemCustom.fmt === 'image', r.itemCustom);
+
   check('⚠️⚠️ والملصق كنص **مايتأثرش** (مفيش custom)',
     r.htmlCustom && r.htmlCustom.fmt === 'html' && !(r.htmlCustom.size || {}).custom, r.htmlCustom);
   check('⚠️⚠️ وخليط صورة + نص → مفيش custom (مش كله صور)',
