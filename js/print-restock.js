@@ -42,6 +42,104 @@
 // واحد فيهم من غير التاني مش هنعرف.
 const RESTOCK_SAFE_BYTES = 44 * 1024;
 
+// ============================================================
+// 🗓️ تاريخ آخر طبعة لكل فئة — "الفئة دي بتتزوّد ولا لأ"
+// ============================================================
+// اتطلبت بالنص: "عاوز وقت اخر مرة اطبع فيه ورقة التزويد ... عشان اعرف
+// الصنف ده بيتزود ولا لا".
+//
+// ⚠️⚠️ **مجموعة منفصلة، مش حقل جوّه مستند الفئة** — ونفس سبب gradeStats
+// بالظبط: تعديل الفئة متحكوم بـonlyChangedKeys بقوايم حقول مقفولة، وأي
+// حقل جديد هناك لازم يتضاف لكل تركيبة فيهم — وأي واحدة تفوتنا معناها إن
+// **تعديل الكميات بيترفض في صمت**. فمستند الفئة مالوش أي علاقة بالتاريخ
+// ده، بايت ببايت زي ما كان.
+//
+// ⚠️⚠️ والتاريخ **مطلق** (السبت ٢٠٢٦/٩/٥ ١١:٤٠) مش نسبي ("من ساعتين").
+// النسبي بيتغيّر لوحده كل دقيقة، وده بيكسر patchQuantitiesOnly: الشاشة
+// هتلاقي HTML مختلف في كل تحديث وترسم من الأول — يعني نضيّع 7 أضعاف
+// سرعة الشاشة الرئيسية مقابل جملة أظرف.
+//
+// ⚠️⚠️ وماينفعش نطلعه من سجل العمليات: السجل بيقرا آخر 400 سطر بس
+// (LOG_FETCH_LIMIT)، والفئة اللي مطبوعة من شهر بتكون خرجت من الـ400
+// خلاص — فالنتيجة كانت هتبقى "عمرها ما اتطبعت" وهي اتطبعت.
+const RESTOCK_PRINTS = 'restockPrints';
+
+// null = مالمناش الحاجة دي من السحابة لسه. {} = حاولنا ومفيش/فشلت.
+let restockPrintStamps = null;
+let restockStampsPromise = null;
+
+// بتقرا المجموعة مرة واحدة في الجلسة (مستند صغير لكل فئة، 39 فئة).
+// ⚠️ مافيش onSnapshot عن قصد: ده مستمع دايم زيادة على شاشة السرعة
+// مهمة فيها، والتاريخ ده مابيتغيّرش غير لما حد يطبع.
+async function loadRestockPrintStamps(force) {
+  if (!force && restockPrintStamps) return restockPrintStamps;
+  if (!force && restockStampsPromise) return restockStampsPromise;
+  restockStampsPromise = (async () => {
+    try {
+      const snap = await db.collection(RESTOCK_PRINTS).get();
+      const map = {};
+      snap.forEach((d) => {
+        const at = (d.data() || {}).at;
+        if (at) map[d.id] = at;
+      });
+      restockPrintStamps = map;
+    } catch (err) {
+      console.warn('تعذّر قراءة تواريخ طباعة ورق التزويد:', err);
+      // ⚠️ {} مش null: null معناها "حاول تاني"، فأي قطع نت كان هيخلّي
+      // كل طبعة تحاول تقرا من الأول وتأخّر الشاشة.
+      restockPrintStamps = restockPrintStamps || {};
+    }
+    restockStampsPromise = null;
+    return restockPrintStamps;
+  })();
+  return restockStampsPromise;
+}
+
+// مين بيشوف التاريخ: منشئ النظام دايمًا، وباقي الحسابات لو المفتاح
+// مفتوح — اتطلب كده بالنص ("يظهر عند منشئ النظام فقط وممكن نعمله شيك
+// بوكس ... اني اظهره ل باقي الحسابات").
+function canSeeRestockLastPrint() {
+  if (typeof isOwner === 'function' && isOwner(typeof state !== 'undefined' && state ? state.profile : null)) {
+    return true;
+  }
+  return typeof getPrintTweak === 'function' && getPrintTweak('showRestockDate') === true;
+}
+
+function restockLastPrintText(catId) {
+  if (!catId) return '';
+  const at = restockPrintStamps && restockPrintStamps[catId];
+  if (!at) return '';
+  const d = new Date(at);
+  if (isNaN(d.getTime())) return '';
+  return `${d.toLocaleDateString('ar-EG', { weekday: 'long' })} ${d.toLocaleString('ar-EG')}`;
+}
+
+// بيتنده **بعد** ما الطبعة تتأكد. نفس معيار سجل العمليات بالظبط:
+// اختيار الجهاز = الطباعة اتأكدت.
+//
+// ⚠️ **مش async ومافيش await على الكتابة**: وعد Firestore مابيخلصش غير
+// لما السيرفر يرد، فلو النت واقف كان هيعلّق مسار الطباعة. النسخة
+// المحلية بتتحدّث فورًا، والسحابة بتلحق لوحدها.
+function stampRestockPrint(cat) {
+  if (!cat || !cat.id) return '';
+  const at = new Date().toISOString();
+  if (!restockPrintStamps) restockPrintStamps = {};
+  restockPrintStamps[cat.id] = at;
+  try {
+    const p = db.collection(RESTOCK_PRINTS).doc(cat.id).set({
+      at,
+      catName: cat.name || '',
+      byName: (typeof state !== 'undefined' && state && state.profile && state.profile.name) || '',
+    });
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => console.warn('تعذّر تسجيل تاريخ طباعة ورقة التزويد:', err));
+    }
+  } catch (err) {
+    console.warn('تعذّر تسجيل تاريخ طباعة ورقة التزويد:', err);
+  }
+  return at;
+}
+
 const HATCH_ID = 'hx';
 
 // بيتحط مرة واحدة في أول <body>. عرضه وطوله صفر فمش بياخد أي مكان.
@@ -89,6 +187,12 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
   // ⚠️ التاريخ والوقت نفسهم **مالمسناهمش** — بس بنزوّد اليوم قبلهم.
   const sheetDate = new Date();
   const now = `${sheetDate.toLocaleDateString('ar-EG', { weekday: 'long' })} ${sheetDate.toLocaleString('ar-EG')}`;
+
+  // ⭐ آخر مرة الفئة دي اتطبعت فيها ورقة تزويد — الشرح والقيود عند
+  // RESTOCK_PRINTS فوق. الجملة دي بتتكتب **بس** لو الحساب بيشوفها
+  // (منشئ النظام، أو مفتاح "ورّي التاريخ لكل الحسابات")، وبس لو فيه
+  // تاريخ محفوظ فعلًا — أول طبعة للفئة الورقة بتطلع زي ما هي بالظبط.
+  const lastPrintAt = canSeeRestockLastPrint() ? restockLastPrintText(cat.id) : '';
   // الدرجات الأساسية (أبيض/أسود/أوف وايت) مالهاش أرقام، والورقة شبكة
   // أرقام بتمشي بيها على الرف — فوجودها وسط الأرقام بيلخبط الشبكة.
   // عشان كده بتتعرض في **شبكة أسماء منفصلة تحت أرقام مجموعتها**.
@@ -161,6 +265,9 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
         .header .tab-name { font-weight: bold; font-size: 16px; }
         .header .item-name { font-size: 14px; font-weight: bold; color: #000; margin-top: 2px; }
         .header .time { font-size: 11px; font-weight: bold; margin-top: 4px; }
+        /* أخف من تاريخ الطبعة الحالية عن قصد: ده تاريخ **قديم**، ولو
+           بنفس الوزن الواحد بيقراه بالغلط كتاريخ الورقة اللي في إيده. */
+        .header .last-print { font-size: 10px; margin-top: 2px; }
         .grid { column-count: 4; column-gap: 1.5mm; }
         /* أسماء بدل أرقام → أعمدة أقل وخط أصغر عشان الاسم يدخل */
         .base-grid { column-count: 2; }
@@ -207,6 +314,7 @@ function buildRestockHTML(cat, grades, groupName, withBase) {
         <div class="tab-name">${escapeHTML(sheetTitle)}</div>
         ${cat.itemName ? `<div class="item-name">${escapeHTML(cat.itemName)}</div>` : ''}
         <div class="time">${escapeHTML(now)}</div>
+        ${lastPrintAt ? `<div class="last-print">آخر طبعة قبل دي: ${escapeHTML(lastPrintAt)}</div>` : ''}
       </div>
       ${rowsHTML}
       <script>
@@ -416,12 +524,21 @@ function chooseRestockGroup(cat, grades) {
       return;
     }
 
+    // ⭐ آخر طبعة للفئة دي — نفس المعلومة اللي بتتكتب على الورقة، بس
+    // قبل ما تحرق ورق: بتشوفها وانت لسه بتختار.
+    const lastLine = canSeeRestockLastPrint() ? restockLastPrintText(cat.id) : '';
+
     const overlay = document.createElement('div');
     overlay.style.cssText =
       'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:2000;padding:12px;';
     overlay.innerHTML = `
       <div class="dialog-card" style="max-width:340px; text-align:center;">
         <div style="font-size:15px; font-weight:500; margin-bottom:4px;">تطبع أنهي جزء؟</div>
+        ${
+          lastLine
+            ? `<div style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;">🗓️ آخر طبعة: <strong>${escapeHTML(lastLine)}</strong></div>`
+            : ''
+        }
         <div style="font-size:12px; color:var(--text-secondary); margin-bottom:10px; line-height:1.7;">
           اسم المجموعة هيتكتب في عنوان الورقة
           (مثال: ${escapeHTML(cat.name)} — ${escapeHTML(options[0])})
@@ -483,7 +600,30 @@ function chooseRestockGroup(cat, grades) {
   });
 }
 
+// اسم الورقة زي ما بيتكتب في عنوانها بالظبط — بيروح لسجل العمليات
+// عشان السطر يقول **أنهي ورقة** اتطبعت، مش "ورقة تزويد" وبس.
+function restockSheetTitle(cat, groupName) {
+  const base = (cat && cat.name) || '';
+  return groupName ? `${base} — ${groupName}` : base;
+}
+
+// وصفة السجل لورقة التزويد.
+// ⚠️ kind: 'restock' **مش** بتتبني تاني في rebuildFromSpec — الورقة
+// بتتبعت جاهزة. الوصفة دي لسجل العمليات بس.
+function restockLogSpec(cat, groupName, papers) {
+  return {
+    kind: 'restock',
+    cat: cat || null,
+    text: restockSheetTitle(cat, groupName),
+    copies: Math.max(1, parseInt(papers, 10) || 1),
+  };
+}
+
 async function printRestockPaper(cat, grades) {
+  // ⚠️ بنحمّل التواريخ **قبل** بناء الورقة، وبس لو الحساب بيشوفها —
+  // الحساب اللي مش بيشوفها مابيدفعش ولا قراءة واحدة زيادة.
+  if (canSeeRestockLastPrint()) await loadRestockPrintStamps();
+
   const choice = await chooseRestockGroup(cat, grades);
   if (!choice) return;
   const { group: groupName, withBase } = choice;
@@ -504,7 +644,11 @@ async function printRestockPaper(cat, grades) {
 
     // أمر طباعة واحد فيه كل الورق (كل ورقة صفحة لوحدها). كده بيسألك عن
     // الجهاز مرة واحدة بس، والطابعة بتشتغل متواصلة.
-    await deliverPrint('restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML);
+    const sentAll = await deliverPrint(
+      'restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML,
+      restockLogSpec(cat, '', bundle.count)
+    );
+    if (sentAll) stampRestockPrint(cat);
     return;
   }
 
@@ -544,7 +688,11 @@ async function printRestockPaper(cat, grades) {
         `📄 الفئة كبيرة على أمر طباعة واحد — هتتقسّم على ${names.length} ورقة (كل مجموعة لوحدها).`
       );
       const bundle = buildRestockBundle(cat, grades, names, withBase);
-      await deliverPrint('restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML);
+      const sentSplit = await deliverPrint(
+        'restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML,
+        restockLogSpec(cat, '', bundle.count)
+      );
+      if (sentSplit) stampRestockPrint(cat);
       return;
     }
   }
@@ -554,5 +702,9 @@ async function printRestockPaper(cat, grades) {
   // maybeRasterizeSheet في print-core.js.
   //
   // ورقة التزويد رول مستمر (الارتفاع مفتوح)، فمش بنفرض مقاس على QZ.
-  await deliverPrint('restock', html, null, 'width=700,height=800');
+  const sent = await deliverPrint(
+    'restock', html, null, 'width=700,height=800', undefined,
+    restockLogSpec(cat, groupName, 1)
+  );
+  if (sent) stampRestockPrint(cat);
 }
