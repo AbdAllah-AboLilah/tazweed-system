@@ -289,6 +289,56 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     ]);
     reset();
 
+    // ============================================================
+    // ⭐⭐⭐ (٥هـ) وزن الخط: الصورة لازم تطابق النص
+    // ============================================================
+    // ⚠️ العطل: نسخة الـHTML بتاعت كل الملصقات بتستخدم bold، ونسخة
+    // الصورة كانت normal. يعني نفس الملصق بوزنين مختلفين — واللي بيفتح
+    // مفتاح الصورة كان الخط بيرقّ عنده من غير ما حد يقصد.
+    //
+    // الفحص ده بيقارن **الحبر الفعلي** في الصورة بحبر نفس النص مرسوم
+    // عادي — لو الصورة مش أتقل، يبقى الوزن رجع normal.
+    const inkOf = async (url) => {
+      const im = new Image();
+      await new Promise((res) => { im.onload = res; im.onerror = res; im.src = url; });
+      const c = document.createElement('canvas');
+      c.width = im.width; c.height = im.height;
+      const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+      x.drawImage(im, 0, 0);
+      const d = x.getImageData(0, 0, c.width, c.height).data;
+      let dark = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] < 128) dark++;
+      return dark / (c.width * c.height);
+    };
+
+    out.labelWeight = typeof LABEL_WEIGHT === 'string' ? LABEL_WEIGHT : null;
+
+    // نفس النص بالظبط: مرة بوزن النظام ومرة بـnormal — ونقارن الحبر
+    const inkAt = (weight) => {
+      const W = 304, H = 200, S = 3;
+      const c = document.createElement('canvas');
+      c.width = W * S; c.height = H * S;
+      const x = c.getContext('2d');
+      x.scale(S, S);
+      x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
+      x.fillStyle = '#000'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = `${weight} 17px Tahoma, Arial, sans-serif`;
+      x.fillText('كريب سادة لوكس درجة 56', W / 2, H / 2);
+      const d = x.getImageData(0, 0, W * S, H * S).data;
+      let dark = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] < 128) dark++;
+      return dark;
+    };
+    out.inkBold = inkAt('bold');
+    out.inkNormal = inkAt('normal');
+
+    // والملصق الحقيقي: حبره لازم يبقى قريب من الغامق مش من العادي
+    set(K.g, true);
+    const wJob = buildTextLabel('كريب سادة لوكس درجة 56', size, 1);
+    out.realInk = await inkOf(wJob.image);
+    reset();
+
     // ⚠️ (٦) صورة بايظة → بيرجّع null مايكسرش الطباعة
     out.badReturnsNull = (await imageJobTo1Bit('data:image/png;base64,####')) === null;
     out.nonImageNull = (await imageJobTo1Bit('<html></html>')) === null;
@@ -344,6 +394,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     r.htmlCustom && r.htmlCustom.fmt === 'html' && !(r.htmlCustom.size || {}).custom, r.htmlCustom);
   check('⚠️⚠️ وخليط صورة + نص → مفيش custom (مش كله صور)',
     r.mixedCustom && !(r.mixedCustom.size || {}).custom, r.mixedCustom);
+
+  check('⭐⭐⭐ وزن خط الصورة = bold (مطابق لنسخة الـHTML)', r.labelWeight === 'bold', r.labelWeight);
+  check('⭐⭐ والغامق فعلًا أتقل من العادي في الحبر',
+    r.inkBold > r.inkNormal * 1.1, { غامق: r.inkBold, عادي: r.inkNormal });
+  check('⭐⭐ والملصق الحقيقي فيه حبر (مرسوم فعلًا)', r.realInk > 0.02, r.realInk);
 
   check('⚠️⚠️ عتبة المرمِّز في النص (128±1)', r.thresholdAt >= 128 && r.thresholdAt <= 129, r.thresholdAt);
   check('⚠️⚠️ الشفاف بيبقى **أبيض** مش أسود', r.transparentIsWhite);
