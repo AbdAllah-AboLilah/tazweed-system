@@ -227,6 +227,54 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.remoteOn = await rebuilt();
     reset();
 
+    // ============================================================
+    // ⚠️⚠️⚠️ (٥د) المقاس المخصّص للملصق — العطل اللي بان على ورق
+    // ============================================================
+    // ملصق مطبوع من المحل: العمود اليمين **مقصوص** ("Kuwaiti 12" بدل
+    // "Kuwaiti 120"). والصورة اللي بنبعتها **سليمة** (304×200 بالظبط،
+    // هوامش 12 و13، الخانات الأربعة كاملة) — يعني بتتقص بعد ما تسيبنا.
+    //
+    // شكوى QZ #1413: "التحجيم مقفول → الصورة **تتقص**؛ السبب إن المساحة
+    // القابلة للطباعة أصغر من اللازم". وإحنا التحجيم عندنا مقفول.
+    // و`custom` هو التعديل اللي اتعمل ردًا على الشكوى دي.
+    const seen = [];
+    window.qz = {
+      configs: { create: (n, o) => ({ printer: n, opts: o }) },
+      print: (cfg, pages) => { seen.push({ opts: cfg.opts, pages }); return Promise.resolve(); },
+      printers: { details: () => Promise.resolve([{ name: 'XP-235B' }]) },
+    };
+    window.isQZAvailable = () => true;
+    window.ensureQZConnected = () => Promise.resolve(true);
+    window.getSavedPrinter = () => 'XP-235B';
+
+    const sendAndRead = async (jobs) => {
+      seen.length = 0;
+      await tryPrintViaQZ('label', jobs, { pageWidthMm: 38, pageHeightMm: 25 });
+      const c = seen[0] || {};
+      return { size: (c.opts || {}).size || null, fmt: ((c.pages || [])[0] || {}).format };
+    };
+
+    set(K.q, true);
+    const qJob = await buildQuarterLabel(cat, size, 1);
+    out.imgCustom = await sendAndRead([{ html: qJob.jobHTML, image: qJob.image, copies: 1 }]);
+
+    // ⚠️ والنص **مايتأثرش**: QZ بيتجاهل custom مع HTML أصلًا، فلو حطيناه
+    // عليه بنكون بنغيّر حاجة من غير سبب.
+    reset();
+    const tJob = buildTextLabel('درجة 56', size, 1);
+    out.htmlCustom = await sendAndRead([{ html: tJob.jobHTML, copies: 1 }]);
+
+    // ⚠️ وخليط (صورة + نص) → مانحطّهوش: مش كل الصفحات صور
+    set(K.q, true);
+    const qJob2 = await buildQuarterLabel(cat, size, 1);
+    reset();
+    const tJob2 = buildTextLabel('درجة 7', size, 1);
+    out.mixedCustom = await sendAndRead([
+      { html: qJob2.jobHTML, image: qJob2.image, copies: 1 },
+      { html: tJob2.jobHTML, copies: 1 },
+    ]);
+    reset();
+
     // ⚠️ (٦) صورة بايظة → بيرجّع null مايكسرش الطباعة
     out.badReturnsNull = (await imageJobTo1Bit('data:image/png;base64,####')) === null;
     out.nonImageNull = (await imageJobTo1Bit('<html></html>')) === null;
@@ -268,6 +316,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⚠️⚠️⚠️ ولما يفتحهم هو → صورة (مهما كان الباعت)',
     r.remoteOn && r.remoteOn.quarter[0] === true && r.remoteOn.text[0] === true
       && r.remoteOn.many[0] === true && r.remoteOn.many[1] === true, r.remoteOn);
+
+  check('⭐⭐⭐ الملصق كصورة → custom:true بيتبعت', r.imgCustom && r.imgCustom.size && r.imgCustom.size.custom === true, r.imgCustom);
+  check('⭐⭐ بالمقاس الحقيقي للملصق (38×25)',
+    r.imgCustom && r.imgCustom.size && r.imgCustom.size.width === 38 && r.imgCustom.size.height === 25, r.imgCustom);
+  check('⭐ واللي بيتبعت صورة فعلًا', r.imgCustom && r.imgCustom.fmt === 'image', r.imgCustom);
+  check('⚠️⚠️ والملصق كنص **مايتأثرش** (مفيش custom)',
+    r.htmlCustom && r.htmlCustom.fmt === 'html' && !(r.htmlCustom.size || {}).custom, r.htmlCustom);
+  check('⚠️⚠️ وخليط صورة + نص → مفيش custom (مش كله صور)',
+    r.mixedCustom && !(r.mixedCustom.size || {}).custom, r.mixedCustom);
 
   check('⚠️⚠️ عتبة المرمِّز في النص (128±1)', r.thresholdAt >= 128 && r.thresholdAt <= 129, r.thresholdAt);
   check('⚠️⚠️ الشفاف بيبقى **أبيض** مش أسود', r.transparentIsWhite);
