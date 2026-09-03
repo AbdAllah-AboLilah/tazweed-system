@@ -4,7 +4,8 @@
 // التشكيل. الفحص بيتأكد إن:
 //   • الموبايل بيشوف كارتس، والكمبيوتر لسه بيشوف الجدول
 //   • ولا بيان اتشال في التحويل
-//   • نافذة الطابعة بقت ٥ أقسام، كل واحد بيتفتح لوحده، وخاناته موجودة
+//   • نافذة الطابعة كلها أقسام بتتفتح وتتقفل (١٠ أقسام)، كل واحد لوحده،
+//     وخاناته موجودة — والجزء اللي فوق (الجهاز والطابعتين) باين على طول
 const { chromium } = require('playwright');
 const pass = [], fail = [];
 const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? ` → ${JSON.stringify(x)}` : ''));
@@ -82,7 +83,16 @@ const USERS = [
   await p.evaluate(() => { state.isNarrow = true; try { openPrinterSettings(); } catch (e) {} });
   await p.waitForTimeout(600);
   const ps = await p.evaluate(() => {
-    const keys = ['cal', 'quality', 'pace', 'batch', 'fonts'];
+    // ⚠️ الأقسام اللي **كلها** المفروض تبقى مطوية. زمان كانت خمسة بس
+    // والباقي كتل مفتوحة ورا بعض — والملاحظة وصلت بالنص: "في اقسام مش
+    // بتتقفل". دلوقتي كل النافذة أقسام غير الجزء اللي فوق (اسم الجهاز
+    // والطابعتين) اللي لازم يفضل باين من أول نظرة.
+    //
+    // ⚠️⚠️ بنقارن **الأسامي** مش العدد: الرقم المحفور في الفحص خدعنا
+    // كذا مرة قبل كده (آخرها في raster-label). قسم جديد يتضاف = يتكتب
+    // هنا، وقسم يختفي = الفحص يقول **أنهي واحد**.
+    const keys = ['cal', 'quality', 'pace', 'batch', 'fonts',
+      'copy', 'align', 'lastdate', 'tweaks', 'details'];
     const before = keys.every((k) => document.getElementById('pset-body-' + k).hidden);
     document.querySelector('.pset-toggle[data-pset="quality"]').click();
     const opened = !document.getElementById('pset-body-quality').hidden;
@@ -91,12 +101,20 @@ const USERS = [
       'pq-status', 'pq-pace', 'pq-pace-save', 'pq-pace-status', 'pq-batch', 'pq-batch-save',
       'pq-batch-status', 'tspl-sample', 'tspl-status'];
     return {
-      count: document.querySelectorAll('.pset-toggle[data-pset]').length,
+      found: [...document.querySelectorAll('.pset-toggle[data-pset]')].map((b) => b.getAttribute('data-pset')),
+      // الجزء اللي فوق **مش** مطوي — لو اتلف في قسم، 99% من فتح النافذة
+      // بقى محتاج دوسة زيادة.
+      topOpen: ['qz-device-name', 'qz-label-printer-select', 'qz-restock-printer-select']
+        .every((id) => document.getElementById(id) && !document.getElementById(id).closest('.pset-body')),
       before, opened, restShut,
       missing: ids.filter((i) => !document.getElementById(i)),
     };
   });
-  check('الطابعة: ٥ أقسام', ps.count === 5, ps.count);
+  const WANT = ['cal', 'quality', 'pace', 'batch', 'fonts', 'copy', 'align', 'lastdate', 'tweaks', 'details'];
+  check('الطابعة: كل النافذة أقسام بتتقفل',
+    WANT.every((k) => ps.found.includes(k)) && ps.found.length === WANT.length,
+    { ناقص: WANT.filter((k) => !ps.found.includes(k)), زيادة: ps.found.filter((k) => !WANT.includes(k)) });
+  check('الطابعة: اسم الجهاز والطابعتين مش مطويين', ps.topOpen);
   check('الطابعة: كلهم مقفولين في الأول', ps.before);
   check('الطابعة: القسم بيتفتح', ps.opened);
   check('الطابعة: الباقي بيفضل مقفول', ps.restShut);

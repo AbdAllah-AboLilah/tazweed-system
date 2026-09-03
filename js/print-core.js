@@ -52,6 +52,34 @@ function logPrintJob(type, spec, sizeOptions) {
     logActivity({ action: 'print', printKind: 'restock', printLabel: 'ورقة تزويد', newValue: 1 });
     return;
   }
+  // ============================================================
+  // ⭐ ورقة التزويد بتتسجّل **باسمها**
+  // ============================================================
+  // ⚠️ العطل اللي اتبلّغ: "لما حد بيطبع ورقة التزويد بيكتب طباعة ورقة
+  // تزويد، مبيكتبش اسم الورقة".
+  //
+  // السبب: ورقة التزويد كانت بتتنده `deliverPrint('restock', html, ...)`
+  // **من غير وصفة (spec)** خالص — يعني الدالة دي مالهاش أي مصدر تعرف
+  // منه اسم الفئة، فكانت بتكتب النوع وبس. الحل إن نداء الورقة بقى
+  // بيبعت الوصفة (restockLogSpec في print-restock.js).
+  //
+  // ⚠️ ليه فرع منفصل مش الفرع العام تحت: الفرع العام بياخد الاسم من
+  // `spec.cat.itemName` الأول — وده **اسم الصنف في الفاتورة**، مش عنوان
+  // الورقة. وعنوان الورقة بيشيل اسم المجموعة كمان (كريب سادة — بيجات)،
+  // وده بالظبط اللي بيفرّق ورقة عن ورقة في السجل.
+  if (spec.kind === 'restock') {
+    logActivity({
+      action: 'print',
+      printKind: 'restock',
+      printLabel: 'ورقة تزويد',
+      itemName: String(spec.text || '').slice(0, 120),
+      newValue: Math.max(1, parseInt(spec.copies, 10) || 1),
+      categoryId: (spec.cat && spec.cat.id) || null,
+      categoryName: (spec.cat && spec.cat.name) || '',
+    });
+    return;
+  }
+
   const kindName = {
     item: 'ملصق صنف',
     quarter: 'ملصق مقسوم ٤',
@@ -349,6 +377,14 @@ function expandCopies(list) {
 
 async function rebuildFromSpec(spec, sizeOptions) {
   if (!spec || !spec.kind || !sizeOptions) return null;
+  // ⚠️ وصفة ورقة التزويد **للسجل بس** — مافيهاش اللي يعيد بناء الورقة
+  // (درجات، مجموعات، تظليل). الورقة بتتبعت جاهزة في jobs.
+  //
+  // ⚠️⚠️ والسطر ده **شبكة أمان، مش إصلاح عطل**: النهارده مافيش فرع تحت
+  // بيمسك 'restock'، فالدالة بترجّع null لوحدها. بس أي فرع جديد يتضاف
+  // تحت بالغلط كان هيخلّي ورقة التزويد "تتبني" كملصق — والطبعة تضيع في
+  // سكوت. الخروج المباشر هنا بيقفل الباب ده قبل ما يتفتح.
+  if (spec.kind === 'restock') return null;
   const n = Math.max(1, parseInt(spec.copies, 10) || 1);
   try {
     if (spec.kind === 'text' && typeof buildTextLabel === 'function') {
@@ -1689,6 +1725,26 @@ const PRINT_TWEAKS = [
     label: '📝 ابعت الملصق كنص (الافتراضي)',
     hint: 'مجرّب على ورق وطالع حاد. اقفله لو عايز تجرّب طريقة الصورة',
     defaultOn: true,
+    apply: () => {},
+  },
+  {
+    // ============================================================
+    // 🗓️ تاريخ آخر طبعة — مين يشوفه
+    // ============================================================
+    // التاريخ نفسه بيتسجّل لكل الحسابات (أي حد بيطبع بيحدّثه)، بس
+    // **بيتعرض لمنشئ النظام بس** افتراضيًا — اتطلب كده بالنص. المفتاح ده
+    // بيفتحه لباقي الحسابات.
+    //
+    // ⚠️ مطفي افتراضيًا، ومقفول معناه إن الورقة وشاشة الاختيار بيطلعوا
+    // **زي ما هما بالظبط** لغير منشئ النظام — ولا سطر زيادة.
+    //
+    // ⚠️ ومش موجود في قايمة "إعدادات متقدمة — للتجربة" تحت: القايمة دي
+    // مفاتيح تجربة، وده إعداد عرض عادي. ليه قسمه لوحده.
+    key: 'showRestockDate',
+    label: '🗓️ ورّي تاريخ آخر طبعة لكل الحسابات',
+    hint:
+      'تاريخ آخر مرة الفئة اتطبعت فيها ورقة تزويد بيظهر في شاشة اختيار ' +
+      'الورقة وفوق الورقة نفسها. مقفول = منشئ النظام بس اللي بيشوفه.',
     apply: () => {},
   },
 ];
@@ -3250,7 +3306,28 @@ async function openPrinterSettings() {
           </div>
         </div>
 
-        <div id="copy-box" style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px; display:none;">
+        <!-- ============================================================
+             ⭐ الأقسام الأربعة اللي تحت بقت **تتفتح وتتقفل** زي اللي فوق
+             ============================================================
+             ⚠️ الملاحظة اللي وصلت بالنص: "هي علي جهاز الكمبيوتر مش زي م
+             انت بتقول في اقسام مش بتتقفل". وكانت صح: خمس أقسام بس هما
+             اللي كانوا مطويين (المعايرة، الوضوح، الإيقاع، الدفعة،
+             الخطوط)، وباقي النافذة — النسخ من جهاز تاني، ضبط مكان
+             الطباعة، الإعدادات المتقدمة، بيانات الطابعات — كانت كتل
+             مفتوحة ورا بعض بخط فاصل بينهم.
+             الجزء اللي فوق (اسم الجهاز + الطابعتين) **مافيش عليه غلاف**
+             عن قصد: هو سبب 99% من فتح النافذة، فلازم يبان من أول نظرة.
+             ⚠️⚠️ **ولا سطر جوّه أي قسم اتغيّر**: نفس الخانات ونفس الـid
+             ونفس الأزرار ونفس الترتيب — الغلاف بس هو اللي اتضاف، عشان
+             أي منطق مربوط بيهم مايتكسرش.
+             ⚠️ وid="copy-box" فضل على **نفس العنصر** اللي كان عليه، عشان
+             السطر اللي بيعرض القسم (copyBox.style.display) يفضل شغّال. -->
+        <div class="pset-sec" id="copy-box" style="display:none;">
+          <button type="button" class="pset-toggle" data-pset="copy" aria-expanded="false" aria-controls="pset-body-copy">
+            <span class="pset-sec-title">📥 انسخ الإعدادات من جهاز تاني<small>لاختيار الطابعة لو نفس اسمها موجود هنا</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-copy" hidden>
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">📥 انسخ الإعدادات من جهاز تاني</div>
           <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
             ☁️ ضبط الملصق بقى <strong>مشترك تلقائيًا</strong> بين كل الأجهزة،
@@ -3266,10 +3343,16 @@ async function openPrinterSettings() {
             <button class="btn" id="copy-run">📥 انسخ</button>
           </div>
           <div id="copy-status" style="font-size:12px; min-height:16px; margin-top:6px; line-height:1.7;"></div>
+          </div>
         </div>
 
         <!-- ---------- الإطار وضبط مكان الطباعة ---------- -->
-        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="align" aria-expanded="false" aria-controls="pset-body-align">
+            <span class="pset-sec-title">📐 ضبط مكان الطباعة<small>لو الملصق مزحلق يمين أو تحت — اطبع إطار وحرّكه</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-align" hidden>
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">📐 ضبط مكان الطباعة</div>
           <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
             اطبع <strong>إطار تجربة</strong> بمقاس الملصق، وبُص هو طالع فين
@@ -3316,10 +3399,48 @@ async function openPrinterSettings() {
             <button class="btn btn-primary" id="align-save" style="padding:6px 14px;">احفظ الضبط</button>
           </div>
           <div id="align-status" style="font-size:12px; min-height:16px; margin-top:6px;"></div>
+          </div>
         </div>
 
+        <!-- ---------- 🗓️ تاريخ آخر طبعة لورقة التزويد ---------- -->
+        <!-- ⚠️ قسم لوحده مش جوّه "إعدادات متقدمة — للتجربة": القايمة دي
+             مفاتيح تجربة على الطابعة، وده إعداد **عرض** عادي. الشرح
+             الكامل عند مفتاح showRestockDate في PRINT_TWEAKS. -->
+        ${(() => {
+          const t = PRINT_TWEAKS.find((x) => x.key === 'showRestockDate');
+          return t ? `
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="lastdate" aria-expanded="false" aria-controls="pset-body-lastdate">
+            <span class="pset-sec-title">🗓️ تاريخ آخر طبعة لورقة التزويد<small>مين يشوف آخر مرة الفئة اتطبعت فيها</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-lastdate" hidden>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
+              كل ورقة تزويد بتتطبع بتسجّل وقتها، والتاريخ بيظهر في
+              <strong>شاشة اختيار الورقة</strong> وفوق <strong>الورقة نفسها</strong> —
+              عشان تعرف الفئة دي بتتزوّد ولا واقفة.
+              <br>افتراضيًا <strong>منشئ النظام بس</strong> اللي بيشوفه. المفتاح ده بيفتحه لباقي الحسابات.
+              <br>☁️ بيتحفظ لكل الأجهزة مرة واحدة.
+            </div>
+            <label style="display:flex; gap:8px; align-items:flex-start; padding:8px; font-size:12px; cursor:pointer; background:var(--surface-muted); border-radius:8px;">
+              <input type="checkbox" data-tweak="showRestockDate" ${getPrintTweak('showRestockDate') ? 'checked' : ''}
+                     style="margin-top:2px; flex:0 0 auto;" />
+              <span>
+                <span style="display:block; font-weight:500;">${escapeHTML(t.label)}</span>
+                <span style="display:block; font-size:10px; color:var(--text-muted); line-height:1.6;">${escapeHTML(t.hint)}</span>
+              </span>
+            </label>
+          </div>
+        </div>` : '';
+        })()}
+
         <!-- ---------- إعدادات متقدمة ---------- -->
-        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="tweaks" aria-expanded="false" aria-controls="pset-body-tweaks">
+            <span class="pset-sec-title">🧪 إعدادات متقدمة — للتجربة<small>مش محتاجها في الوضع العادي</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-tweaks" hidden>
           <div style="font-size:13px; font-weight:500; margin-bottom:4px;">🧪 إعدادات متقدمة — للتجربة</div>
           <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
             <strong>مش محتاجها في الوضع العادي.</strong> إعدادات الملصق
@@ -3328,7 +3449,7 @@ async function openPrinterSettings() {
             <strong>واحد بس</strong> وجرّب. وهي كمان
             <strong>☁️ بتتحفظ لكل الأجهزة</strong>.
           </div>
-          ${PRINT_TWEAKS.filter((t) => t.key !== 'fastCopies').map(
+          ${PRINT_TWEAKS.filter((t) => t.key !== 'fastCopies' && t.key !== 'showRestockDate').map(
             (t) => `
             <label style="display:flex; gap:8px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer;">
               <input type="checkbox" data-tweak="${escapeHTML(t.key)}" ${getPrintTweak(t.key) ? 'checked' : ''}
@@ -3339,10 +3460,16 @@ async function openPrinterSettings() {
               </span>
             </label>`
           ).join('')}
+          </div>
         </div>
 
         <!-- ---------- بيانات الطابعات ---------- -->
-        <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:12px;">
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="details" aria-expanded="false" aria-controls="pset-body-details">
+            <span class="pset-sec-title">🖨️ بيانات الطابعات<small>بتفيد لما نقارن كمبيوتر شغّال بكمبيوتر مش شغّال</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-details" hidden>
           <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
             <span style="font-size:13px; font-weight:500;">🖨️ بيانات الطابعات</span>
             <button class="btn" id="qz-details-btn" style="padding:3px 10px; font-size:12px;">اعرض</button>
@@ -3353,6 +3480,7 @@ async function openPrinterSettings() {
           <pre id="qz-details" style="display:none; font-size:10px; direction:ltr; text-align:start;
                background:var(--surface-muted); padding:8px; border-radius:8px; margin-top:8px;
                max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere;"></pre>
+          </div>
         </div>
       </div>
       <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
