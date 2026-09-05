@@ -1164,24 +1164,98 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
     }
     if (size > best.size + 1e-6) best = { lines: L, size, factor };
   }
-  const nameLines = best.lines;
-  const nameSize = best.size;
-  const codeSize = codeNat * best.factor;
-  const priceSize = priceNat * best.factor;
-  const oldPriceSize = priceSize * 0.8;
+  let nameLines = best.lines;
+  let nameSize = best.size;
+  let codeSize = codeNat * best.factor;
+  let priceSize = priceNat * best.factor;
+  let oldPriceSize = priceSize * 0.8;
+
+  // ============================================================
+  // 📏 مقاسات ثابتة — تحت مفتاح fixedLabelSizes
+  // ============================================================
+  // ⚠️⚠️ كل اللي فوق **مابيتلمسش**: لو المفتاح مقفول، الملصق بيطلع
+  // بايت ببايت زي ما كان. اللي تحت بيستبدل الأرقام بس لما يكون مفتوح.
+  //
+  // --- المشكلة اللي بيحلها ---
+  // الحساب اللي فوق بيربط التلاتة (اسم + رقم + سعر) في معادلة واحدة:
+  // لما الاسم ياخد سطرين، `factor` بينزل و**الكل** بيصغّر معاه. النتيجة
+  // مقاسة: فرق 20% في السعر والرقم بين ملصق وملصق، **ومش بانتظام** —
+  // اسم أطول ممكن يطلّع رقم أكبر (2.32 مقابل 2.02) بسبب فرع إعادة
+  // التوازن. فمفيش قاعدة العين تتعوّد عليها.
+  //
+  // --- الحل ---
+  // الرقم والسعر بمقاس ثابت، والاسم بياخد اللي فاضل.
+  //
+  // ⚠️ الأرقام دي **مقاسة مش متخيلة**: 2.4 و2.6 هما بالظبط اللي النظام
+  // بيطلّعه دلوقتي في الحالة الشائعة (الاسم سطر واحد) — يعني معظم
+  // الملصقات مش هتتغيّر، اللي هيتغيّر إن الاسم الطويل مابقاش يصغّرهم.
+  const FIXED_CODE_MM = 2.4;
+  const FIXED_PRICE_MM = 2.6;
+  // ⚠️ سطر أضيق للرقم والسعر — ده اللي بيرجّع للاسم اللي أخده منه
+  // التثبيت. القياس: الفاضل للاسم بيطلع من 3.86 لـ4.62 مم، يعني الاسم
+  // اللي بياخد سطرين بيكبر من 1.61 لـ1.92 مم (+20%).
+  const FIXED_TIGHT_LINE = 1.05;
+  const fixedSizes = typeof getPrintTweak === 'function' && getPrintTweak('fixedLabelSizes');
+
+  if (fixedSizes) {
+    // ⚠️⚠️ `Math.min` مش زيادة: لو النص نفسه أعرض من العمود، التصغير
+    // **إجباري** وإلا بيتقص على الورق. القياس بيقول إن ده مابيحصلش في
+    // الاستعمال العادي — الباركود بـ13 رقم لسه بيدخل عند 3.15مم،
+    // والسعر بخصم لحد 4 خانات بيدخل عند 2.64. اللي بيعدّي ده (سعر
+    // بـ5 خانات مع خصم) بيصغّر لوحده بدل ما يتقص.
+    codeSize = Math.min(FIXED_CODE_MM, fitWrappedFontSizeMm(codeText, textW, 1, true));
+    priceSize = showPrice
+      ? Math.min(FIXED_PRICE_MM, fitWrappedFontSizeMm(priceLineText, textW, 1, true))
+      : 0;
+    // ⚠️ النسبة 0.8 زي ما هي — السعر القديم بيفضل تابع للجديد، فتثبيت
+    // الجديد بيثبّته هو كمان من غير رقم تاني نفتكر نحدّثه.
+    oldPriceSize = priceSize * 0.8;
+
+    // الاسم بياخد اللي فاضل، ولحد 3 سطور، وبنختار التقسيمة اللي
+    // بتطلّع أكبر خط.
+    const budget = contentH - (codeSize + priceSize) * FIXED_TIGHT_LINE;
+    let pick = { lines: 1, size: 0 };
+    for (let L = 1; L <= 3; L++) {
+      const natural = Math.min(2.7, fitWrappedFontSizeMm(name, textW, L, true));
+      const size = Math.min(natural, budget / (L * LINE));
+      if (size > pick.size + 1e-6) pick = { lines: L, size };
+    }
+    nameLines = pick.lines;
+    // ⚠️ حد أدنى صغير جدًا عشان الاسم مايختفيش خالص لو حصلت مفاجأة —
+    // **مش** تحذير للمستخدم: اتطلب صراحةً "لا متعرفنيش، اطبع على طول".
+    nameSize = Math.max(0.8, pick.size);
+  }
 
   // مافيش كود → العنصر يختفي خالص والنص ياخد العرض كله (مش مربع فاضي).
   // القياس اتحسب على العرض الأضيق، فالاسم بيطلع أصغر شوية من اللازم —
   // وده **آمن**: بيقل عن المتاح، مابيزيدش عنه، فمفيش قص.
   const qrHTML = qrDataUrl ? `<img class="qr" src="${qrDataUrl}" alt="">` : '';
 
+  // ============================================================
+  // ⚠️⚠️ الرقم والسعر جوّه غلاف واحد — لما المفتاح يبقى مفتوح
+  // ============================================================
+  // عمود النص بيوزّع الفراغ الزيادة **بين** العناصر التلاتة
+  // (justify-content: space-between). يعني أي فراغ فاضل بيتحط نصه بين
+  // الاسم والرقم، ونصه بين الرقم والسعر — وده بالظبط "المسافة الكبيرة
+  // بين السعر والباركود" اللي اتطلب تقليلها.
+  //
+  // بالغلاف ده بقى فيه عنصرين بس في التوزيع (الاسم، والرقم+السعر مع
+  // بعض)، فالفراغ الفاضل كله بيروح **فوق** — والرقم والسعر بيفضلوا
+  // ملزوقين ببعض بالمسافة الضيقة اللي حسبناها.
+  //
+  // ⚠️ والغلاف ده **مابيتحطش** والمفتاح مقفول: الشكل القديم بيفضل
+  // بالحرف، فمفيش أي فرق في مخرجات النظام الحالي.
+  const codeHTML = `<div class="code">${escapeHTML(cat.barcodeNumber || '')}</div>`;
+  const bottomHTML = fixedSizes
+    ? `<div class="bot">${codeHTML}${priceHTML}</div>`
+    : `${codeHTML}${priceHTML}`;
+
   const halfHTML = `
       <div class="half">
         ${qrHTML}
         <div class="txt">
           <div class="name" dir="rtl">${escapeHTML(name)}</div>
-          <div class="code">${escapeHTML(cat.barcodeNumber || '')}</div>
-          ${priceHTML}
+          ${bottomHTML}
         </div>
       </div>`;
 
@@ -1240,11 +1314,20 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
         }
         /* الرقم bold: على الطابعة الحرارية الخط الرفيع بيطلع باهت ومتقطّع،
            والرقم ده هو خطة الطوارئ لو الباركود مارضيش يتقرا — فلازم يبان. */
-        .code { font-size: ${codeSize.toFixed(2)}mm; letter-spacing: 0.15mm; font-weight: bold; }
+        .code { font-size: ${codeSize.toFixed(2)}mm; letter-spacing: 0.15mm; font-weight: bold;${
+          fixedSizes ? ` line-height: ${FIXED_TIGHT_LINE};` : ''
+        } }${
+          // الغلاف: عمود بيلزق الرقم والسعر، والفراغ الفاضل بيروح فوقه.
+          fixedSizes
+            ? `\n        .bot { display: flex; flex-direction: column; }`
+            : ''
+        }
         /* ⚠️ الفراغ ده رقم ثابت عن قصد. كان مربوط بالحشو، فلما كبّرنا
            الحشو الآمن بقى 4مم بين السعرين جوه عمود عرضه 24 — والسعر
            اضطر يصغّر عشانه. */
-        .price { display: flex; justify-content: center; align-items: baseline; gap: 1.2mm; white-space: nowrap; }
+        .price { display: flex; justify-content: center; align-items: baseline; gap: 1.2mm; white-space: nowrap;${
+          fixedSizes ? ` line-height: ${FIXED_TIGHT_LINE};` : ''
+        } }
         .price s { font-weight: normal; font-size: ${oldPriceSize.toFixed(2)}mm; }
         .price b { font-weight: bold; font-size: ${priceSize.toFixed(2)}mm; }
       </style>

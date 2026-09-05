@@ -165,6 +165,7 @@ node tests/label-image-test.js
 node tests/settings-echo-test.js
 node tests/restock-last-print-test.js
 node tests/restock-short-test.js
+node tests/fixed-label-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
 node tests/grade-add-test.js
