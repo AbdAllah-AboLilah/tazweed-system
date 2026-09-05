@@ -1610,15 +1610,31 @@ function isManualRequest(data) {
   return (data || {}).manualRequest !== false;
 }
 
+// ============================================================
+// ⭐ الحالة من الكميات — قاعدة واحدة، مكان واحد
+// ============================================================
+// كانت مكتوبة جوّه nextStatusFromQuantities بس، فالإضافة الجديدة كانت
+// بتحط status: 'normal' **محفورة** من غير ما تسأل الكميات — والنتيجة
+// عطل حقيقي اتبلّغ:
+//
+//   "لما باجي اضيف درجات جديده دفعة واحده وبعمل انها تبدا صفر، لما
+//    اطبع الورقة مش بلاقي ولا درجات متظلل عليها — لازم ارجع اضغط على
+//    علامة - عشان تبقى خلصت نهائيًا بالرغم إني ضايفهم صفر أساسًا."
+//
+// يعني درجة كمياتها 0/0 كانت بتتولد "متاحة". دلوقتي الإضافة بتسأل نفس
+// القاعدة دي زي أي تعديل كمية.
+function statusFromQuantities(branch, main) {
+  if ((Number(branch) || 0) > 0) return 'normal';
+  if ((Number(main) || 0) > 0) return 'pending';
+  return 'out';
+}
+
 function nextStatusFromQuantities(data, field, newValue) {
   const branch = field === 'branchQty' ? newValue : Number(data.branchQty) || 0;
   const main = field === 'mainQty' ? newValue : Number(data.mainQty) || 0;
   const current = data.status || 'normal';
 
-  let target;
-  if (branch > 0) target = 'normal';
-  else if (main > 0) target = 'pending';
-  else target = 'out';
+  const target = statusFromQuantities(branch, main);
 
   // ⭐ الاستثناء الوحيد: طلب بشري معلّق + دخلت كمية للفرع → سيبه معلّق.
   // (لو الرئيسي خلص، `out` بتعدّي عادي — الطلب مابقاش ينفّذ أصلًا.)
@@ -4003,6 +4019,8 @@ async function addGrade(categoryId, data) {
     mainQty: data.mainQty || 0,
     status: 'normal',
   };
+  // ⚠️ الحالة من الكميات مش محفورة — الشرح عند statusFromQuantities.
+  payload.status = statusFromQuantities(payload.branchQty, payload.mainQty);
   if (data.group) payload.group = data.group;
   if (data.isBase) {
     payload.isBase = true;
@@ -5132,7 +5150,8 @@ async function addGradeRange(categoryId, from, to, group, branchQty) {
   for (let i = 0; i < toAdd.length; i += 400) {
     const batch = db.batch();
     toAdd.slice(i, i + 400).forEach((number) => {
-      const payload = { number, branchQty, mainQty: 0, status: 'normal' };
+      // ⚠️ نفس الحكاية: إضافة بصفر = درجة **خلصت**، مش متاحة.
+      const payload = { number, branchQty, mainQty: 0, status: statusFromQuantities(branchQty, 0) };
       if (group) payload.group = group;
       batch.set(gradesRef.doc(), payload);
     });

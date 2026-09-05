@@ -65,39 +65,71 @@ const RESTOCK_SAFE_BYTES = 44 * 1024;
 const RESTOCK_PRINTS = 'restockPrints';
 
 // ============================================================
-// 🔴 "الناقص بس" — ورقة فيها اللي محتاج تزويد فعلًا
+// 🔴📦 تصفية الورقة — "اللي خلص بس" و"المتاح بس"
 // ============================================================
-// الورقة بتطبع **كل** الدرجات وبتظلّل اللي خلصت. فئة فيها 245 درجة =
-// ورقة طويلة كل مرة، وانت بتمشي عليها على الرف بتدوّر على المظلّل وسط
-// مية رقم سليم.
+// الورقة بتطبع **كل** درجات الفئة. فئة فيها 245 درجة = ورقة طويلة كل
+// مرة، واللي ماشي على الرف بيدوّر على المظلّل وسط مية رقم سليم.
+// المفتاحين دول بيقسّموا الورقة نصين، وكل واحد بيطبع نص:
 //
-// ⚠️⚠️ والتعريف هنا **مش جديد**: بنستخدم نفس القاعدة اللي الشاشة
-// الرئيسية بتفلتر بيها بالظبط (filter === 'low'/'pending'/'out' في
-// app.js) — ونفس gradeCriticalQty. لو عملنا تعريف تاني هنا، الورقة
-// هتقول حاجة والشاشة تقول حاجة تانية، والراجل اللي ماسك الورقة على
-// الرف هو اللي هيدفع التمن.
+//   • اللي خلص بس → الدرجات الفاضية (فرع 0 **و** رئيسي 0)
+//   • المتاح بس   → اللي لسه فيه كمية في الفرع **أو** الرئيسي
 //
-//   • خلصت نهائيًا (out)   → الفرع والرئيسي فاضيين
-//   • طلب معلّق (pending)  → الفرع فاضي والرئيسي فيه
-//   • قربت تخلص (low)      → الفرع لسه فيه بس ≤ حد التنبيه
-function gradeNeedsRestock(g, cat) {
+// ⚠️ التقسيمة دي **قاطعة**: أي درجة يا فاضية يا فيها حاجة، مافيش تالت.
+// عشان كده المفتاحين مكمّلين لبعض — والاتنين مقفولين (أو الاتنين
+// مفتوحين) = الورقة الكاملة زي ما كانت بالظبط.
+
+// ============================================================
+// ⚠️⚠️ "خلصت" بتتقاس من **الكميات**، مش من الحالة المحفوظة لوحدها
+// ============================================================
+// العطل اللي اتبلّغ: "لما باجي اضيف درجات جديده دفعة واحده وبعمل انها
+// تبدا صفر، لما اطبع الورقة مش بلاقي ولا درجات متظلل عليها".
+//
+// السبب إن الإضافة كانت بتحط status:'normal' محفورة مهما كانت الكمية
+// (اتصلح في statusFromQuantities في app.js). بس الدرجات اللي **اتضافت
+// قبل الإصلاح** لسه محفوظة غلط في السحابة — فلو الورقة اعتمدت على
+// الحالة لوحدها، هتفضل غلط عندهم لحد ما حد يلمس كل درجة بإيده.
+//
+// فبنسأل الكميات كمان: فرع 0 ورئيسي 0 = خلصت، مهما كانت الحالة مكتوبة
+// إيه. مافيش أي حالة سليمة تكون فيها الاتنين صفر والدرجة "متاحة".
+//
+// ⚠️ ولاحظ إننا **مابنعكسش** القاعدة: درجة فيها كمية وحالتها 'pending'
+// بتفضل زي ما هي — ده استثناء الطلب اليدوي المقصود (isManualRequest)،
+// ومالوش دعوة بالسؤال ده.
+function gradeIsOut(g) {
   if (!g) return false;
-  if (g.status === 'out' || g.status === 'pending') return true;
-  if (g.status !== 'normal') return false;
-  const limit = typeof gradeCriticalQty === 'function' ? gradeCriticalQty(g, cat) : 0;
-  return limit > 0 && (Number(g.branchQty) || 0) <= limit;
+  if (g.status === 'out') return true;
+  // ⚠️⚠️ الكميات لازم تكون **موجودة** الأول، مش مجرد بتساوي صفر.
+  //
+  // `Number(undefined) || 0` بيطلّع صفر — فدرجة مالهاش الحقول دي خالص
+  // كانت هتتحسب "خلصت". الفحص مسك ده فعلًا: ملف بيعمل درجات من غير
+  // كميات طلّع **22 خانة مظللة بدل 8**، يعني الورقة كلها مظللة.
+  //
+  // كل مسارات الإضافة في النظام بتكتب الحقلين، بس درجة قديمة أو جاية من
+  // مكان مانعرفوش ممكن ماتكونش — والغلط ساعتها بيبقى **صامت وواسع**
+  // (ورقة كلها تظليل). فلو الحقول مش موجودة، بنسيب الحالة المحفوظة
+  // تحكم زي الأول بالظبط.
+  const b = g.branchQty;
+  const m = g.mainQty;
+  if (b === undefined || b === null || b === '') return false;
+  if (m === undefined || m === null || m === '') return false;
+  return (Number(b) || 0) === 0 && (Number(m) || 0) === 0;
 }
 
-function countNeedsRestock(grades, cat, withBase) {
+// الأوضاع: 'out' | 'available' | أي حاجة تانية = الورقة الكاملة
+const RESTOCK_FILTER_LABEL = {
+  out: 'اللي خلص بس',
+  available: 'المتاح بس',
+};
+
+function applyRestockFilter(grades, mode) {
+  if (mode === 'out') return (grades || []).filter((g) => gradeIsOut(g));
+  if (mode === 'available') return (grades || []).filter((g) => !gradeIsOut(g));
+  return grades;
+}
+
+function countRestockFilter(grades, withBase, mode) {
   const list = withBase ? grades : (grades || []).filter((g) => !g.isBase);
-  return list.filter((g) => gradeNeedsRestock(g, cat)).length;
-}
-
-// الفلترة نفسها — مكان واحد، عشان الورقة والعدّاد وأسماء المجموعات
-// كلهم يمشوا على نفس القاعدة.
-function applyShortFilter(grades, cat, shortOnly) {
-  if (!shortOnly) return grades;
-  return (grades || []).filter((g) => gradeNeedsRestock(g, cat));
+  return applyRestockFilter(list, mode).length;
 }
 
 // null = مالمناش الحاجة دي من السحابة لسه. {} = حاولنا ومفيش/فشلت.
@@ -217,7 +249,7 @@ const HATCH_CELL = `<svg class="hatch"><rect width="100%" height="100%" fill="ur
 // بيتبعت لـQZ مع الورقة ويتحسب في حجم الرسالة (حد التقسيم 44 كيلو) —
 // وكمان بيلخبط الفحوصات اللي بتدوّر على كلمات جوه الـHTML.
 // groupName: اسم مجموعة ألوان واحدة عشان تتطبع لوحدها، أو '' للورقة كلها.
-function buildRestockHTML(cat, grades, groupName, withBase, shortOnly) {
+function buildRestockHTML(cat, grades, groupName, withBase, filterMode) {
   // ⭐ اسم اليوم جنب التاريخ — الورقة بتتعلّق على الرف وبتتقارن بغيرها،
   // و"السبت" أسرع في القراية من "٢٠٢٦/٩/٥" وانت ماسك الورقة في إيدك.
   // ⚠️ التاريخ والوقت نفسهم **مالمسناهمش** — بس بنزوّد اليوم قبلهم.
@@ -252,11 +284,11 @@ function buildRestockHTML(cat, grades, groupName, withBase, shortOnly) {
   // في فئة 245 درجة، من فراغات مالهاش أي أثر على الطباعة.
   const rowHTML = (g) =>
     `<div class="row"><span class="num">${escapeHTML(g.number)}</span>` +
-    `<span class="blank">${g.status === 'out' ? HATCH_CELL : ''}</span></div>`;
+    `<span class="blank">${showHatch && gradeIsOut(g) ? HATCH_CELL : ''}</span></div>`;
 
   const baseRowHTML = (g) =>
     `<div class="row"><span class="num base-num">${escapeHTML(g.name || '')}</span>` +
-    `<span class="blank">${g.status === 'out' ? HATCH_CELL : ''}</span></div>`;
+    `<span class="blank">${showHatch && gradeIsOut(g) ? HATCH_CELL : ''}</span></div>`;
 
   // جسم المجموعة الواحدة: شبكة الأرقام، وتحتها شبكة أسماء الأساسية.
   const bodyOfSection = (list) => {
@@ -271,14 +303,30 @@ function buildRestockHTML(cat, grades, groupName, withBase, shortOnly) {
   // الأساسية بتدخل التجميع بس لو المفتاح مفتوح — وإلا الورقة زي الأول
   // بالظبط: أرقام وبس.
   //
-  // ⚠️ و"الناقص بس" بيتفلتر **هنا**، بعد الأساسية وقبل التجميع — عشان
-  // المجموعات تتحسب على اللي هيتطبع فعلًا، فمجموعة كل درجاتها سليمة
+  // ⚠️ والتصفية بتحصل **هنا**، بعد الأساسية وقبل التجميع — عشان
+  // المجموعات تتحسب على اللي هيتطبع فعلًا، فمجموعة كل درجاتها اتشالت
   // ماتطلعش عنوان فاضي.
-  const relevant = applyShortFilter(
-    withBase ? grades : grades.filter((g) => !g.isBase),
-    cat,
-    shortOnly
-  );
+  const all = withBase ? grades : grades.filter((g) => !g.isBase);
+  const relevant = applyRestockFilter(all, filterMode);
+  // ⚠️ اللافتة بتتقرر من **اللي اتشال فعلًا**، مش من المفتاح. لو المفتاح
+  // مفتوح ومافيش ولا درجة اتشالت (كل الفئة خلصت مثلًا)، الورقة كاملة
+  // فعلًا — واللافتة ساعتها بتكدب.
+  const droppedAny = relevant.length < all.length;
+  const filterLabel = RESTOCK_FILTER_LABEL[filterMode] || '';
+
+  // ============================================================
+  // ⚠️⚠️ ورقة "اللي خلص بس" **من غير تظليل**
+  // ============================================================
+  // التظليل معناه "الدرجة دي خلصت". في ورقة كل درجاتها خلصت، التظليل
+  // بيتحط على **كل** خانة — فبيقول معلومة الورقة قايلاها في عنوانها
+  // أصلًا، و**بياكل المكان اللي بتكتب فيه الكمية**. يعني ورقة مالكش
+  // مكان تكتب فيها.
+  //
+  // شفنا ده في الصورة قبل ما يوصل للورق: ٦ خانات كلها مظللة.
+  //
+  // ⚠️ والورقة الكاملة وورقة "المتاح بس" **زي ما هما**: هناك التظليل
+  // بيفرّق بين درجة ودرجة، وده شغله الأصلي.
+  const showHatch = filterMode !== 'out';
 
   // مجموعة واحدة: الورقة كلها بقت للمجموعة دي، فاسمها بيروح **للعنوان
   // فوق** (كريب سادة لوكس — بيجات) ومفيش داعي لعنوان جوّه.
@@ -382,8 +430,8 @@ function buildRestockHTML(cat, grades, groupName, withBase, shortOnly) {
         // حرف. أول نسخة من اللافتة دي كان شرحها مكتوب في الـCSS —
         // فكانت بتتبعت مع **كل** ورقة تزويد في النظام، حتى اللي
         // المفتاح مقفول عندها.
-        shortOnly
-          ? `<div class="short-note">الورقة دي فيها <u>الناقص بس</u> (${escapeHTML(relevant.length)} درجة) — مش كل درجات الفئة</div>`
+        droppedAny && filterLabel
+          ? `<div class="short-note">الورقة دي فيها <u>${escapeHTML(filterLabel)}</u> (${escapeHTML(relevant.length)} من ${escapeHTML(all.length)}) — مش كل درجات الفئة</div>`
           : ''
       }
       ${rowsHTML}
@@ -418,14 +466,13 @@ const RESTOCK_EACH_GROUP = '\u0000each';
 //
 // ⚠️ withBase لازم يوصل لهنا: من غيره الفئة اللي كلها أساسية بتطلّع
 // **صفر ورق**، والفئة اللي فيها مجموعة أساسية بس بتطلّع ورقة فاضية.
-function restockGroupNames(cat, grades, withBase, shortOnly) {
+function restockGroupNames(cat, grades, withBase, filterMode) {
   const groups = categoryGroups(cat);
   // ⚠️ نفس الفلترة اللي في buildRestockHTML بالحرف — لو اختلفوا، خيار
-  // "كل مجموعة في ورقة" هيطلّع **ورقة فاضية** لمجموعة كل درجاتها سليمة.
-  const relevant = applyShortFilter(
+  // "كل مجموعة في ورقة" هيطلّع **ورقة فاضية** لمجموعة كل درجاتها اتشالت.
+  const relevant = applyRestockFilter(
     withBase ? grades : grades.filter((g) => !g.isBase),
-    cat,
-    shortOnly
+    filterMode
   );
   const countOf = (name) => relevant.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
   const names = groups.filter((n) => countOf(n) > 0);
@@ -539,8 +586,8 @@ async function renderSheetImage(html) {
   }
 }
 
-function buildRestockBundle(cat, grades, names, withBase, shortOnly) {
-  const papers = names.map((name) => buildRestockHTML(cat, grades, name, withBase, shortOnly));
+function buildRestockBundle(cat, grades, names, withBase, filterMode) {
+  const papers = names.map((name) => buildRestockHTML(cat, grades, name, withBase, filterMode));
 
   const bodyOf = (html) => {
     const m = html.match(/<body>([\s\S]*?)<\/body>/i);
@@ -590,7 +637,6 @@ function chooseRestockGroup(cat, grades) {
     // الاختيار مش هتعرض ولا مجموعة والعدّاد هيقول "0 درجة".
     const countOf = (name) => grades.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
     const savedBase = !!(getSharedPrintSettings() || {}).restockWithBase;
-    const savedShort = !!(getSharedPrintSettings() || {}).restockShortOnly;
 
     const options = groups.filter((n) => countOf(n) > 0);
     if (countOf(UNGROUPED_LABEL) > 0) options.push(UNGROUPED_LABEL);
@@ -608,11 +654,15 @@ function chooseRestockGroup(cat, grades) {
     // غير كده الشاشة كانت هتفتح على فاضي وتاخد دوسة من غير فايدة —
     // ونفس القاعدة اللي الشاشة دي ماشية عليها من الأصل.
     const totalRelevant = (savedBase ? grades : grades.filter((g) => !g.isBase)).length;
-    const shortCount = countNeedsRestock(grades, cat, savedBase);
-    const needsShortChoice = shortCount > 0 && shortCount < totalRelevant;
+    const outCount = countRestockFilter(grades, savedBase, 'out');
+    const availCount = totalRelevant - outCount;
+    // فيه اختيار حقيقي بس لو الفئة فيها **الاتنين**. لو كلها خلصت أو
+    // كلها متاحة، المفتاحين مالهمش أي معنى — واحد بيطلّع نفس الورقة
+    // والتاني بيطلّع ورقة فاضية.
+    const needsFilterChoice = outCount > 0 && availCount > 0;
 
-    if (!needsGroupChoice && !hasBase && !needsShortChoice) {
-      resolve({ group: '', withBase: false, shortOnly: false });
+    if (!needsGroupChoice && !hasBase && !needsFilterChoice) {
+      resolve({ group: '', withBase: false, filterMode: '' });
       return;
     }
 
@@ -654,14 +704,30 @@ function chooseRestockGroup(cat, grades) {
         </div>
         <div class="dialog-foot">
           ${
-            // ⚠️ المفتاح ده فوق مفتاح الأساسية عن قصد: هو اللي بيغيّر
-            // **محتوى** الورقة، والتاني بيزوّد سطور. اللي بيغيّر أكتر
-            // يبقى أقرب لعينك.
-            needsShortChoice
-              ? `<label class="print-opt" style="justify-content:center; margin-bottom:8px;">
-                   <input type="checkbox" id="rg-short-only" ${savedShort ? 'checked' : ''} />
-                   <span><strong>الناقص بس (${escapeHTML(shortCount)} من ${escapeHTML(totalRelevant)})</strong><br>
-                     <span class="print-opt-hint">اللي خلص أو معلّق أو قرّب يخلص — الورقة بتقصر</span></span>
+            // ============================================================
+            // ⚠️⚠️ المفتاحين دول **مابيتحفظوش** — بعكس مفتاح الأساسية
+            // ============================================================
+            // اتطلب كده بالنص: "انا عاوز الاتنين شيك بوكس دول ميتحفظش
+            // الاختيار بتاعهم ... الاقي الزرارين متشال عليهم التعليم".
+            //
+            // والسبب منطقي: مفتاح الأساسية بيوصف **شكل شغلك** (بتشتغل
+            // بالأساسية ولا لأ) فبيتحفظ. والمفتاحين دول بيوصفوا **الطبعة
+            // دي بالذات** — النهارده عايز اللي خلص، بكرة عايز الورقة
+            // كلها. لو اتحفظوا، هتفتح الشاشة وتدوس "الورقة كلها" وتطلعلك
+            // ناقصة من غير ما تعرف ليه.
+            //
+            // فمفيش هنا `checked` ولا قراية من الإعدادات المحفوظة.
+            // ⚠️ ومتحطش. لو حد ضاف حفظ للمفتاحين دول، الفحص بيمسكها.
+            needsFilterChoice
+              ? `<label class="print-opt" style="justify-content:center; margin-bottom:6px;">
+                   <input type="checkbox" id="rg-only-out" />
+                   <span><strong>اللي خلص بس (${escapeHTML(outCount)})</strong><br>
+                     <span class="print-opt-hint">الدرجات الفاضية في الفرع والرئيسي</span></span>
+                 </label>
+                 <label class="print-opt" style="justify-content:center; margin-bottom:8px;">
+                   <input type="checkbox" id="rg-only-avail" />
+                   <span><strong>المتاح بس (${escapeHTML(availCount)})</strong><br>
+                     <span class="print-opt-hint">اللي لسه فيه كمية في الفرع أو الرئيسي</span></span>
                  </label>`
               : ''
           }
@@ -679,25 +745,31 @@ function chooseRestockGroup(cat, grades) {
       </div>`;
     document.body.appendChild(overlay);
 
+    // المفتاحين مع بعض (أو ولا واحد) = الورقة الكاملة — التقسيمة قاطعة،
+    // فاتحاد النصين هو الكل.
+    const modeOf = () => {
+      const o = overlay.querySelector('#rg-only-out');
+      const a = overlay.querySelector('#rg-only-avail');
+      const onlyOut = !!(o && o.checked);
+      const onlyAvail = !!(a && a.checked);
+      if (onlyOut === onlyAvail) return '';
+      return onlyOut ? 'out' : 'available';
+    };
+
     const close = (group) => {
       const el = overlay.querySelector('#rg-with-base');
-      const shortEl = overlay.querySelector('#rg-short-only');
       const withBase = !!(el && el.checked);
-      const shortOnly = !!(shortEl && shortEl.checked);
+      const filterMode = modeOf();
       if (overlay.parentNode) document.body.removeChild(overlay);
       if (group === null) {
         resolve(null);
         return;
       }
-      // الاختيار بيتحفظ في الإعدادات المشتركة زي باقي خيارات الطباعة —
-      // لو شغلك دايمًا بالأساسية، مش هتعلّم عليها كل مرة.
-      const patch = {};
-      if (el) patch.restockWithBase = withBase;
-      if (shortEl) patch.restockShortOnly = shortOnly;
-      if (Object.keys(patch).length) {
-        Promise.resolve(saveSharedPrintSettings(patch)).catch(() => {});
+      // ⚠️ **مفتاح الأساسية بس** هو اللي بيتحفظ. الشرح فوق عند المفتاحين.
+      if (el) {
+        Promise.resolve(saveSharedPrintSettings({ restockWithBase: withBase })).catch(() => {});
       }
-      resolve({ group, withBase, shortOnly });
+      resolve({ group, withBase, filterMode });
     };
     // ============================================================
     // ⚠️⚠️ الأرقام على الأزرار **لازم تتحدّث مع المفاتيح**
@@ -707,17 +779,15 @@ function chooseRestockGroup(cat, grades) {
     // بتاخد قرارك عليه.
     const refreshCounts = () => {
       const baseEl = overlay.querySelector('#rg-with-base');
-      const shortEl = overlay.querySelector('#rg-short-only');
       const wb = baseEl ? baseEl.checked : savedBase;
-      const so = shortEl ? shortEl.checked : false;
-      const shown = applyShortFilter(wb ? grades : grades.filter((g) => !g.isBase), cat, so);
+      const shown = applyRestockFilter(wb ? grades : grades.filter((g) => !g.isBase), modeOf());
       const inGroup = (name) => shown.filter((g) => (g.group || UNGROUPED_LABEL) === name).length;
       overlay.querySelectorAll('[data-rg-count]').forEach((el) => {
         const key = el.getAttribute('data-rg-count');
         el.textContent = key === 'all' ? shown.length : inGroup(key);
       });
     };
-    ['#rg-with-base', '#rg-short-only'].forEach((sel) => {
+    ['#rg-with-base', '#rg-only-out', '#rg-only-avail'].forEach((sel) => {
       const el = overlay.querySelector(sel);
       if (el) el.addEventListener('change', refreshCounts);
     });
@@ -745,14 +815,15 @@ function restockSheetTitle(cat, groupName) {
 // وصفة السجل لورقة التزويد.
 // ⚠️ kind: 'restock' **مش** بتتبني تاني في rebuildFromSpec — الورقة
 // بتتبعت جاهزة. الوصفة دي لسجل العمليات بس.
-function restockLogSpec(cat, groupName, papers, shortOnly) {
-  // ⚠️ "الناقص بس" **لازم يتكتب في السجل**: ورقة ناقصة درجات عن قصد
+function restockLogSpec(cat, groupName, papers, filterMode) {
+  // ⚠️ نوع الورقة **لازم يتكتب في السجل**: ورقة ناقصة درجات عن قصد
   // وورقة كاملة مش نفس العملية، واللي بيراجع السجل بعد أسبوع مش هيفرّق
   // بينهم لو السطرين مكتوبين بنفس الاسم.
+  const label = RESTOCK_FILTER_LABEL[filterMode] || '';
   return {
     kind: 'restock',
     cat: cat || null,
-    text: restockSheetTitle(cat, groupName) + (shortOnly ? ' (الناقص بس)' : ''),
+    text: restockSheetTitle(cat, groupName) + (label ? ` (${label})` : ''),
     copies: Math.max(1, parseInt(papers, 10) || 1),
   };
 }
@@ -764,22 +835,26 @@ async function printRestockPaper(cat, grades) {
 
   const choice = await chooseRestockGroup(cat, grades);
   if (!choice) return;
-  const { group: groupName, withBase, shortOnly } = choice;
+  const { group: groupName, withBase, filterMode } = choice;
 
   // ⚠️⚠️ ورقة فاضية = ورق محروق وحيرة. لو مفيش ولا درجة ناقصة، بنقولها
   // **قبل** المعاينة بدل ما يطبع ورقة عنوان من غير أرقام.
   // (تنبيه مش موقّف — نفس درس showPrintNotice: الطبعة ممكن تكون عن بُعد
   //  ومافيش حد واقف عند الجهاز.)
-  if (shortOnly && countNeedsRestock(grades, cat, withBase) === 0) {
-    showPrintNotice('✅ مفيش ولا درجة محتاجة تزويد في الفئة دي — مافيش حاجة تتطبع.');
+  if (filterMode && countRestockFilter(grades, withBase, filterMode) === 0) {
+    showPrintNotice(
+      filterMode === 'out'
+        ? '✅ مفيش ولا درجة خلصت في الفئة دي — مافيش حاجة تتطبع.'
+        : '⚠️ كل درجات الفئة دي خلصت — مافيش متاح يتطبع.'
+    );
     return;
   }
 
   // ⭐ كل مجموعة في ورقة لوحدها — بضغطة واحدة
   if (groupName === RESTOCK_EACH_GROUP) {
-    const names = restockGroupNames(cat, grades, withBase, shortOnly);
+    const names = restockGroupNames(cat, grades, withBase, filterMode);
     if (!names.length) return;
-    const bundle = buildRestockBundle(cat, grades, names, withBase, shortOnly);
+    const bundle = buildRestockBundle(cat, grades, names, withBase, filterMode);
 
     // معاينة واحدة مجمّعة: كل الورق ورا بعض بخط فاصل بينهم.
     const okAll = await showPrintPreview(bundle.previewHTML, {
@@ -793,13 +868,13 @@ async function printRestockPaper(cat, grades) {
     // الجهاز مرة واحدة بس، والطابعة بتشتغل متواصلة.
     const sentAll = await deliverPrint(
       'restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML,
-      restockLogSpec(cat, '', bundle.count, shortOnly)
+      restockLogSpec(cat, '', bundle.count, filterMode)
     );
     if (sentAll) stampRestockPrint(cat);
     return;
   }
 
-  const html = buildRestockHTML(cat, grades, groupName, withBase, shortOnly);
+  const html = buildRestockHTML(cat, grades, groupName, withBase, filterMode);
 
   // معاينة قبل الطباعة — نفس فكرة الملصق: تشوف اللي هيطلع قبل ما تحرق ورق.
   // ورقة التزويد ممكن تبقى متر كامل لو الفئة فيها 165 درجة.
@@ -817,7 +892,7 @@ async function printRestockPaper(cat, grades) {
   const estByteSize = new TextEncoder().encode(html).length;
 
   if (estByteSize > RESTOCK_SAFE_BYTES && !groupName) {
-    const names = restockGroupNames(cat, grades, withBase, shortOnly);
+    const names = restockGroupNames(cat, grades, withBase, filterMode);
     if (names.length > 1) {
       // ⭐⭐ التقسيم ده **لازم يتقال**، مش يحصل في سكوت.
       //
@@ -834,10 +909,10 @@ async function printRestockPaper(cat, grades) {
       showPrintNotice(
         `📄 الفئة كبيرة على أمر طباعة واحد — هتتقسّم على ${names.length} ورقة (كل مجموعة لوحدها).`
       );
-      const bundle = buildRestockBundle(cat, grades, names, withBase, shortOnly);
+      const bundle = buildRestockBundle(cat, grades, names, withBase, filterMode);
       const sentSplit = await deliverPrint(
         'restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML,
-        restockLogSpec(cat, '', bundle.count, shortOnly)
+        restockLogSpec(cat, '', bundle.count, filterMode)
       );
       if (sentSplit) stampRestockPrint(cat);
       return;
@@ -851,7 +926,7 @@ async function printRestockPaper(cat, grades) {
   // ورقة التزويد رول مستمر (الارتفاع مفتوح)، فمش بنفرض مقاس على QZ.
   const sent = await deliverPrint(
     'restock', html, null, 'width=700,height=800', undefined,
-    restockLogSpec(cat, groupName, 1, shortOnly)
+    restockLogSpec(cat, groupName, 1, filterMode)
   );
   if (sent) stampRestockPrint(cat);
 }
