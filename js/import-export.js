@@ -330,11 +330,14 @@ function openImportDialog() {
           const chunk = group.grades.slice(i, i + 400);
           const batch = db.batch();
           chunk.forEach((number) => {
+            // ⚠️ نفس عطل الإضافة الجماعية: كميات صفر/صفر وحالة 'normal'
+            // محفورة = فئة مستوردة كلها "متاحة" وهي فاضية، وورقة تزويد
+            // من غير ولا تظليل. الشرح عند statusFromQuantities في app.js.
             batch.set(catRef.collection('grades').doc(), {
               number,
               branchQty: 0,
               mainQty: 0,
-              status: 'normal',
+              status: statusFromQuantities(0, 0),
             });
           });
           await batch.commit();
