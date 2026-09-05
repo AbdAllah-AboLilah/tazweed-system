@@ -94,10 +94,27 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const m1 = so.match(/class="short-note">([\s\S]*?)<\/div>/);
     out.outBanner = m1 ? m1[1].replace(/<[^>]*>/g, '').trim() : '';
 
-    // ⚠️⚠️ وورقة "اللي خلص بس" **من غير تظليل**: كل درجاتها خلصت،
-    // فالتظليل بياكل مكان الكتابة ويقول حاجة العنوان قايلها.
-    out.outHatches = so.split('<div class="row">').slice(1)
-      .filter((c) => c.indexOf('class="hatch"') !== -1).length;
+    // ⚠️⚠️ ورقة "اللي خلص بس" بتظليل **خفيف** — موجود بس بخطوط أقل.
+    // اتطلب كده بالنص: "عاوز الورقة يبقي فيها تظليل حتي لو خفيف ... عشان
+    // انا لو ماخدتش بالي من الورقة من فوق ممكن افتكرها متاحه".
+    const rowsOf = (html) => html.split('<div class="row">').slice(1);
+    out.outHatches = rowsOf(so).filter((c) => c.indexOf('class="hatch"') !== -1).length;
+    out.outRows = rowsOf(so).length;
+    // الورقة دي بتستخدم النمط الخفيف، والكاملة بتستخدم العادي
+    out.outUsesLite = so.indexOf('url(#hxl)') !== -1 && so.indexOf('url(#hx)"') === -1;
+    out.fullUsesNormal = none.indexOf('url(#hx)') !== -1 && none.indexOf('url(#hxl)') === -1;
+    // والنمطين الاتنين معرّفين في الورقة
+    out.bothDefined = so.indexOf('id="hx"') !== -1 && so.indexOf('id="hxl"') !== -1;
+
+    // ⚠️⚠️ و"أخف" لازم تكون **خطوط أقل** مش خط أرفع: الطابعة الحرارية
+    // أبيض/أسود بس، والخط الأرفع من نقطة بيطلع متقطّع. فسُمك الشخطة
+    // لازم يفضل **هو هو**، والمسافة بينهم هي اللي تكبر.
+    const pat = (id) => {
+      const m = HATCH_DEFS.match(new RegExp(`id="${id}" width="(\\d+)"[\\s\\S]*?<rect width="([\\d.]+)"`));
+      return m ? { gap: Number(m[1]), bar: Number(m[2]) } : null;
+    };
+    out.patNormal = pat('hx');
+    out.patLite = pat('hxl');
 
     // ---------- 6) المتاح بس ----------
     const av = buildRestockHTML(cat, grades, '', true, 'available');
@@ -161,8 +178,14 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐ وبيشيل اللي فيه كمية', r.outDrops);
   check('⭐ ولافتته بتقول اسمه والعدد',
     r.outBanner.indexOf('اللي خلص بس') !== -1 && r.outBanner.indexOf('3') !== -1, r.outBanner);
-  check('⚠️⚠️ وورقتها من غير تظليل (عشان تلاقي مكان تكتب فيه)',
-    r.outHatches === 0, r.outHatches);
+  check('⚠️⚠️ وورقتها **فيها تظليل** على كل خانة (عشان ماتتقريش غلط)',
+    r.outHatches === r.outRows && r.outRows > 0, { hatched: r.outHatches, rows: r.outRows });
+  check('⭐⭐ بس بالنمط الخفيف', r.outUsesLite, r.outUsesLite);
+  check('⭐ والورقة الكاملة بالنمط العادي', r.fullUsesNormal, r.fullUsesNormal);
+  check('⭐ والنمطين معرّفين في الورقة', r.bothDefined);
+  check('⚠️⚠️ و"أخف" = خطوط أبعد، **مش** خط أرفع (الطابعة أبيض/أسود)',
+    r.patNormal && r.patLite && r.patLite.bar === r.patNormal.bar && r.patLite.gap > r.patNormal.gap,
+    { عادي: r.patNormal, خفيف: r.patLite });
 
   // ---------- المتاح بس ----------
   check('⭐⭐ "المتاح بس" بيسيب اللي فيه كمية', r.availKeeps);
