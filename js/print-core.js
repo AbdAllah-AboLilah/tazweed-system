@@ -2679,6 +2679,58 @@ async function maybeRasterizeSheet(type, list, sizeOptions) {
 // اللي عايز الحجم الكامل من غير تصغير: خيار "كل مجموعة في ورقة لوحدها"
 // موجود في شاشة الطباعة، وكل مجموعة بتدخل في الفورم لوحدها.
 
+// ============================================================
+// 🔢 نسخة QZ Tray — عشان `size.custom` مايتبعتش لنسخة مش فاهماه
+// ============================================================
+// ⚠️⚠️ العطل اللي كشف الحاجة دي: نفس الورقة، نفس الفئة، جهازين —
+// واحدة كاملة وواحدة مقصوصة عند **211.7مم** بالظبط. والملاحظة اللي
+// حسمت السبب: على الجهاز اللي بيقص، **قفل مفتاح "الورقة كصورة"
+// بيصلّحها**.
+//
+// والفرق بين الوضعين مش الصورة — الفرق **المقاس**:
+//   • مفتاح مقفول → مابنبعتش مقاس خالص → الرول بيمشي لآخره ✅
+//   • مفتاح مفتوح → بنبعت "اطبع بطول 231مم" + custom: true
+//
+// و`custom` اتضاف في **QZ Tray 2.2.6**. النسخة الأقدم بتتجاهله بس
+// **بتاخد الطول الصريح**، والتعريف بيقصّه عند حد الفورم بتاعه (210مم
+// على الجهاز ده). يعني بنبعت أمر بيأذي على النسخ القديمة.
+//
+// فبنسأل QZ عن نسخته. لو أقدم من 2.2.6، بنشيل المقاس خالص لورقة
+// التزويد — فبترجع تتطبع رول مستمر زي ما هي شغّالة بالظبط لما المفتاح
+// يكون مقفول.
+//
+// ⚠️ الملصق **مالوش دعوة**: مقاسه ثابت (38×25) ومحتاج يتبعت على كل
+// النسخ. اللي بيتشال هو `custom` بس، مش المقاس.
+const QZ_CUSTOM_SIZE_MIN = [2, 2, 6];
+let qzVersionCache = null;
+
+function qzVersionAtLeast(ver, min) {
+  const parts = String(ver || '').split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < min.length; i++) {
+    const a = parts[i] || 0;
+    if (a > min[i]) return true;
+    if (a < min[i]) return false;
+  }
+  return true;
+}
+
+async function qzSupportsCustomSize() {
+  if (qzVersionCache !== null) return qzVersionCache.ok;
+  let ver = '';
+  try {
+    if (typeof qz !== 'undefined' && qz.api && typeof qz.api.getVersion === 'function') {
+      ver = await qz.api.getVersion();
+    }
+  } catch (err) {
+    console.warn('تعذّرت قراءة نسخة QZ Tray:', err);
+  }
+  // ⚠️ مانعرفش النسخة = **مانبعتش** المقاس المخصّص. الأمان هنا إننا
+  // نرجع للسلوك القديم المضمون، مش إننا نجرّب ونقص ورقة.
+  const ok = !!ver && qzVersionAtLeast(ver, QZ_CUSTOM_SIZE_MIN);
+  qzVersionCache = { ver, ok };
+  return ok;
+}
+
 async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
   setPrintOutcome(false, 'الطباعة ماوصلتش لآخرها.');
   const printerName = getSavedPrinter(type);
@@ -2795,6 +2847,28 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     // مابيتأثرش أصلًا (QZ بيتجاهل custom معاه).
     const allImages = list.length > 0 && list.every((j) => j && typeof j.image === 'string' && j.image);
     if (size && (sizeOptions.customSize || allImages)) size.custom = true;
+
+    // ============================================================
+    // ⚠️⚠️ الورقة المستمرة على نسخة QZ ماتفهمش custom → **نشيل المقاس**
+    // ============================================================
+    // ⚠️ لاحظ إن `custom` نفسه **مش** اللي بيأذي: النسخة القديمة
+    // بتتجاهله وخلاص، فوجوده على الملصق مالوش أي أثر. اللي بيأذي هو
+    // **الطول الصريح** لورقة رول مستمر: من غير custom التعريف بيقصّه
+    // عند فورم بتاعه (211.7مم على جهاز المحل).
+    //
+    // عشان كده الشرط هنا `customSize` بالذات (ورقة التزويد كصورة)، مش
+    // كل مقاس. الملصق مقاسه ثابت 38×25 وبيتبعت زي ما هو على كل النسخ —
+    // ولمسه هنا كان هيرجّع عطل العمود المقصوص بتاع v0.73.2.
+    //
+    // الشرح الكامل للعطل عند qzSupportsCustomSize فوق.
+    if (size && sizeOptions.customSize && !(await qzSupportsCustomSize())) {
+      size = null;
+      showPrintNotice(
+        `📄 نسخة QZ Tray على الجهاز ده${qzVersionCache && qzVersionCache.ver ? ` (${qzVersionCache.ver})` : ''}` +
+          ' أقدم من 2.2.6 — الورقة اتطبعت رول مستمر عشان ماتتقصش. حدّث QZ Tray عشان تطبع بمقاسها بالظبط.',
+        12000
+      );
+    }
 
     // نفس شكل الإعداد اللي كان شغال 100% في v0.17 — من غير أي خيارات
     // إضافية. العدد بنعمله بتكرار الطلب نفسه، مش بخيار في الإعداد، عشان

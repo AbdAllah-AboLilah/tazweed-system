@@ -57,10 +57,18 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     // ---------- طابعة وهمية: بنمسك اللي بيوصلها فعلًا ----------
     const sent = [];
     window.qz = {
+      // ⚠️⚠️ النسخة **لازم** تكون هنا: النظام بيسأل QZ عن نسختـه قبل ما
+      // يبعت مقاس صريح لورقة رول مستمر، ولو مالقاش نسخة بيتصرّف على إنها
+      // قديمة **ويشيل المقاس خالص** (عشان الطول الصريح بيتقص على النسخ
+      // اللي ماتفهمش size.custom — الشرح عند qzSupportsCustomSize).
+      // الطابعة الوهمية من غير النسخة دي مش بتحاكي QZ حقيقي، والفحص
+      // كان بيفشل بسبب الطابعة الوهمية مش بسبب النظام.
+      api: { getVersion: () => Promise.resolve('2.2.6') },
       configs: { create: (n, o) => ({ printer: n, opts: o }) },
       print: (cfg, pages) => { sent.push({ opts: cfg.opts, pages }); return Promise.resolve(); },
       printers: { details: () => Promise.resolve([{ name: 'XP-80C' }]) },
     };
+    qzVersionCache = null;   // ⚠️ الكاش بيتصفّى عشان الطابعة الوهمية تتقرا
     window.isQZAvailable = () => true;
     window.ensureQZConnected = () => Promise.resolve(true);
     window.getSavedPrinter = () => 'XP-80C';
