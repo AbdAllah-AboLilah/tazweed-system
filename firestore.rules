@@ -85,6 +85,22 @@ service cloud.firestore {
       return userProfile().get('warehouseAccess', 'both');
     }
 
+    // ============================================================
+    // خانة "الفئات" — يعدّل الكميات في أنهي فئات
+    // ============================================================
+    // نفس فكرة warehouseAccess بالظبط، بس على الفئات. ورقم الفئة موجود
+    // في المسار نفسه (categories/{categoryId}/grades/...)، فالقاعدة
+    // تقدر تنفّذها فعلًا — مش إخفاء من الشاشة وبس.
+    //
+    // ⚠️⚠️ **قايمة فاضية أو مش موجودة = كل الفئات.** ده اللي بيخلي كل
+    // الحسابات الموجودة دلوقتي تفضل شغّالة زي ما هي. لو كانت "فاضية =
+    // مافيش"، كل حساب في النظام كان هيتقفل عليه التعديل أول ما القاعدة
+    // دي تترفع — والحسابات دي كلها ماعندهاش الحقل أصلًا.
+    function categoryAllowed(categoryId) {
+      return userProfile().get('categoryAccess', []).size() == 0
+        || categoryId in userProfile().get('categoryAccess', []);
+    }
+
     // مفتاح "يقدر" + خانة "أنهي مخزن" — الاتنين لازم يوافقوا.
     function isBranchKeeper() {
       return can('editBranchQty') && (warehouseAccess() in ['branch', 'both'] || warehouseAccess() == null);
@@ -207,8 +223,13 @@ service cloud.firestore {
         && onlyChangedKeys(['group', 'name', 'criticalQty', 'number', 'isBase']);
     }
 
-    function canUpdateGrade() {
-      return catalogGradeEdit() || branchAction() || mainAction();
+    // ⚠️ خانة الفئات بتتطبّق على **تعديل الكميات بس** (branchAction /
+    // mainAction) — اتطلبت كده بالنص: "الكميات بس يزود وينقص".
+    // catalogGradeEdit (تعديل بيانات الدرجة نفسها بمفتاح manageCategories)
+    // سايب زي ما هو على كل الفئات.
+    function canUpdateGrade(categoryId) {
+      return catalogGradeEdit()
+        || ((branchAction() || mainAction()) && categoryAllowed(categoryId));
     }
 
     // حسابات المستخدمين: القراءة لأي مستخدم مسجّل دخول (عشان نعرض الاسم/الدور)،
@@ -230,6 +251,22 @@ service cloud.firestore {
       allow update: if isSignedIn()
         && request.auth.uid == userId
         && onlyChangedKeys(['lastSeen']);
+
+      // ------------------------------------------------------------
+      // أسماء اللي شغّالين على الحساب المشترك
+      // ------------------------------------------------------------
+      // ⚠️⚠️ ليه مجموعة تحت الحساب مش حقل **جوّه** وثيقة الحساب؟ لأن
+      // الحقل كان هيحتاج نفتح للمستخدم كتابة على وثيقة حسابه هو — وهي
+      // الوثيقة اللي فيها رتبته وصلاحياته. المسار المنفصل ده بيخلي
+      // الكتابة **مستحيل** تلمس الرتبة ولا المفاتيح أصلًا.
+      //
+      // ⚠️ الأسامي دي مش سر: هي أصلًا بتظهر جنب كل حركة في سجل العمليات.
+      // عشان كده القراءة زي قراءة الحساب نفسه بالظبط.
+      match /operators/{operatorId} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn() && request.auth.uid == userId;
+        allow delete: if isAdmin();
+      }
     }
 
     match /categories/{categoryId} {
@@ -241,7 +278,7 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow create: if can('addGrades');
         allow delete: if can('deleteGrades');
-        allow update: if canUpdateGrade();
+        allow update: if canUpdateGrade(categoryId);
       }
     }
 
@@ -292,7 +329,11 @@ service cloud.firestore {
     // **عرض** في الواجهة (مفتاح showRestockDate)، مش سر. لو بقى سر
     // بجد، الشرط هنا هو اللي لازم يتغيّر مش الواجهة.
     match /restockPrints/{categoryId} {
-      allow read: if isSignedIn();
+      // ⚠️⚠️ القراءة على المفتاح مش على "مسجّل دخول": إخفاء التاريخ من
+      // الشاشة **مش حماية** — الحساب اللي المفتاح مقفول عنده كان لسه
+      // يقدر يقرا التواريخ من السحابة مباشرة. الكتابة سايبة زي ما هي
+      // على printRestock: أي حد بيطبع بيسجّل الوقت، حتى لو مش شايفه.
+      allow read: if can('seeRestockLastPrint');
       allow create, update: if can('printRestock');
       // مافيش حذف: التاريخ ده تاريخ، وحذفه بيضيّع "الفئة دي واقفة من إمتى".
       allow delete: if false;

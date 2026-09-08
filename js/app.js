@@ -1889,8 +1889,12 @@ function gradeCardsHTML(canEditBranch, canEditMain, canDeleteGrades) {
 }
 
 function gradeTableHTML() {
-  const canEditBranch = canEditWarehouse(state.profile, 'branch');
-  const canEditMain = canEditWarehouse(state.profile, 'main');
+  // ⭐ خانة "الفئات" في الحساب: المفتاح بيقول هل يعدّل كميات، وخانة
+  // الفئات بتقول في أنهي فئات. الاتنين لازم يوافقوا على الفئة **المفتوحة
+  // دلوقتي** — شوف canEditCategory في permissions.js.
+  const catOK = canEditCategory(state.profile, state.activeCategoryId);
+  const canEditBranch = catOK && canEditWarehouse(state.profile, 'branch');
+  const canEditMain = catOK && canEditWarehouse(state.profile, 'main');
   // ⭐ كل زرار بقى بمفتاحه هو، مش بـ"صلاحية كاملة" واحدة بتفتح كل حاجة.
   const canAddGrades = can(state.profile, 'addGrades');
   const canDeleteGrades = can(state.profile, 'deleteGrades');
@@ -5648,6 +5652,80 @@ function saveOperatorName(name) {
   }
 }
 
+// ------------------------------------------------------------
+// ☁️ رفع الاسم للسحابة — عشان تشوف مين شغّال على الحساب المشترك
+// ------------------------------------------------------------
+// الاسم متحفوظ على الجهاز (فوق)، وده كان معناه إن **مافيش مكان** تقدر
+// تشوف منه قايمة اللي شغّالين على الحساب. فبنرفعه كمان في مكان صغير
+// تحت الحساب نفسه.
+//
+// ⚠️⚠️ السرعة — القاعدة اللي المسار ده اتبنى عليها:
+//
+//   ١) الكتابة **مش** مع كل حركة. مرة واحدة أول ما الاسم يتكتب، وبعدها
+//      مرة كل يوم على الأكثر عشان تحديث "آخر مرة اشتغل". يعني كتابة
+//      واحدة في اليوم لكل شخص على كل جهاز — رقم مالوش أي وزن.
+//   ٢) مافيش **استماع مباشر** على القايمة دي خالص. بتتقرا مرة واحدة
+//      وقت ما تفتح شاشة الحسابات وبس.
+//   ٣) مسار لوحده تمامًا — **سجل العمليات مالوش أي علاقة بيه** ومابيزيدش
+//      ولا نداء واحد. السجل زي ما هو بالظبط.
+//   ٤) الكتابة `fireWrite` (مالهاش await) — فحتى لو النت واقف، مافيش
+//      حاجة بتستنّاها على الشاشة.
+const OPERATOR_SEEN_PREFIX = 'tazweed_operator_day_';
+const OPERATORS_COL = 'operators';
+
+// رقم الوثيقة من الاسم نفسه: نفس الشخص على جهازين = سطر واحد، مش سطرين.
+// الحروف اللي فايرستور مابيقبلهاش في رقم الوثيقة بتتشال.
+function operatorDocId(name) {
+  const clean = String(name || '')
+    .trim()
+    .replace(/[/\\.#$\[\]]/g, '_')
+    .slice(0, OPERATOR_NAME_MAX);
+  return clean;
+}
+
+function publishOperatorName(name, force) {
+  if (!state.user || !isSharedAccount()) return;
+  const clean = String(name || '').trim();
+  const docId = operatorDocId(clean);
+  if (!docId) return;
+
+  // مرة كل يوم على الأكثر — إلا لو المستخدم لسه كاتب اسمه دلوقتي.
+  const today = new Date().toISOString().slice(0, 10);
+  const key = OPERATOR_SEEN_PREFIX + state.user.uid + '_' + docId;
+  if (!force) {
+    try {
+      if (localStorage.getItem(key) === today) return;
+    } catch (err) {}
+  }
+
+  // ⚠️⚠️ الرفع ده **مايقدرش يوقّف الدخول**. الدالة بتتنده من
+  // ensureOperatorName أول ما بيانات الحساب توصل — يعني في نص مسار
+  // الدخول بالظبط. أي خطأ هنا (السحابة لسه مش جاهزة، الكتابة اترفضت)
+  // كان هيرمي استثناء ويوقف اللي بعده. الميزة دي كمالية، فلو فشلت
+  // بتتسجّل في الكونسول وخلاص والنظام بيكمّل عادي.
+  //
+  // (الفحص operator-name-test مسك ده فعلًا: `db` مكانتش موجودة
+  //  فالدخول كله كان بيقع.)
+  try {
+    fireWrite(
+      db
+        .collection('users')
+        .doc(state.user.uid)
+        .collection(OPERATORS_COL)
+        .doc(docId)
+        .set({ name: clean, lastSeen: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true }),
+      'اسم المستخدم على الحساب المشترك'
+    );
+  } catch (err) {
+    console.warn('تعذّر رفع اسم المستخدم:', err);
+    return;
+  }
+
+  try {
+    localStorage.setItem(key, today);
+  } catch (err) {}
+}
+
 // الحساب متعلّم "مشترك" من المالك في شاشة الحسابات.
 function isSharedAccount(profile) {
   return !!(profile || state.profile || {}).sharedAccount;
@@ -5704,6 +5782,9 @@ function askOperatorName(force) {
       return;
     }
     saveOperatorName(val);
+    // ⭐ force: المستخدم لسه كاتب اسمه دلوقتي، فالكتابة تتم على طول
+    // من غير ما تستنّى حد اليوم.
+    publishOperatorName(val, true);
     close();
     render();
   };
@@ -5736,7 +5817,12 @@ function entryWho(entry) {
 
 function ensureOperatorName() {
   if (!isSharedAccount()) return;
-  if (getOperatorName()) return;
+  const have = getOperatorName();
+  if (have) {
+    // الاسم متسجّل خلاص — بنحدّث "آخر مرة اشتغل" وبس (مرة في اليوم).
+    publishOperatorName(have, false);
+    return;
+  }
   askOperatorName(false);
 }
 
@@ -5757,6 +5843,16 @@ function logActivity(details) {
 }
 
 async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldValue, newValue) {
+  // ⚠️ الفحص هنا مش تكرار للي في الشاشة: ده **آخر باب** في الواجهة قبل
+  // الكتابة، وكل طرق تعديل الكمية بتعدّي عليه (الأزرار، الكتابة اليدوية،
+  // الماسح). لو الفحص في مكان الأزرار بس، أي طريق تاني بيتخطاه.
+  // والحماية الحقيقية في firestore.rules — دي بتمنع الغلط بس.
+  if (typeof canEditCategory === 'function' && !canEditCategory(state.profile, categoryId)) {
+    const catName = (state.categories.find((c) => c.id === categoryId) || {}).name || '';
+    alert(`⚠️ التعديل مقفول عليك في ${catName ? `فئة "${catName}"` : 'الفئة دي'}.`);
+    return;
+  }
+
   const gradeRef = gradeRefOf(categoryId, gradeId);
   const data = gradeData || {};
   const update = { [field]: newValue };

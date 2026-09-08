@@ -164,13 +164,17 @@ async function loadRestockPrintStamps(force) {
 }
 
 // مين بيشوف التاريخ: منشئ النظام دايمًا، وباقي الحسابات لو المفتاح
-// مفتوح — اتطلب كده بالنص ("يظهر عند منشئ النظام فقط وممكن نعمله شيك
-// بوكس ... اني اظهره ل باقي الحسابات").
+// مفتوح في **حسابهم** — اتطلب كده بالنص ("يظهر عند منشئ النظام فقط
+// وممكن نعمله شيك بوكس ... اني اظهره ل باقي الحسابات").
+//
+// ⚠️⚠️ كان مفتاح في إعدادات الطابعة (showRestockDate) — واتشال من هناك.
+// المفتاح هناك كان **مشترك بين كل الأجهزة**، يعني فتحه كان بيفتحه لكل
+// الحسابات مرة واحدة، وده عكس المطلوب: "انا افتحها ل اي حساب انا عاوزه".
+// دلوقتي بقى مفتاح في الحساب نفسه، فتقدر تفتحه لواحد وتسيبه مقفول للباقي.
 function canSeeRestockLastPrint() {
-  if (typeof isOwner === 'function' && isOwner(typeof state !== 'undefined' && state ? state.profile : null)) {
-    return true;
-  }
-  return typeof getPrintTweak === 'function' && getPrintTweak('showRestockDate') === true;
+  const profile = typeof state !== 'undefined' && state ? state.profile : null;
+  if (typeof isOwner === 'function' && isOwner(profile)) return true;
+  return typeof can === 'function' && can(profile, 'seeRestockLastPrint') === true;
 }
 
 function restockLastPrintText(catId) {

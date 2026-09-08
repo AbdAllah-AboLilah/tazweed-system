@@ -103,6 +103,16 @@ const PERMISSION_GROUPS = [
         hint: 'يشوف كل الأجهزة ويغيّر إعداداتها ويطبع عليها تجربة',
         danger: true,
       },
+      // ⭐ كان مفتاح في **إعدادات الطابعة** — وده كان بيفتحه لكل الحسابات
+      // مرة واحدة. اتنقل هنا عشان يتفتح **لحساب بعينه**، اتطلب كده بالنص.
+      //
+      // ⚠️ منشئ النظام بيشوفه دايمًا (ROLE_PRESETS بتديله كل المفاتيح)،
+      // ومقفول لكل الرتب التانية.
+      {
+        key: 'seeRestockLastPrint',
+        label: 'يشوف تاريخ آخر طبعة لورقة التزويد',
+        hint: 'التاريخ بيظهر في شاشة اختيار الورقة وفوق الورقة نفسها',
+      },
     ],
   },
   {
@@ -150,6 +160,8 @@ const ROLE_PRESETS = {
     printerSetup: false,
     // والتحكم عن بُعد من باب أولى — ده بيمسّ **كل** ماكينات المحل.
     remoteControl: false,
+    // تاريخ آخر طبعة: منشئ النظام بس، ويتفتح لحساب بعينه لو احتجت.
+    seeRestockLastPrint: false,
   },
 
   // المشرف بينظّم الشيتات ويطبع، **بس مايلمسش الأرقام** ومايحذفش.
@@ -164,6 +176,7 @@ const ROLE_PRESETS = {
     printRestock: true,
     printScreen: true,
     remotePrint: true,
+    seeRestockLastPrint: false,
     viewProducts: true,
     importProducts: false,
     manageUsers: false,
@@ -185,6 +198,7 @@ const ROLE_PRESETS = {
     printRestock: true,
     printScreen: true,
     remotePrint: false,
+    seeRestockLastPrint: false,
     viewProducts: true,
     importProducts: false,
     manageUsers: false,
@@ -204,6 +218,7 @@ const ROLE_PRESETS = {
     printRestock: false,
     printScreen: true,
     remotePrint: true,
+    seeRestockLastPrint: false,
     viewProducts: false,
     importProducts: false,
     manageUsers: false,
@@ -223,6 +238,7 @@ const ROLE_PRESETS = {
     printRestock: false,
     printScreen: true,
     remotePrint: false,
+    seeRestockLastPrint: false,
     viewProducts: true,
     importProducts: false,
     manageUsers: false,
@@ -274,6 +290,37 @@ function canEditWarehouse(profile, warehouseType) {
   const access = profile.warehouseAccess;
   if (!access || access === 'both') return true;
   return access === warehouseType;
+}
+
+// ------------------------------------------------------------
+// خانة "الفئات" — يعدّل الكميات في أنهي فئات
+// ------------------------------------------------------------
+// نفس فكرة warehouseAccess بالظبط، بس على الفئات:
+//
+//   المفتاح (editBranchQty / editMainQty) بيقول **هل** يعدّل كميات أصلًا،
+//   وwarehouseAccess بتقول **أنهي مخزن**،
+//   وcategoryAccess دي بتقول **أنهي فئات**.
+//
+// التلاتة لازم يوافقوا.
+//
+// ⚠️⚠️ **فاضية أو مش موجودة = كل الفئات.** ده مش تفصيلة — ده اللي بيخلي
+// كل الحسابات الموجودة دلوقتي تفضل شغّالة زي ما هي بالظبط من غير ما
+// نلمسها. لو القاعدة كانت "فاضية = مافيش فئات"، كل حساب في النظام كان
+// هيتقفل عليه التعديل فجأة أول ما التحديث ينزل.
+//
+// ⚠️ الخانة دي على **الكميات بس** (يزوّد وينقّص، ومعاها طلب التزويد
+// والرد عليه) — اتطلبت كده بالنص. إضافة الدرجات وحذفها وتعديل الفئة
+// نفسها لسه بمفاتيحهم هم، على كل الفئات.
+function categoryAccessList(profile) {
+  const list = profile && profile.categoryAccess;
+  return Array.isArray(list) ? list.filter(Boolean) : [];
+}
+
+function canEditCategory(profile, categoryId) {
+  if (!profile) return false;
+  const list = categoryAccessList(profile);
+  if (!list.length) return true;
+  return !!categoryId && list.indexOf(categoryId) !== -1;
 }
 
 // ------------------------------------------------------------

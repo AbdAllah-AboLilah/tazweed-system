@@ -1871,26 +1871,6 @@ const PRINT_TWEAKS = [
       'ياخد مساحة أكبر. الاسم الطويل هيصغر شوية — وده المقصود.',
     apply: () => {},
   },
-  {
-    // ============================================================
-    // 🗓️ تاريخ آخر طبعة — مين يشوفه
-    // ============================================================
-    // التاريخ نفسه بيتسجّل لكل الحسابات (أي حد بيطبع بيحدّثه)، بس
-    // **بيتعرض لمنشئ النظام بس** افتراضيًا — اتطلب كده بالنص. المفتاح ده
-    // بيفتحه لباقي الحسابات.
-    //
-    // ⚠️ مطفي افتراضيًا، ومقفول معناه إن الورقة وشاشة الاختيار بيطلعوا
-    // **زي ما هما بالظبط** لغير منشئ النظام — ولا سطر زيادة.
-    //
-    // ⚠️ ومش موجود في قايمة "إعدادات متقدمة — للتجربة" تحت: القايمة دي
-    // مفاتيح تجربة، وده إعداد عرض عادي. ليه قسمه لوحده.
-    key: 'showRestockDate',
-    label: '🗓️ ورّي تاريخ آخر طبعة لكل الحسابات',
-    hint:
-      'تاريخ آخر مرة الفئة اتطبعت فيها ورقة تزويد بيظهر في شاشة اختيار ' +
-      'الورقة وفوق الورقة نفسها. مقفول = منشئ النظام بس اللي بيشوفه.',
-    apply: () => {},
-  },
 ];
 
 const PRINT_TWEAK_PREFIX = 'tazweed_qz_tweak_';
@@ -3637,38 +3617,6 @@ async function openPrinterSettings() {
           </div>
         </div>
 
-        <!-- ---------- 🗓️ تاريخ آخر طبعة لورقة التزويد ---------- -->
-        <!-- ⚠️ قسم لوحده مش جوّه "إعدادات متقدمة — للتجربة": القايمة دي
-             مفاتيح تجربة على الطابعة، وده إعداد **عرض** عادي. الشرح
-             الكامل عند مفتاح showRestockDate في PRINT_TWEAKS. -->
-        ${(() => {
-          const t = PRINT_TWEAKS.find((x) => x.key === 'showRestockDate');
-          return t ? `
-        <div class="pset-sec">
-          <button type="button" class="pset-toggle" data-pset="lastdate" aria-expanded="false" aria-controls="pset-body-lastdate">
-            <span class="pset-sec-title">🗓️ تاريخ آخر طبعة لورقة التزويد<small>مين يشوف آخر مرة الفئة اتطبعت فيها</small></span>
-            <span class="pset-chev">▾</span>
-          </button>
-          <div class="pset-body" id="pset-body-lastdate" hidden>
-            <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
-              كل ورقة تزويد بتتطبع بتسجّل وقتها، والتاريخ بيظهر في
-              <strong>شاشة اختيار الورقة</strong> وفوق <strong>الورقة نفسها</strong> —
-              عشان تعرف الفئة دي بتتزوّد ولا واقفة.
-              <br>افتراضيًا <strong>منشئ النظام بس</strong> اللي بيشوفه. المفتاح ده بيفتحه لباقي الحسابات.
-              <br>☁️ بيتحفظ لكل الأجهزة مرة واحدة.
-            </div>
-            <label style="display:flex; gap:8px; align-items:flex-start; padding:8px; font-size:12px; cursor:pointer; background:var(--surface-muted); border-radius:8px;">
-              <input type="checkbox" data-tweak="showRestockDate" ${getPrintTweak('showRestockDate') ? 'checked' : ''}
-                     style="margin-top:2px; flex:0 0 auto;" />
-              <span>
-                <span style="display:block; font-weight:500;">${escapeHTML(t.label)}</span>
-                <span style="display:block; font-size:10px; color:var(--text-muted); line-height:1.6;">${escapeHTML(t.hint)}</span>
-              </span>
-            </label>
-          </div>
-        </div>` : '';
-        })()}
-
         <!-- ---------- إعدادات متقدمة ---------- -->
         <div class="pset-sec">
           <button type="button" class="pset-toggle" data-pset="tweaks" aria-expanded="false" aria-controls="pset-body-tweaks">
@@ -3684,7 +3632,7 @@ async function openPrinterSettings() {
             <strong>واحد بس</strong> وجرّب. وهي كمان
             <strong>☁️ بتتحفظ لكل الأجهزة</strong>.
           </div>
-          ${PRINT_TWEAKS.filter((t) => t.key !== 'fastCopies' && t.key !== 'showRestockDate').map(
+          ${PRINT_TWEAKS.filter((t) => t.key !== 'fastCopies').map(
             (t) => `
             <label style="display:flex; gap:8px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer;">
               <input type="checkbox" data-tweak="${escapeHTML(t.key)}" ${getPrintTweak(t.key) ? 'checked' : ''}

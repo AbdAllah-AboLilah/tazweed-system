@@ -94,6 +94,11 @@ function saveProfileLocally(uid, profile) {
     name: profile.name || '',
     role: profile.role || '',
     warehouseAccess: profile.warehouseAccess || '',
+    // ⚠️ لازم تتحفظ هي كمان: من غيرها الحساب المقصور على فئات معيّنة
+    // بيرجع "كل الفئات" وهو أوفلاين (القايمة الفاضية = الكل)، فيعدّل
+    // كميات في فئة مقفولة عليه — والتعديل يترفض من السحابة **في صمت**
+    // لما النت يرجع.
+    categoryAccess: Array.isArray(profile.categoryAccess) ? profile.categoryAccess : [],
     canSendRemotePrint: profile.canSendRemotePrint === true,
     canUsePrintScreen: profile.canUsePrintScreen === true,
     savedAt: Date.now(),

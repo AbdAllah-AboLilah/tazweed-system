@@ -20,6 +20,12 @@ const PROFILES = {
   // مدير فرع اتفتحله مفتاح إدارة الحسابات — ده أخطر حالة: عنده صلاحية
   // على الحسابات، والمفروض برضه مايقدرش يلمس حساب منشئ النظام.
   mgrUsers:   { name: 'مدير بحسابات', role: 'branch_manager', perms: { manageUsers: true } },
+  // ⭐ أمين فرع **مقصور على فئات معيّنة** — c9 بس، يعني c1 مقفولة عليه.
+  scoped:     { name: 'أمين بفئات', role: 'warehouse_keeper', warehouseAccess: 'both', categoryAccess: ['c9'] },
+  // ونفس الحساب بس القايمة فاضية = كل الفئات (زي كل الحسابات القديمة)
+  scopedAll:  { name: 'أمين بقايمة فاضية', role: 'warehouse_keeper', warehouseAccess: 'both', categoryAccess: [] },
+  // ⭐ حساب اتفتحله تاريخ آخر طبعة بالاسم
+  seesDate:   { name: 'بيشوف التاريخ', role: 'user', perms: { seeRestockLastPrint: true } },
 };
 
 (async () => {
@@ -235,6 +241,82 @@ const PROFILES = {
   await T('⭐ وطلب تزويد من موظف الطباعة', 'printer', reqManual, false);
   // وأمين الفرع مايقدرش يعمل عملية الرئيسي
   await Tp('⭐ أمين الفرع مايقدرش يزوّد', 'branchKeep', fulfill, false);
+
+  // ============================================================
+  // ⭐ خانة الفئات — تعديل الكميات في فئات معيّنة بس
+  // ============================================================
+  // ⚠️⚠️ الفحص الأهم هنا هو الأخير: **القايمة الفاضية = كل الفئات**.
+  // لو الاتجاه اتقلب، كل حساب في النظام (ولا واحد فيهم عنده الحقل ده)
+  // هيتقفل عليه تعديل الكميات أول ما القواعد دي تترفع.
+  const setQty = (uid) => grade(uid).update({ branchQty: 7 });
+  await T('⭐⭐⭐ الفئة مقفولة عليه → تعديل الكمية ممنوع', 'scoped', setQty, false);
+  await T('⭐⭐⭐ والقايمة الفاضية = كل الفئات', 'scopedAll', setQty, true);
+  await T('⭐ والحساب اللي مالوش الحقل خالص شغّال زي ما هو', 'branchKeep', setQty, true);
+
+  // والفئة اللي هو متسجّل عليها فعلًا (c9) لازم تعدّي
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection('categories').doc('c9').collection('grades').doc('g9')
+      .set({ number: 9, branchQty: 5, mainQty: 5, status: 'normal' });
+  });
+  const scopedOwnCat = async () => {
+    let ok;
+    try {
+      await assertSucceeds(
+        as('scoped').collection('categories').doc('c9').collection('grades').doc('g9').update({ branchQty: 8 })
+      );
+      ok = true;
+    } catch (e) { ok = false; }
+    check('⭐⭐ والفئة اللي معلّم عليها فعلًا **بتعدّي**', ok);
+  };
+  await scopedOwnCat();
+
+  // ⚠️ وطلب التزويد كمان مقفول في الفئة المقفولة — التعديل والطلب
+  // بيتحركوا مع بعض، مايصحّش يقفل واحد ويسيب التاني.
+  await T('⭐⭐ وطلب التزويد كمان ممنوع في الفئة المقفولة', 'scoped',
+    (uid) => grade(uid).update({ status: 'pending', requestedQty: null, manualRequest: true }), false);
+
+  // ============================================================
+  // ⭐ تاريخ آخر طبعة — القراءة على المفتاح
+  // ============================================================
+  // ⚠️ إخفاء السطر من الشاشة مش حماية: الحساب المقفول عنده المفتاح كان
+  // لسه يقدر يقرا التواريخ من السحابة مباشرة.
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection('restockPrints').doc('c1').set({ at: '2026-01-01', catName: 'كريب' });
+  });
+  const readStamp = (uid) => as(uid).collection('restockPrints').doc('c1').get();
+  const R = async (label, uid, op, shouldPass) => {
+    let ok;
+    try { await (shouldPass ? assertSucceeds(op(uid)) : assertFails(op(uid))); ok = true; }
+    catch (e) { ok = false; }
+    check(`${label} — ${PROFILES[uid].name}: ${shouldPass ? 'مسموح' : 'ممنوع'}`, ok);
+  };
+  await R('⭐⭐⭐ تاريخ آخر طبعة: القراءة ممنوعة من غير المفتاح', 'plain', readStamp, false);
+  await R('⭐⭐ ومسموحة للي المفتاح مفتوح عنده', 'seesDate', readStamp, true);
+  await R('⭐ ومنشئ النظام بيقراه', 'owner', readStamp, true);
+  // ⚠️ والكتابة سايبة على printRestock: اللي بيطبع بيسجّل الوقت حتى لو
+  // مش شايفه — وإلا التاريخ مايتسجّلش أصلًا.
+  await R('⭐⭐ واللي بيطبع بيسجّل الوقت حتى لو مش شايفه', 'branchKeep',
+    (uid) => as(uid).collection('restockPrints').doc('c1').set({ at: '2026-02-02', catName: 'كريب' }), true);
+
+  // ============================================================
+  // ⭐ أسماء الحساب المشترك
+  // ============================================================
+  // ⚠️⚠️ النقطة الأمنية: الكتابة على **حسابه هو بس**، وفي مسار منفصل
+  // تمامًا عن وثيقة الحساب — فمايقدرش يلمس رتبته ولا مفاتيحه من هنا.
+  const opDoc = (uid, target) => as(uid).collection('users').doc(target).collection('operators').doc('محمود');
+  await R('⭐⭐ بيكتب اسمه على حسابه هو', 'plain',
+    (uid) => opDoc(uid, 'plain').set({ name: 'محمود' }), true);
+  await R('⭐⭐⭐ ومايقدرش يكتب على حساب حد تاني', 'plain',
+    (uid) => opDoc(uid, 'branchKeep').set({ name: 'محمود' }), false);
+  await R('⭐⭐⭐ ولا يقدر يرفّع رتبته من المسار ده', 'plain',
+    (uid) => opDoc(uid, 'plain').set({ name: 'محمود', role: 'owner' }), true);
+  // ⚠️ الفحص اللي فوق **بيعدّي** عن قصد: كتابة كلمة "role" جوه مستند
+  // الأسماء مالهاش أي أثر — الرتبة بتتقرا من وثيقة الحساب نفسها. الفحص
+  // اللي بعده هو اللي بيثبت ده فعلًا.
+  await R('⭐⭐⭐ والرتبة الحقيقية ماتغيّرتش (لسه ممنوع من التعديل)', 'plain',
+    (uid) => as(uid).collection('categories').doc('c1').update({ name: 'اتغيّر' }), false);
+  await R('⭐ ومنشئ النظام بيقرا الأسامي', 'owner',
+    (uid) => as(uid).collection('users').doc('plain').collection('operators').get(), true);
 
   await env.cleanup();
   console.log('\n✅ نجح (' + pass.length + ')');

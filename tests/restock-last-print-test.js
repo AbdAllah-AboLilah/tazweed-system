@@ -108,7 +108,6 @@ const STAMP = '2026-08-29T09:15:00';   // السبت — تاريخ ثابت م�
 
     // منشئ النظام
     state.profile = { name: 'عبدالله', role: 'owner' };
-    setPrintTweak('showRestockDate', false);
     const ownerHTML = buildRestockHTML(cat, grades, '', true);
     out.ownerSees = ownerHTML.indexOf(LINE) !== -1;
     // ⚠️ لازم class="..." كاملة: كلمة last-print موجودة في التنسيقات
@@ -122,6 +121,9 @@ const STAMP = '2026-08-29T09:15:00';   // السبت — تاريخ ثابت م�
     out.notRelative = !/من\s+\d|منذ|قبل\s+\d|قبل\s+[٠-٩]/.test(out.ownerText);
 
     // حساب عادي والمفتاح مقفول → **مايشوفش**
+    // ⚠️ من v0.77.7 المفتاح بقى في **الحساب** (seeRestockLastPrint) مش في
+    // إعدادات الطابعة — لأن مفتاح الطابعة كان مشترك بين كل الأجهزة، يعني
+    // فتحه كان بيفتحه لكل الحسابات مرة واحدة.
     state.profile = { name: 'محمد', role: 'user' };
     const userOff = buildRestockHTML(cat, grades, '', true);
     out.userHidden = userOff.indexOf(LINE) === -1;
@@ -136,10 +138,11 @@ const STAMP = '2026-08-29T09:15:00';   // السبت — تاريخ ثابت م�
 
     // المفتاح مفتوح → الحساب العادي بيشوف
     restockPrintStamps = { c1: STAMP };
-    state.profile = { name: 'محمد', role: 'user' };
-    setPrintTweak('showRestockDate', true);
+    state.profile = { name: 'محمد', role: 'user', perms: { seeRestockLastPrint: true } };
     out.userSeesWithTweak = buildRestockHTML(cat, grades, '', true).indexOf(LINE) !== -1;
-    setPrintTweak('showRestockDate', false);
+    // ⚠️ والمفتاح **مقفول صراحةً** لازم يخفيه كمان — مش "مش موجود" بس.
+    state.profile = { name: 'محمد', role: 'user', perms: { seeRestockLastPrint: false } };
+    out.userHiddenWhenPermOff = buildRestockHTML(cat, grades, '', true).indexOf(LINE) === -1;
 
     // ⚠️ فئة تانية مالهاش تاريخ → السطر يختفي حتى لمنشئ النظام
     state.profile = { name: 'عبدالله', role: 'owner' };
@@ -253,7 +256,8 @@ const STAMP = '2026-08-29T09:15:00';   // السبت — تاريخ ثابت م�
   check('⭐⭐ الحساب العادي مايشوفهوش', r.userHidden);
   check('⚠️⚠️ ولو مفيش تاريخ، الورقة مطابقة حرف بحرف', r.identicalWhenHidden);
   check('⚠️ ومنشئ النظام كمان مايشوف سطر فاضي', r.ownerNoStampHidesLine);
-  check('⭐⭐ المفتاح مفتوح → الحساب العادي بيشوف', r.userSeesWithTweak);
+  check('⭐⭐ المفتاح مفتوح في الحساب → الحساب العادي بيشوف', r.userSeesWithTweak);
+  check('⭐⭐ والمفتاح مقفول صراحةً → مايشوفش', r.userHiddenWhenPermOff);
   check('⚠️ فئة مالهاش تاريخ → السطر يختفي', r.otherCatHidden);
   check('⚠️ قيمة بايظة → نص فاضي مش Invalid Date', r.badValueEmpty && r.badValueNoLine);
   check('⚠️ من غير معرّف فئة → فاضي', r.noIdEmpty);
@@ -301,14 +305,18 @@ const STAMP = '2026-08-29T09:15:00';   // السبت — تاريخ ثابت م�
       'copy-from', 'copy-run', 'align-x', 'align-y', 'align-shrink', 'align-frame', 'align-save',
       'qz-details-btn', 'qz-details'];
     const missing = ids.filter((id) => !document.getElementById(id));
-    const dateSwitch = !!document.querySelector('[data-tweak="showRestockDate"]');
-    const dateSwitchOnce = document.querySelectorAll('[data-tweak="showRestockDate"]').length;
+    // ⚠️⚠️ المفتاح **اتشال** من إعدادات الطابعة في v0.77.7 وبقى في
+    // الحساب. الفحص اتقلب: وجوده في المكانين معناه إن فيه حتّتين
+    // بيتحكموا في نفس الحاجة — والمستخدم هيفتح واحدة ويستغرب ليه مافيش
+    // فرق.
+    const dateSwitch = !document.querySelector('[data-tweak="showRestockDate"]');
+    const dateSwitchOnce = document.querySelectorAll('[data-tweak="showRestockDate"]').length === 0 ? 1 : 0;
     document.querySelector('#qz-settings-close').click();
     return { keys, bodies, alignOpen, othersStillShut, xKept, alignShutAgain,
       nameInTop, labelInTop, restockInTop, missing, dateSwitch, dateSwitchOnce };
   });
 
-  ['cal', 'quality', 'pace', 'batch', 'fonts', 'copy', 'align', 'lastdate', 'tweaks', 'details'].forEach((k) => {
+  ['cal', 'quality', 'pace', 'batch', 'fonts', 'copy', 'align', 'tweaks', 'details'].forEach((k) => {
     const row = sec.bodies.find((x) => x.k === k);
     check(`⭐ قسم "${k}" بيتفتح ويتقفل`, !!(row && row.exists), sec.keys);
     check(`⭐ وبيفتح النافذة مقفول`, !!(row && row.hidden));
@@ -318,7 +326,8 @@ const STAMP = '2026-08-29T09:15:00';   // السبت — تاريخ ثابت م�
   check('⭐ والدوس تاني بيقفله', sec.alignShutAgain);
   check('⭐⭐ اسم الجهاز والطابعتين **مش** مطويين', sec.nameInTop && sec.labelInTop && sec.restockInTop);
   check('⚠️⚠️ ولا خانة ضاعت من النافذة', sec.missing.length === 0, sec.missing);
-  check('⭐ ومفتاح تاريخ آخر طبعة موجود مرة واحدة', sec.dateSwitch && sec.dateSwitchOnce === 1, sec.dateSwitchOnce);
+  check('⭐ ومفتاح تاريخ آخر طبعة **اتشال** من إعدادات الطابعة (بقى في الحساب)',
+    sec.dateSwitch && sec.dateSwitchOnce === 1, sec.dateSwitchOnce);
 
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
