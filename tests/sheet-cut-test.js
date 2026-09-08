@@ -167,6 +167,57 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⚠️ ومش بيزوّد أكتر من اللازم', r.settled - r.trueBottom < 100,
     { settled: r.settled, trueBottom: r.trueBottom });
 
+  // ============================================================
+  // ⚠️⚠️ الرجوع لنافذة ويندوز = ورقة مقصوصة، والتنبيه لازم يقولها
+  // ============================================================
+  // ده كان السبب الحقيقي لعطل "الورقة بتتقص" اللي دوّرنا فيه أيام في
+  // الرسم والقياس: الطباعة المباشرة كانت فاشلة على الجهاز أصلًا،
+  // فالورقة راحت لنافذة ويندوز — ودي بتقص عند مقاس صفحة التعريف
+  // (وقفت عند 211.7مم بالظبط في الطبعتين اللي وصلونا).
+  // التنبيه القديم كان بيقول "هتتفتح نافذة عادية" وبس — كلام بيتقرا
+  // كإزعاج، مش كفقدان بيانات.
+  const notice = await p.evaluate(async () => {
+    const seen = [];
+    const realNotice = window.showPrintNotice;
+    const realChoose = window.choosePrintTarget;
+    const realQZ = window.tryPrintViaQZ;
+    const realOpen = window.open;
+    window.showPrintNotice = (msg, ms) => seen.push({ msg, ms });
+    window.choosePrintTarget = async () => 'local';
+    window.tryPrintViaQZ = async () => false;   // الطباعة المباشرة فشلت
+    window.open = () => ({ document: { write() {}, close() {} } });
+    // ⚠️ السجل مالوش دعوة بالفحص ده، ومحتاج state.user/profile
+    const realLog = window.logActivity;
+    window.logActivity = () => {};
+    lastPrintOutcome = { reason: 'الجهاز مش مظبوط على طابعة' };
+    try {
+      await deliverPrint('restock', '<html><body>x</body></html>', null, 'width=1,height=1');
+      const sheet = seen.map((x) => x.msg).join(' | ');
+      const sheetMs = Math.max(...seen.map((x) => x.ms || 0));
+      seen.length = 0;
+      await deliverPrint('label', '<html><body>x</body></html>', { pageWidthMm: 38, pageHeightMm: 25 }, 'width=1,height=1');
+      const label = seen.map((x) => x.msg).join(' | ');
+      return { sheet, sheetMs, label };
+    } finally {
+      window.showPrintNotice = realNotice;
+      window.choosePrintTarget = realChoose;
+      window.tryPrintViaQZ = realQZ;
+      window.open = realOpen;
+      window.logActivity = realLog;
+    }
+  });
+
+  check('⭐⭐⭐ تنبيه الورقة بيقول **هتطلع مقصوصة**',
+    notice.sheet.indexOf('مقصوصة') !== -1, notice.sheet);
+  check('⭐⭐ وبيقول السبب (الطابعة مش متظبطة)',
+    notice.sheet.indexOf('مش متظبّطة') !== -1, notice.sheet);
+  check('⭐ وبيقول الحل (إعدادات الطابعة + QZ)',
+    notice.sheet.indexOf('إعدادات الطابعة') !== -1 && notice.sheet.indexOf('QZ') !== -1, notice.sheet);
+  check('⭐ وبيقعد أطول من العادي', notice.sheetMs >= 20000, notice.sheetMs);
+  // ⚠️ والملصق **ماتغيّرش**: القص ده خاص بالورقة المستمرة بس
+  check('⚠️ وتنبيه الملصق زي ما هو (مافيش كلام عن قص)',
+    notice.label.indexOf('مقصوصة') === -1 && notice.label.indexOf('نافذة طباعة عادية') !== -1, notice.label);
+
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();
