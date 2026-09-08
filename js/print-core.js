@@ -1457,6 +1457,94 @@ function readPrintObject(key) {
 
 let unsubDeviceSettings = null;
 
+// ============================================================
+// 🔄 تحديث الجهاز من بعيد
+// ============================================================
+// اتطلب بالنص: "لو حد مش واخد باله ان في تحديث اعمله انا ري فريش من
+// عندي" — لجهاز واحد أو لكل الأجهزة.
+//
+// ⚠️ مافيش قناة أوامر جديدة: بنكتب طابع وقت في مستند إعدادات الجهاز
+// (deviceSettings) اللي كل جهاز مشترك فيه لايف أصلًا. والكتابة فيه
+// مقصورة على منشئ النظام في قواعد الأمان من الأصل (remoteControl).
+//
+// ⚠️⚠️ وده **بيقفل شاشة حد تاني ويفتحها**، فتلات حراس لازمين:
+//
+//   1) **مايعملش لوب**: الجهاز بيسجّل الطابع اللي نفّذه في التخزين
+//      المحلي **قبل** ما يعمل ريفريش. لو اتسجّل بعده، الصفحة هتفتح
+//      وتلاقي نفس الطابع وتعمل ريفريش تاني... للأبد.
+//
+//   2) **أول لقطة بعد فتح الصفحة بتتسجّل وبس**. من غير ده، أي جهاز
+//      بيفتح بعد طلب قديم هيعمل ريفريش من غير داعي — وهو أصلًا لسه
+//      فاتح بآخر نسخة، فالريفريش مالوش أي معنى.
+//
+//   3) **مايقاطعش طبعة شغّالة ولا حد بيكتب**. الريفريش وسط طبعة 100
+//      ملصق بيضيّع الباقي، ووسط الكتابة بيضيّع اللي اتكتب.
+const RELOAD_FIELD = 'reloadAt';
+const RELOAD_SEEN_KEY = 'tazweed_reload_seen';
+// سقف الانتظار لو الجهاز مشغول — بعده بننفّذ. طبعة 100 ملصق بتاخد
+// حوالي دقيقة، فـ10 دقايق هامش واسع لأي طبعة واقعية.
+const RELOAD_WAIT_MAX_S = 600;
+let reloadSeeded = false;
+
+// بيتنده من كل لقطة لإعدادات الجهاز.
+function handleRemoteReload(data) {
+  const at = data && data[RELOAD_FIELD];
+  if (!at) return;
+  const val = String(at);
+  const remember = () => {
+    try { localStorage.setItem(RELOAD_SEEN_KEY, val); } catch (err) { /* التخزين مقفول */ }
+  };
+
+  // (2) أول لقطة = تسجيل بس
+  if (!reloadSeeded) {
+    reloadSeeded = true;
+    remember();
+    return;
+  }
+
+  let seen = '';
+  try { seen = localStorage.getItem(RELOAD_SEEN_KEY) || ''; } catch (err) { /* تجاهل */ }
+  if (val === seen) return;
+
+  remember();          // ⚠️ (1) قبل الريفريش، مش بعده
+  waitThenReload(0);
+}
+
+function waitThenReload(secs) {
+  // (3) طبعة شغّالة أو حد بيكتب → نستنى
+  const printing = typeof activePrintCancel !== 'undefined' && activePrintCancel !== null;
+  const typing = typeof isUserTyping === 'function' && isUserTyping();
+  if ((printing || typing) && secs < RELOAD_WAIT_MAX_S) {
+    setTimeout(() => waitThenReload(secs + 2), 2000);
+    return;
+  }
+  if (typeof showPrintNotice === 'function') {
+    showPrintNotice('🔄 وصل طلب تحديث للجهاز ده — الصفحة هتتقفل وتفتح تاني...', 5000);
+  }
+  setTimeout(() => {
+    try { location.reload(); } catch (err) { console.warn('تعذّر تحديث الصفحة:', err); }
+  }, 1200);
+}
+
+// بيبعت الطلب لجهاز أو أكتر. بيرجّع عدد الأجهزة اللي وصلها الطلب.
+async function requestRemoteReload(deviceIds) {
+  const ids = (deviceIds || []).filter(Boolean);
+  if (!ids.length) return 0;
+  // ⚠️ نفس الطابع للكل في الطلب الواحد — عشان "حدّث الكل" يبقى عملية
+  // واحدة، والجهاز يقدر يقارنها بالحرف.
+  const stamp = String(Date.now());
+  let done = 0;
+  for (const id of ids) {
+    try {
+      await db.collection(DEVICE_SETTINGS).doc(id).set({ [RELOAD_FIELD]: stamp }, { merge: true });
+      done++;
+    } catch (err) {
+      console.warn('تعذّر إرسال طلب التحديث للجهاز:', id, err);
+    }
+  }
+  return done;
+}
+
 function subscribeDeviceSettings() {
   const deviceId = getDeviceId();
   if (!deviceId) return;
@@ -1467,7 +1555,11 @@ function subscribeDeviceSettings() {
       .doc(deviceId)
       .onSnapshot(
         (snap) => {
-          deviceOverrides = snap.exists ? cleanPrintFields(snap.data()) : {};
+          const raw = snap.exists ? snap.data() : null;
+          // ⚠️ **قبل** التنظيف: cleanPrintFields بترمي أي حقل مش من
+          // حقول الطباعة، وطابع التحديث واحد منهم.
+          handleRemoteReload(raw);
+          deviceOverrides = raw ? cleanPrintFields(raw) : {};
           try {
             localStorage.setItem('tazweed_device_overrides', JSON.stringify(deviceOverrides));
           } catch (err) {

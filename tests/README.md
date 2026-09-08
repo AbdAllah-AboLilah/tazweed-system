@@ -170,6 +170,7 @@ node tests/sheet-cut-test.js
 node tests/sheet-busy-test.js
 node tests/qz-version-test.js
 node tests/qz-version-show-test.js
+node tests/remote-reload-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
 node tests/grade-add-test.js

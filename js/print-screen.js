@@ -135,6 +135,7 @@ function stationCardHTML(st) {
         <button class="btn" data-dev-edit="${escapeHTML(st.id)}">⚙️ عدّل إعداداته</button>
         <button class="btn" data-dev-frame="${escapeHTML(st.id)}" ${online ? '' : 'disabled'}>🖨️ اطبع الإطار</button>
         <button class="btn" data-dev-fonts="${escapeHTML(st.id)}" ${online ? '' : 'disabled'}>🧪 عيّنة الخطوط</button>
+        <button class="btn" data-dev-reload="${escapeHTML(st.id)}" ${online ? '' : 'disabled'}>🔄 حدّثه</button>
       </div>
     </div>`;
 }
@@ -178,6 +179,16 @@ function printDevicesHTML() {
           ⚠️ زراير التجربة محتاجة الجهاز يكون <strong>شغّال دلوقتي</strong> —
           الورقة بتخرج من ماكينة حقيقية، ودي مش حاجة تتأجّل.
         </div>
+        ${
+          // ⭐ تحديث جماعي — اتطلب عشان "لو حد مش واخد باله ان في تحديث".
+          // ⚠️ بيتعرض بس لو فيه جهاز شغّال: المقفول بياخد آخر نسخة أول ما
+          // يفتح أصلًا، فالزرار عليه مالوش أي معنى.
+          online
+            ? `<button class="btn" id="dev-reload-all" style="width:100%; margin-bottom:8px;">
+                 🔄 حدّث كل الأجهزة الشغّالة (${escapeHTML(online)})
+               </button>`
+            : ''
+        }
         ${
           stations.length
             ? stations.map((st) => stationCardHTML(st)).join('')
@@ -450,6 +461,42 @@ function attachPrintDeviceEvents() {
 
   const openAll = document.getElementById('dev-open-settings');
   if (openAll) openAll.addEventListener('click', () => openPrintSettingsDialog('all'));
+
+  // ============================================================
+  // 🔄 التحديث من بعيد
+  // ============================================================
+  // ⚠️ تأكيد قبل التنفيذ: ده بيقفل شاشة حد تاني ويفتحها. الحارس اللي
+  // بيمنع ضياع شغل (طبعة شغّالة/حد بيكتب) موجود على الجهاز المستقبِل
+  // نفسه — الشرح عند handleRemoteReload في print-core.
+  const reloadDevices = async (ids, label) => {
+    if (!ids.length) return;
+    if (!confirm(`${label}\n\nالصفحة هتتقفل وتفتح تاني على الجهاز.\nلو فيه طبعة شغّالة، التحديث هيستنى لحد ما تخلص. تمام؟`)) return;
+    const n = await requestRemoteReload(ids);
+    showPrintNotice(
+      n ? `🔄 اتبعت طلب التحديث لـ${n} جهاز — هيوصلهم خلال ثواني.` : '⚠️ مانفعش نبعت طلب التحديث.',
+      7000
+    );
+  };
+
+  document.querySelectorAll('[data-dev-reload]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      safeAsync(async () => {
+        const id = btn.getAttribute('data-dev-reload');
+        const st = (state.printStations || []).find((s) => s.id === id);
+        await reloadDevices([id], `تحديث "${(st && st.deviceName) || 'الجهاز'}"`);
+      }, 'تحديث الجهاز')
+    );
+  });
+
+  const reloadAllBtn = document.getElementById('dev-reload-all');
+  if (reloadAllBtn) {
+    reloadAllBtn.addEventListener('click', () =>
+      safeAsync(async () => {
+        const ids = (state.printStations || []).filter(isStationOnline).map((s) => s.id);
+        await reloadDevices(ids, `تحديث ${ids.length} جهاز شغّال`);
+      }, 'تحديث كل الأجهزة')
+    );
+  }
 
   document.querySelectorAll('[data-dev-reset]').forEach((btn) => {
     btn.addEventListener('click', () =>
