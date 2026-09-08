@@ -540,6 +540,109 @@ const SHEET_IMG_MAX_BYTES = 44 * 1024;  // نفس هامش RESTOCK_SAFE_BYTES
 // والصورة ماحمّلتش خالص (من غير أي رسالة خطأ). الحل: XMLSerializer على
 // شجرة الصفحة نفسها — بيطلّع XML سليم مقفول الوسوم.
 // ⚠️ ولازم نشيل أي <script> — بيوقّع القراءة، وملهوش لازمة في صورة.
+// ============================================================
+// ⏱️ استنى الصفحة تتظبط فعلًا قبل ما تقيس طولها
+// ============================================================
+// ⚠️⚠️ كان فيه `setTimeout(60)` ثابتة هنا، ودي كانت **سبب عطل حقيقي**:
+// "ورقة التزويد بقيت بتتقص قبل م تكمل كلها".
+//
+// 60 مللي كفاية على جهاز فاضي، مش كفاية على جهاز مشغول أو ورقة طويلة.
+// ولو القياس حصل قبل ما المتصفح يخلص ترتيب الصفحة، `scrollHeight` بيرجع
+// **أقصر من الحقيقة** — والصورة بتترسم بالطول الناقص ده، فآخر الورقة
+// بيضيع. والأوحش إنه بيضيع **في سكوت**: أول الورقة سليم فمفيش حاجة
+// تقول إن فيه غلط.
+//
+// دلوقتي بنقيس على مدار كذا إطار رسم لحد ما الرقم **يثبت**، مش بنستنى
+// وقت محدد ونتمنى. وبنستنى الخطوط تحمّل كمان — الخط اللي بيوصل متأخر
+// بيغيّر ارتفاع كل سطر في الورقة.
+const SHEET_LAYOUT_FRAMES = 90;   // سقف الانتظار ≈ ثانية ونص
+const SHEET_LAYOUT_STABLE = 3;    // لازم 3 قراءات متطابقة ورا بعض
+const SHEET_LAYOUT_MIN = 4;       // وماتصدّقش قراءة أول إطارين
+
+async function settledSheetHeight(doc) {
+  const nextFrame = () =>
+    new Promise((r) => {
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => r());
+      else setTimeout(r, 16);
+    });
+
+  // ⚠️ في try لوحدها: بعض المتصفحات مالهاش doc.fonts، ومانعطلش عشانها.
+  try {
+    if (doc.fonts && doc.fonts.ready) await doc.fonts.ready;
+  } catch (err) {
+    /* تجاهل */
+  }
+
+  let last = -1;
+  let stable = 0;
+  for (let i = 0; i < SHEET_LAYOUT_FRAMES; i++) {
+    await nextFrame();
+    const h = Math.ceil(doc.body ? doc.body.scrollHeight : 0);
+    if (h > 0 && h === last) stable++;
+    else stable = 0;
+    last = h;
+    if (stable >= SHEET_LAYOUT_STABLE && i >= SHEET_LAYOUT_MIN) return h;
+  }
+  return Math.max(0, last);
+}
+
+// ============================================================
+// 📐 قياس تاني **مستقل** لآخر الورقة — من العناصر نفسها
+// ============================================================
+// ⚠️⚠️ ليه قياسين مش واحد:
+//
+// لما `scrollHeight` يرجع **أقصر** من الحقيقة، الصورة مابتطلعش فيها
+// فراغ أبيض تحت — بتطلع **مليانة حبر ومقصوصة**، لأن المحتوى بيتقص عند
+// الطول الناقص. يعني حارس "آخر الصورة فاضي" **مابيمسكهاش خالص**.
+// (جرّبناها: قياس بنص الطول عدّى من الحارس ده بالراحة.)
+//
+// فبنقيس آخر الورقة تاني من **حدود العناصر نفسها** — مصدر تاني غير
+// scrollHeight — وبناخد **الأكبر**. لو واحد فيهم غلط، التاني بينقذ
+// الورقة، والنتيجة إنها تطلع كاملة بدل ما ترجع للطريقة العادية.
+const SHEET_BOTTOM_SEL = '.row, .group-title, .short-note, .header, .grid';
+
+function sheetContentBottom(doc) {
+  try {
+    if (!doc || !doc.body) return 0;
+    let max = 0;
+    doc.body.querySelectorAll(SHEET_BOTTOM_SEL).forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.bottom > max) max = r.bottom;
+    });
+    if (!(max > 0)) return 0;
+    // ⚠️ هامش الجسم السفلي بيتحسب: الورقة بتنتهي بعد آخر صف بمسافة،
+    // ولو شلناها الصف الأخير بيلزق في حرف الصورة.
+    const win = doc.defaultView;
+    const pad = win ? parseFloat(win.getComputedStyle(doc.body).paddingBottom) || 0 : 0;
+    return Math.ceil(max + pad);
+  } catch (err) {
+    return 0;
+  }
+}
+
+// ============================================================
+// 🔍 آخر صف فيه حبر — بنقرا من تحت لفوق
+// ============================================================
+// بنقرا على شرائح مش الصورة كلها مرة واحدة: ورقة 600مم = 576×4800 نقطة،
+// وقرايتها كلها في مرة واحدة 11 ميجا في الذاكرة على جهاز الكاشير.
+// وأول ما نلاقي حبر بنخرج — فالورقة السليمة بتخلص من أول شريحة.
+const SHEET_INK_CHUNK = 256;
+const SHEET_MIN_INK_RATIO = 0.9;
+
+function sheetLastInkRow(cx, w, h) {
+  for (let bottom = h; bottom > 0; bottom -= SHEET_INK_CHUNK) {
+    const top = Math.max(0, bottom - SHEET_INK_CHUNK);
+    const d = cx.getImageData(0, top, w, bottom - top).data;
+    for (let y = bottom - top - 1; y >= 0; y--) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        if (d[(row + x) << 2] < 128) return top + y;
+      }
+    }
+  }
+  return -1;
+}
+
 async function renderSheetImage(html) {
   try {
     const MM_PX = 96 / 25.4;
@@ -558,8 +661,9 @@ async function renderSheetImage(html) {
       doc.open();
       doc.write(html);
       doc.close();
-      await new Promise((r) => setTimeout(r, 60));
-      cssH = Math.ceil(doc.body.scrollHeight);
+      // ⚠️ قياسين مستقلين، وبناخد الأكبر — الشرح عند sheetContentBottom.
+      const measured = await settledSheetHeight(doc);
+      cssH = Math.max(measured, sheetContentBottom(doc));
       doc.querySelectorAll('script').forEach((el) => el.remove());
       doc.documentElement.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
       xml = new XMLSerializer().serializeToString(doc.documentElement);
@@ -594,6 +698,28 @@ async function renderSheetImage(html) {
     let dark = 0;
     for (let i = 0; i < data.length; i += 4) if (data[i] < 128) dark++;
     if (dark < 50) return null;
+
+    // ============================================================
+    // ⚠️⚠️ والشبكة دي كانت بتبص على **أول 400 صف بس**
+    // ============================================================
+    // العطل اللي اتبلّغ: "ورقة التزويد بقيت بتتقص قبل م تكمل كلها".
+    // الورقة كان أولها سليم وآخرها ضايع — فالفحص القديم كان بيلاقي حبر
+    // في أول 400 صف ويقول "تمام"، **والورقة المقطوعة كانت بتتطبع**.
+    //
+    // القص نفسه مش بيحصل عندنا (قِسنا: الصورة بتطلع كاملة لحد 604مم على
+    // جهاز فاضي) — بيحصل لما القياس يتم قبل ما الصفحة تتظبط على جهاز
+    // مشغول. الإصلاح الأساسي في settledSheetHeight فوق، وده الحارس اللي
+    // بيمنع الورقة المقطوعة توصل للورق أصلًا لو حصلت لأي سبب تاني.
+    //
+    // ⚠️ الرقم مقاس مش متخيّل: آخر حبر في الورق الحقيقي بيقع عند
+    // 98.8%–99.6% من الطول (الباقي هامش الجسم 1مم). فـ90% هامش واسع.
+    const lastInk = sheetLastInkRow(cx, cv.width, cv.height);
+    if (lastInk < 0 || lastInk < cv.height * SHEET_MIN_INK_RATIO) {
+      console.warn('صورة ورقة التزويد طلعت ناقصة من تحت — هنطبعها بالطريقة العادية:', {
+        lastInk, height: cv.height,
+      });
+      return null;
+    }
 
     const b64 = await canvasToPng1Bit(cv);
     if (!b64) return null;
