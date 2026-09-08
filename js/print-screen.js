@@ -108,6 +108,18 @@ function stationCardHTML(st) {
         <div><span>الدفعة / التقديم / الإيقاع</span><b>${escapeHTML(setup.batch ?? '—')} · ${escapeHTML(setup.lead ?? '—')} · ${escapeHTML(setup.pace ?? '—')}مث</b></div>
         <div><span>طابعات متعرّفة عليه</span><b>${escapeHTML(printers.length || 0)}</b></div>
         <div><span>نسخة النظام</span><b>${escapeHTML(st.appVersion || '—')}</b></div>
+        ${
+          // ⚠️ نسخة QZ Tray — بتفرق فعلًا: أمر المقاس الصريح لورقة التزويد
+          // بيشتغل من 2.2.6 وفوق بس، واللي تحتها بتتجاهله وتاخد الطول
+          // فالتعريف بيقص الورقة. بنعلّم على القديمة عشان تبان من نظرة.
+          (() => {
+            const v = st.qzVersion || '';
+            const old = v && typeof qzVersionAtLeast === 'function' && !qzVersionAtLeast(v, [2, 2, 6]);
+            return `<div><span>نسخة QZ Tray</span><b>${escapeHTML(v || '—')}${
+              old ? ' ⚠️ أقدم من 2.2.6' : ''
+            }</b></div>`;
+          })()
+        }
       </div>
 
       ${

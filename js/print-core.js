@@ -2714,16 +2714,33 @@ function qzVersionAtLeast(ver, min) {
   return true;
 }
 
-async function qzSupportsCustomSize() {
-  if (qzVersionCache !== null) return qzVersionCache.ok;
-  let ver = '';
+// بترجّع رقم نسخة QZ Tray المتصلة (أو '' لو مش معروفة).
+// ⚠️ بتتنشر مع نبضة الجهاز عشان تبان من التليفون في تاب "الأجهزة" —
+// اتطلبت كده بالنص: "ممكن نعمل النظام يطلب من qz رقم الاصدار بتاعه
+// ويكتبه في الاعدادات واشوف من التليفون".
+//
+// السبب إننا محتاجينها: بنشخّص عطل قص ورقة التزويد، وكل التشخيصات
+// اللي بنيناها على تخمين نسخة كل جهاز **طلعت غلط**. الرقم ده بيشيل
+// التخمين خالص.
+async function readQZVersion() {
   try {
     if (typeof qz !== 'undefined' && qz.api && typeof qz.api.getVersion === 'function') {
-      ver = await qz.api.getVersion();
+      const v = await qz.api.getVersion();
+      return String(v || '');
     }
   } catch (err) {
     console.warn('تعذّرت قراءة نسخة QZ Tray:', err);
   }
+  return '';
+}
+
+function cachedQZVersion() {
+  return (qzVersionCache && qzVersionCache.ver) || '';
+}
+
+async function qzSupportsCustomSize() {
+  if (qzVersionCache !== null) return qzVersionCache.ok;
+  const ver = await readQZVersion();
   // ⚠️ مانعرفش النسخة = **مانبعتش** المقاس المخصّص. الأمان هنا إننا
   // نرجع للسلوك القديم المضمون، مش إننا نجرّب ونقص ورقة.
   const ok = !!ver && qzVersionAtLeast(ver, QZ_CUSTOM_SIZE_MIN);
@@ -3663,7 +3680,13 @@ async function openPrinterSettings() {
     return;
   }
 
-  statusLine.textContent = `متصل بـ QZ Tray — ${printers.length} طابعة موجودة`;
+  // ⚠️ رقم النسخة جنب حالة الاتصال — أول مكان الواحد بيبص فيه.
+  // بيتقرا مرة واحدة وبيتخزّن، فمش بيبطّأ فتح النافذة.
+  const qzVer = await readQZVersion();
+  const qzOld = qzVer && !qzVersionAtLeast(qzVer, QZ_CUSTOM_SIZE_MIN);
+  statusLine.textContent =
+    `متصل بـ QZ Tray${qzVer ? ` ${qzVer}` : ''} — ${printers.length} طابعة موجودة` +
+    (qzOld ? ' ⚠️ النسخة أقدم من 2.2.6' : '');
   fields.style.display = 'block';
   saveBtn.style.display = 'inline-block';
 
