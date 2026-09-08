@@ -628,6 +628,11 @@ function sheetContentBottom(doc) {
 // وأول ما نلاقي حبر بنخرج — فالورقة السليمة بتخلص من أول شريحة.
 const SHEET_INK_CHUNK = 256;
 const SHEET_MIN_INK_RATIO = 0.9;
+// مساحة زيادة وقت الرسم — بتتقص بعدين عند آخر حبر. 35% هامش واسع جدًا
+// لأي اختلاف ترتيب بين سياق القياس وسياق الرسم (الفرق الواقعي نسب قليلة).
+const SHEET_DRAW_SLACK = 1.35;
+// هامش أسفل الورقة بعد آخر صف — نفس padding الجسم في buildRestockHTML.
+const SHEET_BODY_PAD_MM = 1;
 
 function sheetLastInkRow(cx, w, h) {
   for (let bottom = h; bottom > 0; bottom -= SHEET_INK_CHUNK) {
@@ -672,8 +677,33 @@ async function renderSheetImage(html) {
     }
     if (!cssH || !xml) return null;
 
+    // ============================================================
+    // ⭐⭐ نرسم بمساحة زيادة، وبعدين **نقص عند آخر حبر فعلي**
+    // ============================================================
+    // ⚠️⚠️ ده مش تحسين — ده الإصلاح الأساسي، والسبب مهم:
+    //
+    // القياس بيحصل في إطار حقيقي (DOM كامل)، لكن **الرسم** بيحصل في
+    // سياق تاني خالص: الصفحة بتتسلسل XML وتترسم جوه <foreignObject>
+    // محمّلة كـ<img>. والسياقين مش مضمون يطلّعوا نفس الارتفاع بالمليمتر:
+    // الخطوط المتاحة ممكن تختلف، وترتيب الأعمدة (column-count: 4 في
+    // شبكة الأرقام) ممكن يتوازن بشكل تاني. ولو الرسم طلع **أطول** من
+    // القياس، الـSVG بيقص الزيادة — وآخر الورقة بيضيع في سكوت.
+    //
+    // ⚠️ وده اللي حصل فعلًا على كمبيوتر المحل ومحصلش عندنا. حاولنا نثبت
+    // إن السبب بطء القياس وخنقنا المعالج ×20 — **والقياس القديم طلع صح
+    // برضه**. يعني السبب مش التوقيت، وإحنا مش شايفين بيئته.
+    //
+    // فبدل ما نخمّن السبب: **مانصدّقش القياس أصلًا**. بنرسم بمساحة زيادة
+    // 35%، وبعدين نقص الصورة عند **آخر نقطة حبر حقيقية** فيها. كده طول
+    // الورقة بيتحدد من البكسلات اللي اترسمت فعلًا، مش من رقم اتقاس في
+    // سياق تاني — ومهما اختلف الترتيب بين السياقين، اللي اترسم بيوصل
+    // كامل.
+    //
+    // ⚠️ ولو الحبر وصل لآخر المساحة الزيادة، يبقى لسه مقصوص → بنرجع
+    // للطريقة العادية بدل ما نطبع ورقة ناقصة.
+    const drawH = Math.ceil(cssH * SHEET_DRAW_SLACK);
     const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${cssH}">` +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${cssW}" height="${drawH}">` +
       `<foreignObject width="100%" height="100%">${xml}</foreignObject></svg>`;
 
     const img = new Image();
@@ -684,13 +714,32 @@ async function renderSheetImage(html) {
     });
     if (!ok) return null;
 
+    const big = document.createElement('canvas');
+    big.width = devW;
+    big.height = Math.round((drawH * devW) / cssW);
+    const bx = big.getContext('2d');
+    bx.fillStyle = '#fff';
+    bx.fillRect(0, 0, big.width, big.height);
+    bx.drawImage(img, 0, 0, big.width, big.height);
+
+    const inkEnd = sheetLastInkRow(bx, big.width, big.height);
+    if (inkEnd < 0) return null;   // كلها بيضا = الرسم فشل في سكوت
+    // ⚠️ الحبر لازق في آخر المساحة الزيادة = المحتوى أطول منها كمان
+    if (inkEnd >= big.height - 2) {
+      console.warn('صورة ورقة التزويد لسه مقصوصة رغم المساحة الزيادة — هنطبعها بالطريقة العادية.');
+      return null;
+    }
+
+    // القص: آخر حبر + نفس هامش الجسم اللي فوق، عشان آخر صف مايلزقش
+    // في حرف الورقة.
+    const padDots = Math.round((SHEET_BODY_PAD_MM / 25.4) * SHEET_DPI);
     const cv = document.createElement('canvas');
     cv.width = devW;
-    cv.height = Math.round((cssH * devW) / cssW);
+    cv.height = Math.min(big.height, inkEnd + 1 + padDots);
     const cx = cv.getContext('2d');
     cx.fillStyle = '#fff';
     cx.fillRect(0, 0, cv.width, cv.height);
-    cx.drawImage(img, 0, 0, cv.width, cv.height);
+    cx.drawImage(big, 0, 0);
 
     // ⚠️ شبكة أمان: صورة كلها بيضا معناها إن الرسم فشل في صمت. الطباعة
     // على ورق فاضي أوحش من إننا نرجع للطريقة القديمة.
@@ -713,6 +762,8 @@ async function renderSheetImage(html) {
     //
     // ⚠️ الرقم مقاس مش متخيّل: آخر حبر في الورق الحقيقي بيقع عند
     // 98.8%–99.6% من الطول (الباقي هامش الجسم 1مم). فـ90% هامش واسع.
+    // ⚠️ الصورة اتقصّت عند آخر حبر فوق، فالحبر لازم يوصل لآخرها ناقص
+    // الهامش. الفحص ده بيمسك أي خلل في القص نفسه.
     const lastInk = sheetLastInkRow(cx, cv.width, cv.height);
     if (lastInk < 0 || lastInk < cv.height * SHEET_MIN_INK_RATIO) {
       console.warn('صورة ورقة التزويد طلعت ناقصة من تحت — هنطبعها بالطريقة العادية:', {

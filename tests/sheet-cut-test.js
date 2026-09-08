@@ -76,6 +76,8 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     // "آخر الصورة فاضي" مابيمسكش الحالة دي خالص. اللي بيمسكها هو
     // **القياس التاني المستقل** (sheetContentBottom).
     const realSettle = window.settledSheetHeight;
+    const realBottom = window.sheetContentBottom;
+    // بنكذّب **القياس الواحد** (scrollHeight) والقياس التاني بينقذ
     const heightOf = async (factor) => {
       window.settledSheetHeight = async (doc) => Math.floor((await realSettle(doc)) * factor);
       const shot = await renderSheetImage(sheet(180));
@@ -85,6 +87,28 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.trueMm = out.goodMm;
     out.halfMm = await heightOf(0.5);
     out.mostMm = await heightOf(0.85);
+
+    // ============================================================
+    // ⚠️⚠️ الحالة الحقيقية: **القياسين الاتنين** أقصر من اللي اترسم
+    // ============================================================
+    // ده اللي بيحصل لما سياق الرسم (SVG/foreignObject) يطلّع ترتيب
+    // أطول من سياق القياس (إطار DOM) — خطوط مختلفة أو توازن أعمدة
+    // مختلف. القياسين الاتنين بيتقاسوا في نفس السياق، فالاتنين بيغلطوا
+    // مع بعض — ومفيش قياس تالت ينقذ.
+    // اللي بينقذ هنا هو **المساحة الزيادة + القص عند آخر حبر**.
+    const bothShort = async (factor) => {
+      window.settledSheetHeight = async (doc) => Math.floor((await realSettle(doc)) * factor);
+      window.sheetContentBottom = (doc) => Math.floor(realBottom(doc) * factor);
+      const shot = await renderSheetImage(sheet(180));
+      window.settledSheetHeight = realSettle;
+      window.sheetContentBottom = realBottom;
+      return shot ? shot.heightMm : null;
+    };
+    out.both95 = await bothShort(0.95);
+    out.both85 = await bothShort(0.85);
+    out.both80 = await bothShort(0.8);
+    // ⚠️ وأبعد من المساحة الزيادة: لازم **ترفض**، مش تطبع ناقص
+    out.both50 = await bothShort(0.5);
 
     // ---------- 3ب) لو الرسم طلّع آخر الصورة فاضي → ترفض ----------
     // بنخلي الكاشف يقول "مفيش حبر في الآخر" ونتأكد إن الورقة بترجع
@@ -126,6 +150,14 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     r.halfMm !== null && Math.abs(r.halfMm - r.trueMm) < 1, { غلط: r.halfMm, صح: r.trueMm });
   check('⭐⭐ والقياس يقول 85% → برضه كاملة',
     r.mostMm !== null && Math.abs(r.mostMm - r.trueMm) < 1, { غلط: r.mostMm, صح: r.trueMm });
+
+  // ⭐⭐⭐ الحالة الحقيقية: القياسين الاتنين أقصر
+  [['95%', r.both95], ['85%', r.both85], ['80%', r.both80]].forEach(([lbl, mm]) => {
+    check(`⭐⭐⭐ القياسين الاتنين أقصر بـ${lbl} → الورقة كاملة برضه`,
+      mm !== null && Math.abs(mm - r.trueMm) < 1, { طلع: mm, المفروض: r.trueMm });
+  });
+  check('⚠️⚠️ وأبعد من المساحة الزيادة (نص الطول) → **ترفض** مش تطبع ناقص',
+    r.both50 === null, r.both50);
 
   check('⭐⭐ آخر الصورة فاضي → ترفض وترجع للطريقة العادية', r.blankBottomRejected);
   check('⭐⭐ وآخر 60% فاضي → ترفض كمان', r.halfBlankRejected);

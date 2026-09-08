@@ -101,8 +101,39 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     localStorage.setItem('tazweed_movement_span', '2');
     out.twoMonths = computeMovementReport().fast.flatMap(g => g.rows.map(x => x.label + ':' + x.qty));
 
-    // التحذير بيبان في الشاشة لما الشهر لسه بدري
+    // ============================================================
+    // ⚠️⚠️ التحذير: بنثبّت التاريخ بدل ما نتمنى
+    // ============================================================
+    // الفحص ده كان بيقول "التحذير لازم يبان" **على طول** — وده بيعدّي
+    // 7 أيام في الشهر ويفشل الـ23 الباقيين. اتلسعنا منه فعلًا: طلع أحمر
+    // يوم 8 وضيّعنا وقت نتأكد إنه مالوش علاقة بالطباعة.
+    //
+    // الرقم اللي بيتغيّر لوحده مايتفحصش عليه. دلوقتي بنزيّف `Date`
+    // ونجرّب **الحالتين**: أول الشهر (لازم يبان) ووسطه (لازم يختفي).
+    // كده الفحص حاسم في أي يوم، وبيغطي الفرعين بدل واحد.
     localStorage.setItem('tazweed_movement_span', '1');
+    const RealDate = window.Date;
+    const fakeDay = (day) => {
+      const base = new RealDate();
+      base.setDate(day);
+      function Fake(...a) { return a.length ? new RealDate(...a) : base; }
+      Fake.now = RealDate.now;
+      Fake.parse = RealDate.parse;
+      Fake.UTC = RealDate.UTC;
+      Fake.prototype = RealDate.prototype;
+      window.Date = Fake;
+    };
+    try {
+      fakeDay(3);
+      out.warnEarlyDay = computeMovementReport().dayOfMonth;
+      out.warnEarly = movementScreenHTML().indexOf('مش هيبان') !== -1;
+      fakeDay(20);
+      out.warnLateDay = computeMovementReport().dayOfMonth;
+      out.warnLate = movementScreenHTML().indexOf('مش هيبان') !== -1;
+    } finally {
+      window.Date = RealDate;
+    }
+    // وبتاريخ النهاردة الحقيقي: العلامة والشاشة لازم يتفقوا
     const html = movementScreenHTML();
     out.warnShown = html.indexOf('مش هيبان') !== -1;
     out.warnOnlyWhenYoung = r1.dayOfMonth <= MOVEMENT_YOUNG_MONTH_DAYS ? out.warnShown : !out.warnShown;
@@ -236,7 +267,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('عدد المتتبَّع بيتحسب', r.tracked === 3, r.tracked);
 
   check('⚠️⚠️ يوم 1: اللي باع الشهر اللي فات مابيبانش', r.thisMonthOnly.join() === 'درجة B:3', r.thisMonthOnly);
-  check('⭐⭐ والتحذير بيقول كده', r.warnShown, [r.dayOfMonth, r.monthWarnFlag]);
+  // ⚠️ بتاريخ مزيّف عشان الفحص يبقى حاسم في أي يوم — الشرح فوق
+  check('⭐⭐ يوم 3 في الشهر → التحذير بيبان',
+    r.warnEarly && r.warnEarlyDay === 3, { يوم: r.warnEarlyDay, بان: r.warnEarly });
+  check('⭐⭐ ويوم 20 → بيختفي',
+    !r.warnLate && r.warnLateDay === 20, { يوم: r.warnLateDay, بان: r.warnLate });
   check('والعلامة متسقة مع تاريخ النهاردة', r.warnOnlyWhenYoung, [r.dayOfMonth, r.warnShown]);
   check('⭐⭐ "الشهر اللي فات" بيوري الشهر الكامل', r.prevMonth.join() === 'درجة A:500', r.prevMonth);
   check('⭐ ومالوش تحذير أبدًا (شهر كامل)', r.prevNoWarn === false, r.prevNoWarn);
