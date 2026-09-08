@@ -47,6 +47,82 @@ function subscribeUsers() {
 // ⚠️ **نفس البيانات بالحرف** — نفس الاسم ونفس اسم الدخول ونفس الرتبة
 // ونفس عدّاد المفاتيح ونفس زرار التعديل بنفس الـ`data-edit-user`، عشان
 // attachUsersScreenEvents تلاقيه من غير أي تغيير.
+// ============================================================
+// خانة "الفئات" — يعدّل الكميات في أنهي فئات
+// ============================================================
+// ⚠️⚠️ **مافيش حاجة معلّمة = كل الفئات.** ده مقصود عشان كل الحسابات
+// الموجودة دلوقتي تفضل زي ما هي — ولا واحد فيهم عنده الحقل ده أصلًا.
+// لو خليناها "مافيش معلّم = مافيش فئات"، كل حساب في النظام كان هيتقفل
+// عليه التعديل أول ما التحديث ينزل.
+//
+// ⚠️ القايمة ممكن تبقى طويلة على التليفون، فمعاها خانة بحث وزرار
+// "علّم الكل" — من غيرهم اللف على ٤٠ فئة بالإيد مرهق.
+function categoryAccessHTML(user) {
+  const cats = (typeof state !== 'undefined' && state && state.categories) || [];
+  const picked = Array.isArray(user.categoryAccess) ? user.categoryAccess.filter(Boolean) : [];
+  const set = {};
+  picked.forEach((id) => (set[id] = true));
+
+  if (!cats.length) {
+    return '<div style="font-size:12px; color:var(--text-muted);">مافيش فئات لسه.</div>';
+  }
+
+  const rows = cats
+    .map(
+      (c) => `
+      <label class="cat-acc-row" data-cat-name="${escapeHTML((c.name || '').toLowerCase())}"
+             style="display:flex; gap:8px; align-items:center; padding:7px 4px; border-bottom:1px solid var(--border); font-size:13px; cursor:pointer;">
+        <input type="checkbox" data-cat-access="${escapeHTML(c.id)}" ${set[c.id] ? 'checked' : ''}
+               style="flex:0 0 auto;" />
+        <span>${escapeHTML(c.name || '—')}</span>
+      </label>`
+    )
+    .join('');
+
+  return `
+    <input class="input" id="eu-cat-search" placeholder="🔍 دوّر على فئة..." style="margin-bottom:8px;" />
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
+      <button type="button" class="btn" id="eu-cat-all" style="font-size:11px; padding:4px 10px; min-height:28px;">علّم الكل</button>
+      <button type="button" class="btn" id="eu-cat-none" style="font-size:11px; padding:4px 10px; min-height:28px;">شيل الكل</button>
+    </div>
+    <div id="eu-cat-list" style="max-height:200px; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:0 8px;">
+      ${rows}
+    </div>
+    <div id="eu-cat-count" style="font-size:11px; color:var(--text-secondary); margin-top:6px;"></div>`;
+}
+
+// أسامي اللي شغّالين على الحساب المشترك.
+// ⚠️ قراءة **مرة واحدة** لما النافذة تفتح — مافيش استماع مباشر، عشان
+// ما نزوّدش أي حِمل على النظام. الشرح الكامل عند publishOperatorName.
+async function loadOperatorNames(uid) {
+  try {
+    const snap = await db.collection('users').doc(uid).collection('operators').get();
+    return snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() || {}) }))
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar'));
+  } catch (err) {
+    console.warn('تعذّرت قراءة أسماء الحساب المشترك:', err);
+    return null;
+  }
+}
+
+function operatorListHTML(list) {
+  if (list === null) return '<span style="color:var(--text-muted);">تعذّرت القراءة.</span>';
+  if (!list.length) {
+    return '<span style="color:var(--text-muted);">لسه محدش كتب اسمه على الحساب ده.</span>';
+  }
+  return list
+    .map((o) => {
+      let when = '';
+      try {
+        const d = o.lastSeen && typeof o.lastSeen.toDate === 'function' ? o.lastSeen.toDate() : null;
+        if (d) when = ` — آخر مرة ${d.toLocaleDateString('ar-EG')}`;
+      } catch (err) {}
+      return `<div style="padding:3px 0;">👤 ${escapeHTML(o.name || o.id)}<span style="color:var(--text-muted); font-size:11px;">${escapeHTML(when)}</span></div>`;
+    })
+    .join('');
+}
+
 function userCardsHTML(users, me) {
   return users
     .map((u) => {
@@ -59,6 +135,7 @@ function userCardsHTML(users, me) {
             ? ` (${{ branch: 'الفرع', main: 'الرئيسي', both: 'الاتنين' }[u.warehouseAccess] || ''})`
             : '';
       const customCount = u.perms ? Object.keys(u.perms).length : 0;
+      const catN = Array.isArray(u.categoryAccess) ? u.categoryAccess.filter(Boolean).length : 0;
       return `
       <div class="grade-card">
         <div class="gc-head">
@@ -77,6 +154,12 @@ function userCardsHTML(users, me) {
           <span class="gc-label">الرتبة</span>
           <span style="font-size:14px; font-weight:500;">${escapeHTML(ROLE_LABELS_AR[u.role] || u.role || '—')}${escapeHTML(access)}</span>
         </div>
+        ${
+          catN
+            ? `<div class="gc-line"><span class="gc-label">الفئات</span>
+                 <span class="badge badge-purple">${escapeHTML(catN)} فئة بس</span></div>`
+            : ''
+        }
         <div class="gc-line" style="margin-bottom:0;">
           <span class="gc-label">المفاتيح</span>
           <span>${
@@ -463,6 +546,17 @@ function editUserRole(uid) {
       </div>
 
       <div class="field">
+        <label>يعدّل الكميات في أنهي فئات؟</label>
+        <div style="font-size:11px; color:var(--text-secondary); margin:2px 0 8px; line-height:1.7;">
+          <strong>سيبها كلها فاضية = كل الفئات.</strong> علّم على فئات معيّنة
+          عشان تقفل عليه التعديل في اللي غيرها.
+          <br>دي على <strong>الكميات بس</strong> (يزوّد وينقّص، ومعاها طلب
+          التزويد والرد عليه). إضافة الدرجات وتعديل الفئة نفسها بمفاتيحهم تحت.
+        </div>
+        ${categoryAccessHTML(user)}
+      </div>
+
+      <div class="field">
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
           <input type="checkbox" id="eu-shared" ${user.sharedAccount ? 'checked' : ''} />
           <span>حساب مشترك (أكتر من شخص بيستخدمه)</span>
@@ -472,6 +566,11 @@ function editUserRole(uid) {
           ماسكه. الاسم بيتحفظ على الجهاز نفسه، وبيتكتب جنب اسم الحساب فوق
           ومع كل حركة في السجل — عشان تعرف مين عمل إيه.
         </div>
+        ${user.sharedAccount ? `
+        <div style="margin-top:8px; padding:8px; background:var(--surface-muted); border-radius:8px; font-size:12px; line-height:1.8;">
+          <div style="font-weight:500; margin-bottom:4px;">👥 اللي شغّالين على الحساب ده</div>
+          <div id="eu-operators"><span style="color:var(--text-muted);">بيحمّل...</span></div>
+        </div>` : ''}
       </div>
 
       <div style="border-top:1px solid var(--border); padding-top:12px; margin-top:4px;">
@@ -509,6 +608,73 @@ function editUserRole(uid) {
     return out;
   }
 
+  // ------------------------------------------------------------
+  // خانة الفئات: البحث، علّم/شيل الكل، والعدّاد
+  // ------------------------------------------------------------
+  function readCategoryAccess() {
+    const out = [];
+    overlay.querySelectorAll('[data-cat-access]').forEach((cb) => {
+      if (cb.checked) out.push(cb.getAttribute('data-cat-access'));
+    });
+    return out;
+  }
+
+  function refreshCatCount() {
+    const el = overlay.querySelector('#eu-cat-count');
+    if (!el) return;
+    const n = readCategoryAccess().length;
+    const total = overlay.querySelectorAll('[data-cat-access]').length;
+    // ⚠️ الرسالة دي مهمة: من غيرها المستخدم مش هيعرف إن "مافيش معلّم"
+    // معناها **كل الفئات** مش **مافيش فئات** — وده عكس المتوقع تمامًا.
+    el.innerHTML = n
+      ? `معلّم <strong>${escapeHTML(n)}</strong> من ${escapeHTML(total)} — التعديل مقفول في الباقي.`
+      : '<strong>مافيش حاجة معلّمة = كل الفئات مفتوحة.</strong>';
+  }
+
+  const catSearch = overlay.querySelector('#eu-cat-search');
+  if (catSearch) {
+    catSearch.addEventListener('input', () => {
+      const q = (catSearch.value || '').trim().toLowerCase();
+      overlay.querySelectorAll('.cat-acc-row').forEach((row) => {
+        row.hidden = !!q && (row.getAttribute('data-cat-name') || '').indexOf(q) === -1;
+      });
+    });
+  }
+  const catAll = overlay.querySelector('#eu-cat-all');
+  const catNone = overlay.querySelector('#eu-cat-none');
+  // ⚠️ "علّم الكل" بيشتغل على **اللي ظاهر بعد البحث** بس — لو شغّل على
+  // الكل وانت فلتر، هتعلّم فئات انت مش شايفها ومش قاصدها.
+  if (catAll) {
+    catAll.addEventListener('click', () => {
+      overlay.querySelectorAll('.cat-acc-row').forEach((row) => {
+        if (row.hidden) return;
+        const cb = row.querySelector('[data-cat-access]');
+        if (cb) cb.checked = true;
+      });
+      refreshCatCount();
+    });
+  }
+  if (catNone) {
+    catNone.addEventListener('click', () => {
+      overlay.querySelectorAll('.cat-acc-row').forEach((row) => {
+        if (row.hidden) return;
+        const cb = row.querySelector('[data-cat-access]');
+        if (cb) cb.checked = false;
+      });
+      refreshCatCount();
+    });
+  }
+  overlay.querySelectorAll('[data-cat-access]').forEach((cb) => cb.addEventListener('change', refreshCatCount));
+  refreshCatCount();
+
+  // أسامي الحساب المشترك — قراءة مرة واحدة، والنافذة مابتستنّاهاش.
+  const opsBox = overlay.querySelector('#eu-operators');
+  if (opsBox) {
+    loadOperatorNames(uid).then((list) => {
+      if (opsBox.isConnected !== false) opsBox.innerHTML = operatorListHTML(list);
+    });
+  }
+
   const close = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
   document.getElementById('eu-cancel').addEventListener('click', close);
   document.getElementById('eu-reset').addEventListener('click', () => {
@@ -524,6 +690,7 @@ function editUserRole(uid) {
         role,
         warehouseAccess: document.getElementById('eu-access').value,
         sharedAccount: document.getElementById('eu-shared').checked,
+        categoryAccess: readCategoryAccess(),
         perms,
       });
       await logActivity({ action: 'edit_user', categoryName: user.name || '', newValue: role });

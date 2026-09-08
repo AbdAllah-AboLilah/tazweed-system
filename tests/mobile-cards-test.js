@@ -91,8 +91,10 @@ const USERS = [
     // ⚠️⚠️ بنقارن **الأسامي** مش العدد: الرقم المحفور في الفحص خدعنا
     // كذا مرة قبل كده (آخرها في raster-label). قسم جديد يتضاف = يتكتب
     // هنا، وقسم يختفي = الفحص يقول **أنهي واحد**.
+    // ⚠️ 'lastdate' اتشال في v0.77.7: "تاريخ آخر طبعة" بقى **مفتاح في
+    // الحساب** مش إعداد في الطابعة، فقسمه هنا اتلغى.
     const keys = ['cal', 'quality', 'pace', 'batch', 'fonts',
-      'copy', 'align', 'lastdate', 'tweaks', 'details'];
+      'copy', 'align', 'tweaks', 'details'];
     const before = keys.every((k) => document.getElementById('pset-body-' + k).hidden);
     document.querySelector('.pset-toggle[data-pset="quality"]').click();
     const opened = !document.getElementById('pset-body-quality').hidden;
@@ -110,7 +112,7 @@ const USERS = [
       missing: ids.filter((i) => !document.getElementById(i)),
     };
   });
-  const WANT = ['cal', 'quality', 'pace', 'batch', 'fonts', 'copy', 'align', 'lastdate', 'tweaks', 'details'];
+  const WANT = ['cal', 'quality', 'pace', 'batch', 'fonts', 'copy', 'align', 'tweaks', 'details'];
   check('الطابعة: كل النافذة أقسام بتتقفل',
     WANT.every((k) => ps.found.includes(k)) && ps.found.length === WANT.length,
     { ناقص: WANT.filter((k) => !ps.found.includes(k)), زيادة: ps.found.filter((k) => !WANT.includes(k)) });
