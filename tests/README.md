@@ -179,6 +179,7 @@ node tests/helper-link-test.js
 node tests/label-helper-test.js
 node tests/helper-download-test.js
 node tests/print-route-test.js
+node tests/print-scope-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
 node tests/grade-add-test.js

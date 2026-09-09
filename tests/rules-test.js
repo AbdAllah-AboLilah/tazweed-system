@@ -26,6 +26,9 @@ const PROFILES = {
   scopedAll:  { name: 'أمين بقايمة فاضية', role: 'warehouse_keeper', warehouseAccess: 'both', categoryAccess: [] },
   // ⭐ حساب اتفتحله تاريخ آخر طبعة بالاسم
   seesDate:   { name: 'بيشوف التاريخ', role: 'user', perms: { seeRestockLastPrint: true } },
+  // ⭐⭐ حساب الطباعة اللي اتفتحله "إعدادات الطابعة" **بس** — ده الحساب
+  // اللي السؤال كله عليه: يظبط ماكينته، ومايلمسش باقي المحل.
+  setupOnly:  { name: 'حساب الطباعة', role: 'print_operator', perms: { printerSetup: true } },
 };
 
 (async () => {
@@ -391,6 +394,37 @@ const PROFILES = {
   await T3('⭐⭐⭐ نتيجة الطبعة ومعاها الطريق', 'plain', finishJob({ printRoute: 'helper' }), true);
   await T3('⭐⭐ والنتيجة من غير الطريق لسه شغّالة (نسخة قديمة بتطبع)', 'plain', finishJob({}), true);
   await T3('⭐⭐⭐⭐ وأي حقل برّه القايمة لسه بيترفض', 'plain', finishJob({ hackedField: 1 }), false);
+
+  // ============================================================
+  // ⚙️ إعدادات الطباعة: على جهازي ولا على المحل كله؟
+  // ============================================================
+  // اتطلب بعد مراجعة: "لو انا فاتح ل حساب الطباعة ان يعدل في اعدادته
+  // ممكن لما اغير في مفتاح يتغير عند الباقي؟" — وكانت أيوة.
+  //
+  // القاعدة دلوقتي بتطابق معنى الصلاحيتين:
+  //     إعدادات الطابعة → استثناء **جهازه هو**
+  //     التحكم عن بُعد   → المستند **المشترك** (كل الأجهزة)
+  const writeShared = (uid) =>
+    as(uid).collection('settings').doc('print').set({ tweaks: { noScale: true } }, { merge: true });
+  const writeDevice = (uid) =>
+    as(uid).collection('deviceSettings').doc('dev1').set({ tweaks: { noScale: true } }, { merge: true });
+  const T4 = async (label, uid, op, shouldPass) => {
+    let ok;
+    try { await (shouldPass ? assertSucceeds(op(uid)) : assertFails(op(uid))); ok = true; }
+    catch (e) { ok = false; if (process.env.VERBOSE) console.log('   ↳', label, String(e.message || e).slice(0, 160)); }
+    check(`${label} — ${PROFILES[uid].name}: ${shouldPass ? 'مسموح' : 'ممنوع'}`, ok);
+  };
+
+  await T4('⭐⭐⭐⭐ الإعداد المشترك (كل الأجهزة)', 'owner', writeShared, true);
+  // ⚠️⚠️ ده قلب التعديل كله: حساب الطباعة **مايقدرش** يغيّر على الكل
+  await T4('⭐⭐⭐⭐ الإعداد المشترك (كل الأجهزة)', 'setupOnly', writeShared, false);
+  await T4('⭐⭐ الإعداد المشترك (كل الأجهزة)', 'plain', writeShared, false);
+
+  // ⚠️ وفي نفس الوقت لازم **يقدر** يظبط جهازه — وإلا يبقى قفلنا عليه
+  // كل حاجة والمفتاح اللي فتحناله بقى بلا معنى.
+  await T4('⭐⭐⭐⭐ استثناء جهازه هو', 'setupOnly', writeDevice, true);
+  await T4('⭐⭐ استثناء جهازه هو', 'owner', writeDevice, true);
+  await T4('⭐⭐⭐ استثناء الجهاز', 'plain', writeDevice, false);
 
   await env.cleanup();
   console.log('\n✅ نجح (' + pass.length + ')');

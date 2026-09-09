@@ -100,120 +100,36 @@ check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا �
     out.closedNoGear = hasGear(screenFor({ id: 'u', role: 'user', perms: { downloadHelper: false } }));
 
     // ---------- النافذة نفسها ----------
+    // ============================================================
+    // ⚠️⚠️ رابط عادي، مش تحميل بالجافاسكريبت
+    // ============================================================
+    // اتجرّب شكلين قبل كده والاتنين وقفوا في سكوت عند المستخدم:
+    // <a download> على رابط الموقع، وبعده تحميل بشريط تقدم. الاتنين
+    // كانوا بيحطوا طبقة بين الضغطة والمتصفح. اتبلّغ بالنص: "انا زهقت
+    // حط مكانه لينك تحميل ... يفتح في المتصفح ويحمل وخلاص".
     state.profile = { id: 'me', role: 'owner' };
     const fetched = [];
     const realFetch = window.fetch;
-    const EXE = new Uint8Array(300).fill(77);
-    // خادم وهمي: بيرجّع الملف على تلات أجزاء عشان الشريط يتحرك فعلًا
-    let mode = 'ok';
-    const fakeBody = () => {
-      let i = 0;
-      const cuts = [0, 100, 220, 300];
-      return {
-        getReader: () => ({
-          read: async () => {
-            if (i >= cuts.length - 1) return { done: true };
-            const v = EXE.slice(cuts[i], cuts[i + 1]);
-            i++;
-            return { done: false, value: v };
-          },
-        }),
-      };
-    };
     window.fetch = async (u) => {
       fetched.push(String(u));
-      if (String(u).indexOf('VERSION') !== -1) return { ok: true, text: async () => '1.5.0\n' + 'a'.repeat(64) + '\n' };
-      if (mode === 'missing') return { ok: false, status: 404, headers: { get: () => null } };
-      if (mode === 'short') {
-        return { ok: true, headers: { get: (k) => (k === 'content-length' ? '999' : null) }, body: fakeBody() };
-      }
-      return { ok: true, headers: { get: (k) => (k === 'content-length' ? '300' : null) }, body: fakeBody() };
+      return { ok: true, text: async () => '1.5.0\n' + 'a'.repeat(64) + '\n' };
     };
-
     openHelperDownloadDialog();
+    const link = document.getElementById('helper-dl-link');
+    out.linkHref = link ? link.getAttribute('href') : '';
+    out.linkTarget = link ? link.getAttribute('target') : '';
+    out.linkRel = link ? link.getAttribute('rel') : '';
+    out.noJsDownloader = !document.getElementById('helper-dl-go') && !document.getElementById('helper-dl-bar');
     out.saysSmartScreen = /برنامج غير معروف/.test(document.body.textContent);
-    out.saysNotFromPhone = /من الكمبيوتر/.test(document.body.textContent);
+    out.saysFromPC = /من الكمبيوتر/.test(document.body.textContent);
     await new Promise((res) => setTimeout(res, 40));
     out.verShown = (document.getElementById('helper-dl-ver') || {}).textContent || '';
     out.verFetched = fetched.filter((u) => u.indexOf('VERSION') !== -1).length;
-
-    // ============================================================
-    // ⭐ التحميل نفسه — بشريط تقدم وسؤال "احفظه فين"
-    // ============================================================
-    const dlg = document.getElementById('helper-dl-go').closest('.card');
-    const barEl = document.getElementById('helper-dl-bar');
-    out.barHiddenBeforeStart = document.getElementById('helper-dl-bar-wrap').hidden === true;
-    out.backupHiddenAtStart = document.getElementById('helper-dl-backup').hidden === true;
-
-    // ⚠️ بنمسك النداء على "احفظه فين" ونتأكد إنه بيحصل **قبل** التنزيل
-    const order = [];
-    let savedBytes = 0;
-    window.showSaveFilePicker = async () => {
-      order.push('ask');
-      return {
-        createWritable: async () => ({
-          write: async (b) => { order.push('write'); savedBytes = b.size; },
-          close: async () => { order.push('close'); },
-        }),
-      };
-    };
-    fetched.length = 0;
-    document.getElementById('helper-dl-go').click();
-    await new Promise((res) => setTimeout(res, 120));
-    out.askedFirst = order[0] === 'ask' && fetched.length > 0;
-    out.savedBytes = savedBytes;
-    out.orderOK = JSON.stringify(order) === JSON.stringify(['ask', 'write', 'close']);
-    out.barFull = barEl.style.width === '100%';
-    out.okText = document.getElementById('helper-dl-state').textContent;
-
-    // ============================================================
-    // ⚠️⚠️ نفس الخطأ (AbortError) بيجي من حالتين مختلفتين تمامًا
-    // ============================================================
-    // كروم بيرميه لما المستخدم يدوس إلغاء، **و** لما يرفض يفتح النافذة
-    // أصلًا. والفرق بينهم الوقت: بني آدم قرا نافذة ودوس إلغاء مستحيل
-    // ياخد أقل من نص ثانية.
-    //
-    // العطل اللي بيتصلّح هنا اتبلّغ بالنص: "بردوا مش عاوز ينزل ولا
-    // يعمل حاجه" — النسخة القديمة كانت بتقف في **سكوت** في الحالتين.
-
-    // (أ) الرفض الفوري = المتصفح مافتحش النافذة → لازم يكمّل التحميل
-    order.length = 0; fetched.length = 0;
-    window.showSaveFilePicker = async () => { const e = new Error('x'); e.name = 'AbortError'; throw e; };
-    document.getElementById('helper-dl-go').click();
-    await new Promise((res) => setTimeout(res, 150));
-    out.instantAbortDownloaded = fetched.length > 0;
-    out.instantAbortText = document.getElementById('helper-dl-state').textContent;
-
-    // (ب) الرفض بعد وقت = المستخدم دوس إلغاء → نوقف، **وبنقول**
-    order.length = 0; fetched.length = 0;
-    window.showSaveFilePicker = async () => {
-      await new Promise((r) => setTimeout(r, 500));
-      const e = new Error('x'); e.name = 'AbortError'; throw e;
-    };
-    document.getElementById('helper-dl-go').click();
-    await new Promise((res) => setTimeout(res, 700));
-    out.realCancelNoFetch = fetched.length === 0;
-    out.realCancelText = document.getElementById('helper-dl-state').textContent;
-    out.reEnabled = document.getElementById('helper-dl-go').disabled === false;
-
-    // ---------- الملف مش موجود → رسالة واضحة + الرابط الاحتياطي ----------
-    delete window.showSaveFilePicker;
-    mode = 'missing';
-    document.getElementById('helper-dl-go').click();
-    await new Promise((res) => setTimeout(res, 100));
-    out.missingText = document.getElementById('helper-dl-state').textContent;
-    out.backupShownAfterFail = document.getElementById('helper-dl-backup').hidden === false;
-
-    // ---------- الملف نزل ناقص → بيترفض بدل ما يتحفظ بايظ ----------
-    mode = 'short';
-    document.getElementById('helper-dl-go').click();
-    await new Promise((res) => setTimeout(res, 100));
-    out.shortText = document.getElementById('helper-dl-state').textContent;
-
+    // ⚠️ فتح النافذة **مايبدأش** أي تحميل لوحده — التحميل بالضغطة بس
+    out.noAutoDownload = fetched.every((u) => u.indexOf('.exe') === -1);
     document.getElementById('helper-dl-close').click();
-    out.closedDialog = !document.getElementById('helper-dl-go');
+    out.closedDialog = !document.getElementById('helper-dl-link');
     window.fetch = realFetch;
-    void dlg;
     return out;
   });
 
@@ -229,25 +145,15 @@ check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا �
   check('⭐⭐⭐ وقفل المفتاح بيخفي الزرار تاني', r.closedAgain === false);
   check('⭐⭐ ومابيسيبش الترس ظاهر لحساب مالوش مفاتيح تانية', r.closedNoGear === false);
 
+  check('⭐⭐⭐⭐ الرابط على raw.githubusercontent — بيعدّي من غير الـService Worker',
+    /^https:\/\/raw\.githubusercontent\.com\/.+tazweed-helper\.exe$/.test(r.linkHref), r.linkHref);
+  check('⭐⭐⭐ وبيفتح تبويب جديد', r.linkTarget === '_blank', r.linkTarget);
+  check('⭐⭐ ومعاه noopener', /noopener/.test(r.linkRel || ''), r.linkRel);
+  check('⭐⭐⭐⭐ ومافيش تحميل بالجافاسكريبت تاني (الطبقة اللي كانت بتقف في سكوت)',
+    r.noJsDownloader === true, r.noJsDownloader);
+  check('⭐⭐⭐ وفتح النافذة مابيبدأش تحميل لوحده', r.noAutoDownload, r.noAutoDownload);
   check('⭐⭐⭐ والنافذة بتحذّر من رسالة "برنامج غير معروف" قبل ما تظهر', r.saysSmartScreen);
-  check('⭐⭐ وبتقول إنه ينزّل من الكمبيوتر', r.saysNotFromPhone);
-  check('⭐ الشريط مخفي قبل ما تدوس', r.barHiddenBeforeStart);
-  check('⭐⭐ والرابط الاحتياطي مخفي في الأول (مش بديل، ده آخر حل)', r.backupHiddenAtStart);
-  check('⭐⭐⭐⭐ بيسأل "احفظه فين" **قبل** ما ينزّل',
-    r.askedFirst === true && r.orderOK === true, [r.askedFirst, r.orderOK]);
-  check('⭐⭐⭐ وبيحفظ الملف كامل في المكان اللي اتختار', r.savedBytes === 300, r.savedBytes);
-  check('⭐⭐ والشريط بيوصل للآخر', r.barFull, r.barFull);
-  check('⭐⭐ وبيقول إنه خلص', /اتحفظ/.test(r.okText), r.okText);
-  check('⭐⭐⭐⭐ المتصفح رفض يفتح نافذة الحفظ → **بيكمّل التحميل** مش بيقف ساكت',
-    r.instantAbortDownloaded === true, r.instantAbortDownloaded);
-  check('⭐⭐⭐ وبيقول إن نافذة المكان مافتحتش',
-    /مافتحش نافذة/.test(r.instantAbortText), r.instantAbortText);
-  check('⭐⭐⭐⭐ والمستخدم دوس إلغاء فعلًا → مافيش تحميل', r.realCancelNoFetch, r.realCancelNoFetch);
-  check('⭐⭐⭐⭐ **وبيقول إنه اتلغى** — مش سكوت', /اتلغى/.test(r.realCancelText), r.realCancelText);
-  check('⭐⭐⭐ والزرار بيرجع شغّال بعد الإلغاء', r.reEnabled, r.reEnabled);
-  check('⭐⭐⭐⭐ الملف مش موجود → رسالة واضحة مش سكوت', /مش موجود/.test(r.missingText), r.missingText);
-  check('⭐⭐⭐ والرابط المباشر بيظهر بعد الفشل', r.backupShownAfterFail);
-  check('⭐⭐⭐⭐ الملف نزل ناقص → بيترفض بدل ما يتحفظ بايظ', /ناقص/.test(r.shortText), r.shortText);
+  check('⭐⭐ وبتقول إنه ينزّل من الكمبيوتر', r.saysFromPC);
   check('⭐⭐ وبتعرض أحدث نسخة', /1\.5\.0/.test(r.verShown), r.verShown);
   check('⭐ وبتقرا النسخة نداء واحد بس', r.verFetched === 1, r.verFetched);
   check('⭐ والنافذة بتتقفل', r.closedDialog === true);
