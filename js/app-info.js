@@ -7,4 +7,4 @@ const APP_NAME = 'نظام التزويد';
 // ⚠️ ده **مش** اسم المحل. صاحب النظام طلب صراحةً إن اسم المحل مايظهرش
 // في شاشة الدخول.
 const APP_AUTHOR = 'AboLilah';
-const APP_VERSION = '0.77.7';
+const APP_VERSION = '0.77.8';

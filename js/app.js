@@ -4977,6 +4977,14 @@ async function registerPrintStation() {
         // **تخمين** النسخة طلع غلط، فالرقم ده بيشيل التخمين. وهو مهم
         // فعلًا: أمر المقاس الصريح (size.custom) بيشتغل من 2.2.6 وفوق بس.
         qzVersion: typeof readQZVersion === 'function' ? await readQZVersion() : '',
+        // ⚠️ مقاس الورق في تعريف الويندوز لطابعة ورقة التزويد. نفس سبب
+        // النسخة فوق بالظبط: التفسير الفاضل للقص هو إن الفورم مختلف من
+        // جهاز لجهاز، والرقم ده هو اللي هيأكّده أو يقتله. الشرح عند
+        // readPrinterPaper.
+        restockPaper:
+          typeof readPrinterPaper === 'function'
+            ? await readPrinterPaper(typeof getSavedPrinter === 'function' ? getSavedPrinter('restock') : '')
+            : '',
         // ضبط الطباعة بيتنشر مع النبضة عشان جهاز جديد يقدر ينسخه بدل ما
         // يعيد المعايرة من الأول.
         //
