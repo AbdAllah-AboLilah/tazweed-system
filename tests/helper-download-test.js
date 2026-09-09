@@ -127,6 +127,35 @@ check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا �
     out.verFetched = fetched.filter((u) => u.indexOf('VERSION') !== -1).length;
     // ⚠️ فتح النافذة **مايبدأش** أي تحميل لوحده — التحميل بالضغطة بس
     out.noAutoDownload = fetched.every((u) => u.indexOf('.exe') === -1);
+    // ============================================================
+    // ⭐⭐⭐⭐ الضغطة لازم يبقى ليها رد فعل — حتى على الموبايل
+    // ============================================================
+    // اتبلّغ بالنص: "لما اضغط علي زرار برنامج المساعد من التليفون
+    // ميفتحش حاجه ولا يديني ردت فعل".
+    const notices = [];
+    const realNotice = window.showPrintNotice;
+    window.showPrintNotice = (m, ms, kind) => notices.push({ m: String(m), kind: kind || 'info' });
+    // ⚠️ بنمنع الانتقال الفعلي عشان الفحص مايسيبش الصفحة
+    const stop = (e) => e.preventDefault();
+    document.addEventListener('click', stop, true);
+
+    const realUA = navigator.userAgent;
+    const setUA = (v) => Object.defineProperty(navigator, 'userAgent', { value: v, configurable: true });
+
+    setUA('Mozilla/5.0 (Linux; Android 13) Chrome/120');
+    notices.length = 0;
+    document.getElementById('helper-dl-link').click();
+    out.phoneNotice = notices[0] || null;
+
+    setUA('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120');
+    notices.length = 0;
+    document.getElementById('helper-dl-link').click();
+    out.pcNotice = notices[0] || null;
+
+    setUA(realUA);
+    document.removeEventListener('click', stop, true);
+    window.showPrintNotice = realNotice;
+
     document.getElementById('helper-dl-close').click();
     out.closedDialog = !document.getElementById('helper-dl-link');
     window.fetch = realFetch;
@@ -156,6 +185,13 @@ check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا �
   check('⭐⭐ وبتقول إنه ينزّل من الكمبيوتر', r.saysFromPC);
   check('⭐⭐ وبتعرض أحدث نسخة', /1\.5\.0/.test(r.verShown), r.verShown);
   check('⭐ وبتقرا النسخة نداء واحد بس', r.verFetched === 1, r.verFetched);
+  check('⭐⭐⭐⭐ الضغط من التليفون بيدي رد فعل (مش سكوت)',
+    !!r.phoneNotice && /التحميل بدأ/.test(r.phoneNotice.m), r.phoneNotice);
+  check('⭐⭐⭐ وبيقول إن رفض المتصفح طبيعي وإن مكانه الكمبيوتر',
+    !!r.phoneNotice && /رفض/.test(r.phoneNotice.m) && /الكمبيوتر/.test(r.phoneNotice.m), r.phoneNotice);
+  check('⭐⭐ وبلون تحذير مش عادي', !!r.phoneNotice && r.phoneNotice.kind === 'warn', r.phoneNotice);
+  check('⭐⭐ ومن الكمبيوتر بيدي رد فعل كمان',
+    !!r.pcNotice && /التحميل بدأ/.test(r.pcNotice.m), r.pcNotice);
   check('⭐ والنافذة بتتقفل', r.closedDialog === true);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
