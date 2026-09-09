@@ -129,8 +129,8 @@ func post(t *testing.T, mux *http.ServeMux, path, origin, body string) *httptest
 func TestOriginLockedDown(t *testing.T) {
 	mux := newServer()
 	bad := []string{
-		"https://evil.example",      // موقع تاني
-		"http://abdallah-abolilah.github.io", // نفس الاسم بس http
+		"https://evil.example",                         // موقع تاني
+		"http://abdallah-abolilah.github.io",           // نفس الاسم بس http
 		"https://abdallah-abolilah.github.io.evil.com", // بادئة مخادعة
 		"null",
 	}
@@ -385,4 +385,172 @@ func TestPageHasControls(t *testing.T) {
 			t.Fatalf("الصفحة ناقصها: %s", want)
 		}
 	}
+}
+
+// ============================================================
+// 🏷️ اختبارات الملصق (TSPL)
+// ============================================================
+
+// صورة PNG صغيرة للاختبار: عرضها بالنقط وارتفاعها، والبكسل (0,0) أسود
+// والباقي أبيض.
+func tinyLabelPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.White)
+		}
+	}
+	img.Set(0, 0, color.Black)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// ⚠️⚠️ أهم اختبار في الملف ده: القطبية.
+// TSPL بِت ٠ = أسود. لو قلبنا غلط، اللاصقة بتطلع **سودا بالكامل**
+// وكل لفة ورق في المحل بتضيع. الاختبار بيقرا البايت الأول من بيانات
+// الصورة ويتأكد إن النقطة السودا بقت ٠ والباقي ١.
+func TestTSPLPolarity(t *testing.T) {
+	// 8 نقط عرض = بايت واحد في الصف. أول نقطة سودا.
+	data, _, _, err := buildTSPLJob([]tsplLabel{{PNG: tinyLabelPNG(t, 8, 2), Copies: 1}}, 10, 5, 2, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := bytes.Index(data, []byte("BITMAP 0,0,1,2,0,"))
+	if i < 0 {
+		t.Fatalf("مالقيتش أمر BITMAP في:\n%q", data)
+	}
+	first := data[i+len("BITMAP 0,0,1,2,0,")]
+	// النقطة السودا في أعلى بِت، والباقي أبيض → 0111 1111 = 0x7F
+	if first != 0x7F {
+		t.Fatalf("قطبية غلط: البايت الأول %#02x، المفروض 0x7f", first)
+	}
+}
+
+// مفتاح الطوارئ بيرجّع القطبية زي ما هي من غير قلب.
+func TestTSPLFlipPolarity(t *testing.T) {
+	data, _, _, err := buildTSPLJob([]tsplLabel{{PNG: tinyLabelPNG(t, 8, 2), Copies: 1}}, 10, 5, 2, 1, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := bytes.Index(data, []byte("BITMAP 0,0,1,2,0,"))
+	if i < 0 {
+		t.Fatal("مالقيتش أمر BITMAP")
+	}
+	if got := data[i+len("BITMAP 0,0,1,2,0,")]; got != 0x80 {
+		t.Fatalf("المفتاح مابيلغيش القلب: %#02x، المفروض 0x80", got)
+	}
+}
+
+// الترويسة بتتكتب مرة واحدة مهما كان عدد الملصقات — مش مرة لكل ملصق.
+func TestTSPLHeaderOnce(t *testing.T) {
+	items := []tsplLabel{
+		{PNG: tinyLabelPNG(t, 8, 2), Copies: 3},
+		{PNG: tinyLabelPNG(t, 8, 2), Copies: 5},
+	}
+	data, _, _, err := buildTSPLJob(items, 38, 25, 2, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(data, []byte("SIZE ")); n != 1 {
+		t.Fatalf("SIZE اتكتب %d مرة، المفروض مرة واحدة", n)
+	}
+	if n := bytes.Count(data, []byte("GAP ")); n != 1 {
+		t.Fatalf("GAP اتكتب %d مرة", n)
+	}
+	if n := bytes.Count(data, []byte("\r\nCLS\r\n")); n != 2 {
+		t.Fatalf("CLS اتكتب %d مرة، المفروض واحدة لكل ملصق", n)
+	}
+}
+
+// ⭐ العدد بيروح للطابعة كـPRINT n,1 — مش بتكرار الصورة. ده اللي
+// بيخلي 40 ملصق حجمهم زي ملصق واحد.
+func TestTSPLCopiesNotRepeated(t *testing.T) {
+	one, _, _, err := buildTSPLJob([]tsplLabel{{PNG: tinyLabelPNG(t, 304, 200), Copies: 1}}, 38, 25, 2, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forty, _, _, err := buildTSPLJob([]tsplLabel{{PNG: tinyLabelPNG(t, 304, 200), Copies: 40}}, 38, 25, 2, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(forty, []byte("PRINT 40,1")) {
+		t.Fatal("العدد مابيتبعتش كـPRINT 40,1")
+	}
+	// الفرق المسموح: رقم أطول بحرف واحد وبس
+	if d := len(forty) - len(one); d > 4 {
+		t.Fatalf("الصورة اتكررت: الفرق %d بايت", d)
+	}
+}
+
+// المقاس بيتحسب من نقط الصورة لو النظام مابعتش مقاس.
+func TestTSPLSizeFromDots(t *testing.T) {
+	data, w, h, err := buildTSPLJob([]tsplLabel{{PNG: tinyLabelPNG(t, 304, 200), Copies: 1}}, 0, 0, 2, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w != 304 || h != 200 {
+		t.Fatalf("مقاس النقط غلط: %dx%d", w, h)
+	}
+	// 304/203*25.4 = 38.03  و 200/203*25.4 = 25.02
+	if !bytes.HasPrefix(data, []byte("SIZE 38.0")) {
+		t.Fatalf("المقاس المحسوب غلط:\n%.40q", data)
+	}
+}
+
+// الافتراضيات هي نفس اللي في عيّنة الخطوط اللي اتجرّبت على ماكينة المحل.
+func TestTSPLDefaults(t *testing.T) {
+	data, _, _, err := buildTSPLJob([]tsplLabel{{PNG: tinyLabelPNG(t, 8, 2), Copies: 1}}, 38, 25, -1, 9, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"SIZE 38 mm,25 mm", "GAP 2 mm,0 mm", "DIRECTION 1", "REFERENCE 0,0"} {
+		if !bytes.Contains(data, []byte(want)) {
+			t.Fatalf("ناقص %q في:\n%.120q", want, data)
+		}
+	}
+}
+
+// قايمة فاضية = خطأ واضح، مش أمر فاضي بيتبعت للطابعة.
+func TestTSPLEmptyRejected(t *testing.T) {
+	if _, _, _, err := buildTSPLJob(nil, 38, 25, 2, 1, false); err == nil {
+		t.Fatal("القايمة الفاضية عدّت")
+	}
+}
+
+// صورة بمقاس غير معقول بتترفض بدل ما تغرق الطابعة.
+func TestTSPLHugeRejected(t *testing.T) {
+	if _, _, _, err := buildTSPLJob([]tsplLabel{{PNG: tinyLabelPNG(t, maxLabelDots+8, 4), Copies: 1}}, 38, 25, 2, 1, false); err == nil {
+		t.Fatal("الصورة العملاقة عدّت")
+	}
+}
+
+// ⚠️ الإعدادات القديمة (من غير حقول الملصق) لازم ترجّع الافتراضيات،
+// مش أصفار. ده كان هيبعت GAP 0 لورق فيه فواصل.
+func TestLabelOptionsDefaults(t *testing.T) {
+	setMu.Lock()
+	setData = settings{RestockPrinter: "A", LabelPrinter: "B"}
+	setMu.Unlock()
+	gap, dir, flip := labelOptions()
+	if gap != 2 || dir != 1 || flip {
+		t.Fatalf("الافتراضيات غلط: gap=%v dir=%v flip=%v", gap, dir, flip)
+	}
+}
+
+// وصفر **مكتوب صراحةً** لازم يعدّي — ورق مستمر من غير فواصل.
+func TestLabelOptionsExplicitZero(t *testing.T) {
+	z, d := 0.0, 0
+	setMu.Lock()
+	setData = settings{LabelGapMm: &z, LabelDirection: &d}
+	setMu.Unlock()
+	gap, dir, _ := labelOptions()
+	if gap != 0 || dir != 0 {
+		t.Fatalf("الصفر الصريح اتبلع: gap=%v dir=%v", gap, dir)
+	}
+	setMu.Lock()
+	setData = settings{}
+	setMu.Unlock()
 }

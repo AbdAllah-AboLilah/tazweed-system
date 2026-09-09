@@ -235,6 +235,175 @@ function helperFail(reason, loud) {
   setPrintOutcome(false, reason);
 }
 
+// ============================================================
+// 🏷️ الملصقات من البرنامج المساعد
+// ============================================================
+// ⚠️⚠️ ده **مش** نفس مسار ورقة التزويد. الطابعتين بيتكلموا لغتين
+// مختلفتين خالص (ورقة التزويد ESC/POS، الملصق TSPL)، فالبرنامج فيه
+// باب لوحده لكل واحد. المسارين مابيتلامسوش.
+//
+// اللي بيتحل هنا (وده اللي اتطلب بالنص: "بيطبع كل 4 ب 4"):
+//
+//   الطريقة القديمة (QZ):
+//     • حد رسالة 48 كيلو → **٤ ملصقات مختلفة بس** في الأمر الواحد
+//     • العدد بيتبعت بتكرار نفس الصورة على الشبكة
+//     • التعريف بيعيد رسم الصورة — ومنه جه عطل "العمود اليمين مقصوص"
+//
+//   من البرنامج:
+//     • مافيش حد للعدد (الطلب لحد 12 ميجا = آلاف الملصقات)
+//     • العدد بيتنفّذ **جوه الطابعة** (PRINT n,1) — الصورة بتتبعت مرة
+//     • الصورة بتوصل للماكينة نقطة بنقطة، مافيش تعريف يتصرّف فيها
+//
+// ⚠️ شرط أساسي: **كل** الملصقات لازم تكون صور. لو واحد منهم HTML
+// (مفتاح htmlLabels مفتوح) بنسيب الطبعة كلها لـQZ — لأن HTML محتاج
+// محرك يرسمه، والبرنامج بيبعت نقط بس.
+
+// الدفعة الواحدة: ٤٠ لاصقة. مش حد تقني — الحد اتشال أصلًا. ده عشان
+// **زرار الإيقاف وشريط التقدم** يفضلوا شغالين: الطلب الواحد ذرّة،
+// فلو بعتنا ٢٠٠ ملصق في طلب واحد مش هيبقى فيه مكان نوقف عنده.
+const HELPER_LABEL_CHUNK = 40;
+
+// بترجّع true لو الملصقات راحت للطابعة عن طريق البرنامج.
+async function printLabelsViaHelper(type, jobs, sizeOptions, onProgress) {
+  if (typeof getPrintTweak !== 'function' || !getPrintTweak('labelHelper')) return false;
+  if (type !== 'label') return false;
+
+  let list = normalizePrintJobs(jobs);
+  if (!list.length) return false;
+  if (!list.every((j) => j && typeof j.image === 'string' && j.image)) return false;
+
+  const st = await helperStatus();
+  if (!st || !st.app) {
+    helperFail('البرنامج المساعد مش شغّال على الجهاز ده.');
+    return false;
+  }
+  const printer = getSavedPrinter('label');
+  if (!printer) {
+    helperFail('البرنامج المساعد شغّال بس الجهاز ده مش مظبوط على طابعة ملصق.');
+    return false;
+  }
+
+  // ⭐ نفس تصغير الصور بتاع المسار القديم: النقط مابتتغيّرش، الحجم بس
+  // بيقل — فالطلب بيوصل أسرع.
+  const smaller = await shrinkImageJobs(list);
+  if (smaller) list = smaller;
+
+  // بنفرد العدد على دفعات، والصورة بتفضل **مرة واحدة** في كل دفعة.
+  const chunks = [];
+  let cur = [];
+  let curCount = 0;
+  for (const job of list) {
+    const png = job.image.replace(/^data:image\/\w+;base64,/, '');
+    let left = job.copies;
+    while (left > 0) {
+      const take = Math.min(left, HELPER_LABEL_CHUNK - curCount);
+      cur.push({ png, copies: take });
+      curCount += take;
+      left -= take;
+      if (curCount >= HELPER_LABEL_CHUNK) {
+        chunks.push(cur);
+        cur = [];
+        curCount = 0;
+      }
+    }
+  }
+  if (cur.length) chunks.push(cur);
+
+  const total = list.reduce((n, j) => n + j.copies, 0);
+  const widthMm = (sizeOptions && sizeOptions.pageWidthMm) || 0;
+  const heightMm = (sizeOptions && sizeOptions.pageHeightMm) || 0;
+
+  beginPrintCancelScope();
+  const progress = total > 10 ? showPrintProgress(total, requestPrintCancel) : null;
+  const report = (done) => {
+    if (progress) progress.update(done);
+    if (typeof onProgress === 'function') onProgress(done, total);
+  };
+
+  let sent = 0;
+  try {
+    for (const chunk of chunks) {
+      // ⏹️ الفحص **قبل** الإرسال — بعده يبقى فات الأوان.
+      if (isPrintCancelRequested()) {
+        if (progress) progress.close();
+        endPrintCancelScope();
+        showPrintNotice(`⏹️ اتوقفت — اتبعت لحد ${sent} من ${total}. اللي في الماكينة هيكمّل.`, 8000);
+        setPrintOutcome(false, `اتوقفت بطلب المستخدم — اتبعت ${sent} من ${total}.`, sent, total, true);
+        return true;
+      }
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), HELPER_PRINT_MS);
+      let res;
+      try {
+        res = await fetch(HELPER_URL + '/label', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ printer, widthMm, heightMm, labels: chunk, name: 'ملصقات' }),
+          signal: ctl.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok) {
+        sent += chunk.reduce((n, c) => n + c.copies, 0);
+        report(sent);
+        continue;
+      }
+
+      // ============================================================
+      // ⚠️⚠️ الرجوع لـQZ مسموح **قبل أول ملصق بس**
+      // ============================================================
+      // نسخة قديمة من البرنامج (١.٤ وأقل) مافيهاش باب /label خالص،
+      // فبترد 404. ودي حالة **مافيش أي ورق اتحرك** فيها — فالرجوع
+      // للطريقة القديمة هو الصح، والمستخدم يطبع عادي ويحدّث البرنامج
+      // وقت ما يحب.
+      //
+      // ونفس الكلام على 400 (طلب مرفوض): البرنامج بيتحقق من كل حاجة
+      // **قبل** ما يبعت للطابعة، فالرفض ده معناه مافيش حاجة اتطبعت.
+      //
+      // ⚠️ لكن بعد ما لاصقة واحدة تطلع، **ممنوع** نرجع لـQZ — هيعيد
+      // طباعة اللي طلع خلاص وياكل ورق.
+      if (progress) progress.close();
+      endPrintCancelScope();
+      const why = out.error || 'كود ' + res.status;
+      if (sent === 0 && (res.status === 404 || res.status === 400)) {
+        helperFail(
+          res.status === 404
+            ? 'نسخة البرنامج المساعد على الجهاز ده قديمة ومافيهاش طباعة الملصق — الملصقات اتطبعت بالطريقة القديمة. حدّث البرنامج من صفحته.'
+            : `البرنامج المساعد رفض الطلب (${why}) — الملصقات اتطبعت بالطريقة القديمة.`
+        );
+        return false;
+      }
+      helperFail(`البرنامج المساعد وقف بعد ${sent} من ${total} (${why}). اللي طلع خلاص متعيدهوش.`, true);
+      return true;
+    }
+  } catch (err) {
+    console.warn('تعذّر إرسال الملصقات للبرنامج المساعد:', err);
+    if (progress) progress.close();
+    endPrintCancelScope();
+    const aborted = err && err.name === 'AbortError';
+    // ⚠️ نفس منطق ورقة التزويد: الانقطاع بعد الإرسال ممكن يكون الورق
+    // خرج فعلًا. مانطبعش تاني — بنقول ونسيب القرار له.
+    if (sent === 0 && !aborted) {
+      helperFail('الاتصال بالبرنامج المساعد اتقطع قبل ما يطبع — الملصقات اتطبعت بالطريقة القديمة.');
+      return false;
+    }
+    helperFail(
+      `البرنامج المساعد ${aborted ? 'أخد وقت طويل ومارَدّش' : 'اتقطع'} بعد ${sent} من ${total}. ` +
+        'اللي طلع خلاص متعيدهوش.',
+      true
+    );
+    return true;
+  }
+
+  if (progress) progress.close();
+  if (progress) showPrintHint(total);
+  endPrintCancelScope();
+  setPrintOutcome(true, '', total, total);
+  return true;
+}
+
 async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, spec) {
   const target = await choosePrintTarget();
   if (target === null) return false;
@@ -253,6 +422,10 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, s
   //
   // ⚠️ وورقة التزويد بس: الملصق سايب زي ما هو، اتطلب كده بالنص.
   if (type === 'restock' && (await printSheetViaHelper(html))) return true;
+  // ⚠️ نفس المكان بالظبط ولنفس السبب: البرنامج **بديل** لـQZ مش إضافة
+  // عليه. والشرط `type === 'label'` صريح مش `!== 'restock'` — الاتنين
+  // دول كل الأنواع الموجودة، بس الصريح مايتكسرش لو اتضاف نوع تالت.
+  if (type === 'label' && (await printLabelsViaHelper(type, html, sizeOptions))) return true;
 
   const printedViaQZ = await tryPrintViaQZ(type, html, sizeOptions);
   if (printedViaQZ) return true;
@@ -672,6 +845,14 @@ async function executePrintJob(jobId, job) {
     ) {
       printedViaQZ = true; // اتطبعت فعلًا — مانرجعش لنافذة المتصفح
       onProgress(1, 1);
+    } else if (
+      job.type === 'label' &&
+      (await printLabelsViaHelper(job.type, list, job.sizeOptions, onProgress))
+    ) {
+      // ⚠️ الملصقات الجاية من التليفون بتدخل من هنا كمان — نفس العطل
+      // اللي حصل في ورقة التزويد ("اشتغل من الكمبيوتر بس")، متصلّح من
+      // أول يوم المرة دي.
+      printedViaQZ = true;
     } else {
       printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions, onProgress);
     }
@@ -2017,6 +2198,24 @@ const PRINT_TWEAKS = [
       'الورقة للطابعة مباشرة من غير ما تعدّي على تعريف الويندوز — ' +
       'فمافيش قص ولا تصغير مهما طالت. لو البرنامج مش شغّال، الطباعة ' +
       'بتكمّل بالطريقة القديمة لوحدها من غير أي تأخير.',
+    apply: () => {},
+  },
+  {
+    // ============================================================
+    // 🏷️ الملصق من البرنامج المساعد — الشرح الكامل عند printLabelsViaHelper
+    // ============================================================
+    // ⚠️ مقفول افتراضيًا زي أي حاجة بتلمس الملصق: لازم لاصقة حقيقية
+    // تطلع من الماكينة قبل ما يبقى الافتراضي.
+    key: 'labelHelper',
+    label: '🏷️ ابعت الملصقات للبرنامج المساعد',
+    hint:
+      'محتاج برنامج "مساعد التزويد" ١.٥ أو أحدث شغّال على جهاز الطباعة. ' +
+      'بيشيل حد الـ٤ ملصقات في الأمر الواحد (الملصقات بتروح كلها مرة ' +
+      'واحدة)، والعدد بيتنفّذ جوه الطابعة بدل ما نبعت نفس الصورة مكرّرة — ' +
+      'فالطبعة الكبيرة بتخلص أسرع بكتير. لو البرنامج مش شغّال أو نسخته ' +
+      'قديمة، الطباعة بتكمّل بالطريقة القديمة لوحدها. ' +
+      '⚠️ جرّب **ملصق واحد** الأول: لو طلع أسود بالكامل أو مقلوب، ' +
+      'اظبطه من صفحة البرنامج نفسه (اقلب ألوان الملصق / اتجاه الملصق).',
     apply: () => {},
   },
   {
