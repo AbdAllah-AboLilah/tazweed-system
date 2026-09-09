@@ -17,6 +17,8 @@ import (
 
 func openBrowser(url string) {}
 
+func fixConsoleEncoding() {}
+
 func listPrinters() ([]string, error) {
 	return []string{"جهاز-تجريبي"}, nil
 }
