@@ -166,12 +166,35 @@ check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا �
     out.barFull = barEl.style.width === '100%';
     out.okText = document.getElementById('helper-dl-state').textContent;
 
-    // ---------- المستخدم قفل نافذة "احفظه فين" → مافيش تحميل ----------
+    // ============================================================
+    // ⚠️⚠️ نفس الخطأ (AbortError) بيجي من حالتين مختلفتين تمامًا
+    // ============================================================
+    // كروم بيرميه لما المستخدم يدوس إلغاء، **و** لما يرفض يفتح النافذة
+    // أصلًا. والفرق بينهم الوقت: بني آدم قرا نافذة ودوس إلغاء مستحيل
+    // ياخد أقل من نص ثانية.
+    //
+    // العطل اللي بيتصلّح هنا اتبلّغ بالنص: "بردوا مش عاوز ينزل ولا
+    // يعمل حاجه" — النسخة القديمة كانت بتقف في **سكوت** في الحالتين.
+
+    // (أ) الرفض الفوري = المتصفح مافتحش النافذة → لازم يكمّل التحميل
     order.length = 0; fetched.length = 0;
     window.showSaveFilePicker = async () => { const e = new Error('x'); e.name = 'AbortError'; throw e; };
     document.getElementById('helper-dl-go').click();
-    await new Promise((res) => setTimeout(res, 80));
-    out.abortNoFetch = fetched.length === 0;
+    await new Promise((res) => setTimeout(res, 150));
+    out.instantAbortDownloaded = fetched.length > 0;
+    out.instantAbortText = document.getElementById('helper-dl-state').textContent;
+
+    // (ب) الرفض بعد وقت = المستخدم دوس إلغاء → نوقف، **وبنقول**
+    order.length = 0; fetched.length = 0;
+    window.showSaveFilePicker = async () => {
+      await new Promise((r) => setTimeout(r, 500));
+      const e = new Error('x'); e.name = 'AbortError'; throw e;
+    };
+    document.getElementById('helper-dl-go').click();
+    await new Promise((res) => setTimeout(res, 700));
+    out.realCancelNoFetch = fetched.length === 0;
+    out.realCancelText = document.getElementById('helper-dl-state').textContent;
+    out.reEnabled = document.getElementById('helper-dl-go').disabled === false;
 
     // ---------- الملف مش موجود → رسالة واضحة + الرابط الاحتياطي ----------
     delete window.showSaveFilePicker;
@@ -215,7 +238,13 @@ check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا �
   check('⭐⭐⭐ وبيحفظ الملف كامل في المكان اللي اتختار', r.savedBytes === 300, r.savedBytes);
   check('⭐⭐ والشريط بيوصل للآخر', r.barFull, r.barFull);
   check('⭐⭐ وبيقول إنه خلص', /اتحفظ/.test(r.okText), r.okText);
-  check('⭐⭐⭐⭐ المستخدم قفل نافذة الحفظ → **مافيش تحميل أصلًا**', r.abortNoFetch, r.abortNoFetch);
+  check('⭐⭐⭐⭐ المتصفح رفض يفتح نافذة الحفظ → **بيكمّل التحميل** مش بيقف ساكت',
+    r.instantAbortDownloaded === true, r.instantAbortDownloaded);
+  check('⭐⭐⭐ وبيقول إن نافذة المكان مافتحتش',
+    /مافتحش نافذة/.test(r.instantAbortText), r.instantAbortText);
+  check('⭐⭐⭐⭐ والمستخدم دوس إلغاء فعلًا → مافيش تحميل', r.realCancelNoFetch, r.realCancelNoFetch);
+  check('⭐⭐⭐⭐ **وبيقول إنه اتلغى** — مش سكوت', /اتلغى/.test(r.realCancelText), r.realCancelText);
+  check('⭐⭐⭐ والزرار بيرجع شغّال بعد الإلغاء', r.reEnabled, r.reEnabled);
   check('⭐⭐⭐⭐ الملف مش موجود → رسالة واضحة مش سكوت', /مش موجود/.test(r.missingText), r.missingText);
   check('⭐⭐⭐ والرابط المباشر بيظهر بعد الفشل', r.backupShownAfterFail);
   check('⭐⭐⭐⭐ الملف نزل ناقص → بيترفض بدل ما يتحفظ بايظ', /ناقص/.test(r.shortText), r.shortText);
