@@ -126,12 +126,23 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     setPrintTweak('fixedNameSize', true);
     out.box51On = boxOf(N51);
 
-    // ⚠️⚠️ والمفتاح الأب مقفول → المفتاح ده مالوش أي أثر
+    // ============================================================
+    // ⚠️⚠️ المفتاح لازم يشتغل **لوحده** من غير المفتاح التاني
+    // ============================================================
+    // أول نسخة كانت بتشترط `fixedLabelSizes` مفتوح كمان، والنتيجة إن
+    // اللي يفتح مفتاح الاسم لوحده مايشوفش أي تغيير — واتبلّغ بالنص:
+    // "الزرار مش بيغير حجم الحرف بيفضل ثابت وبيطلع زي القديم عادي".
     setPrintTweak('fixedLabelSizes', false);
-    out.parentOffSame = JSON.stringify(NAMES.map(nameMm));
     setPrintTweak('fixedNameSize', false);
-    out.parentOffBase = JSON.stringify(NAMES.map(nameMm));
+    const baseAlone = NAMES.map(nameMm);
+    setPrintTweak('fixedNameSize', true);
+    setPrintNameMm(1.5);
+    out.aloneWorks = NAMES.map(nameMm);
+    out.aloneChanged = JSON.stringify(out.aloneWorks) !== JSON.stringify(baseAlone);
+    setPrintNameMm(1.9);
+    setPrintTweak('fixedNameSize', false);
     setPrintTweak('fixedLabelSizes', true);
+    setPrintTweak('fixedNameSize', true);
 
     // ============================================================
     // الـQR — البكسلات والحجم
@@ -232,8 +243,8 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⚠️ وقيمة بايظة بترجع للافتراضي', r.junk === 1.9, r.junk);
   check('⚠️ ورقم كبير أوي بيتقصّ للحد', r.tooBig === 3, r.tooBig);
   check('⚠️ ورقم صغير أوي كمان', r.tooSmall === 1.2, r.tooSmall);
-  check('⚠️⚠️ والمفتاح الأب مقفول → مالوش أي أثر',
-    r.parentOffSame === r.parentOffBase, [r.parentOffSame, r.parentOffBase]);
+  check('⭐⭐⭐ المفتاح بيشتغل **لوحده** من غير المفتاح التاني',
+    r.aloneChanged && r.aloneWorks.every((x) => x === 1.5), r.aloneWorks);
 
   // ---------- الـQR ----------
   check('⚠️ (تحقّق) المفتاح غيّر الصورة فعلًا', r.actuallyDifferent);

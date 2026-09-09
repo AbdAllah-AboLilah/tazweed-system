@@ -158,6 +158,20 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.printerOptions = document.querySelectorAll('#ps-label-printer option').length === 4;
     out.onlineNote = document.querySelector('#ps-scope-note').textContent.indexOf('شغّال') !== -1;
 
+    // ============================================================
+    // ⭐ خانة مقاس اسم الصنف — لازم تكون في نافذة الإرسال
+    // ============================================================
+    // اتبلّغ بالنص: "مش لاقي حجم الخط في ارسال اعدادات الطابعة من علي
+    // بعض". الخانة كانت في نافذة الجهاز المحلي بس، ومفتاحها `nameMm`
+    // مكانش في PRINT_FIELDS أصلًا — يعني حتى لو اتبعت، `cleanPrintFields`
+    // كانت هتشيله في صمت.
+    out.hasNameMmField = !!document.querySelector('#ps-namemm');
+    out.nameMmInFields = PRINT_FIELD_KEYS.indexOf('nameMm') !== -1;
+    // ⚠️ والتنضيف مايشيلوش
+    out.nameMmSurvivesClean = cleanPrintFields({ nameMm: 2.2 }).nameMm === 2.2;
+    // ⚠️ والخانة بتوري الرقم الشغّال دلوقتي
+    out.nameMmPlaceholder = (document.querySelector('#ps-namemm') || {}).placeholder || '';
+
     // جهاز مقفول ومن غير قايمة طابعات
     document.querySelector('#ps-target').value = 'd2';
     document.querySelector('#ps-target').dispatchEvent(new Event('change', { bubbles: true }));
@@ -310,6 +324,10 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('والنافذة بتقفل', r.dialogClosed);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
+  check("⭐⭐⭐ خانة مقاس اسم الصنف موجودة في نافذة الإرسال", r.hasNameMmField);
+  check('⭐⭐⭐ والمفتاح في قايمة الحقول (وإلا بيتشال في صمت)', r.nameMmInFields);
+  check('⭐⭐ والتنضيف مابيشيلوش', r.nameMmSurvivesClean);
+  check('⭐ والخانة بتوري الرقم الشغّال', /^[0-9.]+$/.test(r.nameMmPlaceholder), r.nameMmPlaceholder);
   await b.close();
   pass.forEach((n) => console.log('   ⭐ ' + n));
   fail.forEach((n) => console.log('   ❌ ' + n));
