@@ -46,8 +46,35 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.before = NAMES.map(nameMm);
 
     // ---------- المفتاح مفتوح ----------
+    // ⚠️⚠️ الرقم بقى **خانة** مش ثابت في الكود. السبب: أول نسخة كانت
+    // 1.9 محسوبة على أسماء اخترعناها، وأول طبعة على ورق حقيقي طلّعت إن
+    // أسماء المحل الفعلية (13–18 حرف) بتطبع **2.7 كلها** — فالرقم
+    // صغّرها 30% من غير فايدة. الفحص بيجرّب أكتر من قيمة عشان يتأكد إن
+    // الخانة هي اللي بتحكم فعلًا.
+    setPrintNameMm(1.9);
     setPrintTweak('fixedNameSize', true);
     out.after = NAMES.map(nameMm);
+
+    // ---------- الافتراضي 2.7 = زي ما هي دلوقتي ----------
+    // أسماء المحل الحقيقية من الصورة اللي اتبعتت
+    const REAL = ['حجاب جيل بيور', 'خمار سادة بكم', 'خمار ماليزي دجيتال', 'Hejap Kuwaiti 120'];
+    setPrintTweak('fixedNameSize', false);
+    out.realNow = REAL.map(nameMm);
+    setPrintNameMm(2.7);
+    setPrintTweak('fixedNameSize', true);
+    out.realDefault = REAL.map(nameMm);
+
+    // ---------- والخانة بتغيّر فعلًا ----------
+    setPrintNameMm(2.4);
+    out.at24 = REAL.map(nameMm);
+    // ⚠️ والقيم البايظة مابتكسرش حاجة
+    setPrintNameMm('كلام');
+    out.junk = getPrintNameMm();
+    setPrintNameMm(99);
+    out.tooBig = getPrintNameMm();
+    setPrintNameMm(0.1);
+    out.tooSmall = getPrintNameMm();
+    setPrintNameMm(1.9);
 
     // ⚠️ اسم طويل جدًا لازم **يصغّر** — مايتقصّش ومايركبش على الرقم
     const LONG = 'طرحة شيفون مطرزة بالترتر الذهبي لون أوف وايت مقاس كبير عرض خاص لفترة محدودة جدًا';
@@ -173,6 +200,13 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐ والاسم الطويل جدًا **بيصغّر** مايتقصّش', r.longMm !== null && r.longMm < 1.9, r.longMm);
   check('⭐⭐⭐ (51 حرف) صندوق الاسم مايكبرش عن المتاح — السطر مايتقصّش',
     r.box51On.mh <= r.box51Off.mh + 0.05, { مفتوح: r.box51On, مقفول: r.box51Off });
+  check('⭐⭐⭐ الافتراضي 2.7 = أسماء المحل زي ما بتطبع دلوقتي بالظبط',
+    JSON.stringify(r.realDefault) === JSON.stringify(r.realNow), { دلوقتي: r.realNow, بالمفتاح: r.realDefault });
+  check('⭐⭐ والخانة بتغيّر المقاس فعلًا',
+    r.at24.every((x) => x === 2.4), r.at24);
+  check('⚠️ وقيمة بايظة بترجع للافتراضي', r.junk === 2.7, r.junk);
+  check('⚠️ ورقم كبير أوي بيتقصّ للحد', r.tooBig === 3, r.tooBig);
+  check('⚠️ ورقم صغير أوي كمان', r.tooSmall === 1.2, r.tooSmall);
   check('⚠️⚠️ والمفتاح الأب مقفول → مالوش أي أثر',
     r.parentOffSame === r.parentOffBase, [r.parentOffSame, r.parentOffBase]);
 
@@ -190,6 +224,63 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     r.perMsgThin > r.perMsgFat, [r.perMsgFat, r.perMsgThin]);
 
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
+
+  // ============================================================
+  // الخانة في نافذة الإعدادات — تحت المفتاح بتاعها
+  // ============================================================
+  const ui = await p.evaluate(async () => {
+    setPrintNameMm(2.7);
+    // ⚠️⚠️ `openPrinterSettings` بتحط الشكل في الصفحة الأول، وبعدين
+    // **بتستنى قايمة الطابعات من QZ** وبعدها بتربط الخانات. يعني
+    // الانتظار بالوقت مالوش لازمة: من غير QZ الربط **عمره ما يحصل**،
+    // والخانة بتفضل موجودة وفاضية — والفحص كان بيقول "الحفظ مش شغّال"
+    // وهو مجرد إن الربط ماوصلش. لازم QZ مقلّد + انتظار الوعد نفسه.
+    window.qz = {
+      api: { getVersion: async () => '2.2.6' },
+      websocket: { isActive: () => true, connect: async () => {} },
+      printers: { find: async () => ['XP-235B', 'XP-80C'], details: async () => [{ name: 'XP-235B' }] },
+      configs: { create: () => ({}) },
+      print: async () => {},
+    };
+    window.ensureQZConnected = async () => true;
+    await openPrinterSettings();
+    const box = document.querySelector('[data-tweak="fixedNameSize"]');
+    const inp = document.getElementById('pq-namemm');
+    const save = document.getElementById('pq-namemm-save');
+    const out = {
+      hasBox: !!box,
+      hasInput: !!inp,
+      startsAtSaved: inp ? inp.value : '',
+      // ⚠️⚠️ الخانة **تحت** المفتاح بتاعها — اتطلبت كده بالنص. بنقيس
+      // ترتيبهم في الصفحة فعلًا، مش بنفترضه.
+      inputAfterBox: !!(box && inp &&
+        (box.compareDocumentPosition(inp) & Node.DOCUMENT_POSITION_FOLLOWING)),
+    };
+    if (inp && save) {
+      // ⚠️ مافيش فحص هنا لـ"الدوسة على الرقم ماتقلبش المفتاح": جرّبناه
+      // وطلع **مايقدرش يفشل**. المتصفح أصلًا مابيفعّلش الـlabel لما
+      // تدوس على خانة إدخال جوّاها (ده في المواصفة نفسها)، فالفحص كان
+      // بيعدّي في الحالتين — سواء الخانة جوّه الـlabel أو برّه.
+      // فحص مايقدرش يفشل أوحش من إنه مايكونش موجود، لأنه بيدّي إحساس
+      // كاذب بالتغطية.
+      inp.value = '2.4';
+      save.click();
+      await new Promise((r) => setTimeout(r, 60));
+      out.saved = getPrintNameMm();
+      out.status = (document.getElementById('pq-namemm-status') || {}).textContent || '';
+    }
+    const ov = document.getElementById('printer-settings-overlay')
+      || document.querySelector('[id*="printer-settings"]');
+    if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+    setPrintNameMm(2.7);
+    return out;
+  });
+
+  check('⭐ الخانة موجودة في النافذة', ui.hasInput);
+  check('⭐⭐⭐ وتحت المفتاح بتاعها', ui.inputAfterBox, ui);
+  check('⭐ وبتفتح بالرقم المحفوظ', ui.startsAtSaved === '2.7', ui.startsAtSaved);
+  check('⭐⭐ والحفظ بيشتغل', ui.saved === 2.4, ui.saved);
+  check('⭐ وبيقول إنه اتحفظ', /اتحفظ/.test(ui.status), ui.status);
 
   await b.close();
   pass.forEach((n) => console.log('   ✓ ' + n));

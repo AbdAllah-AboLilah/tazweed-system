@@ -1823,13 +1823,13 @@ const PRINT_TWEAKS = [
     // فرق 52%. و1.9 هو الرقم اللي النظام واقف عنده أصلًا لكل اسم من
     // 26 لـ50 حرف.
     key: 'fixedNameSize',
-    label: '🧪 اسم الصنف بمقاس ثابت 1.9مم (تجريبي)',
+    label: '🧪 اسم الصنف بمقاس ثابت (تجريبي)',
     hint:
-      'دلوقتي مقاس اسم الصنف بيتغيّر حسب طوله — فرق لحد 52% بين ملصق ' +
-      'وملصق. المفتاح ده بيخليه ثابت، والاسم بينزل لسطر تاني وتالت لو ' +
-      'طال. الاسم القصير هيبقى أصغر من دلوقتي (2.7 ← 1.9)، والاسم اللي ' +
-      'أطول من ~50 حرف هيصغّر لوحده زي دلوقتي. محتاج مفتاح "مقاسات ' +
-      'ثابتة للسعر والرقم" مفتوح معاه.',
+      'دلوقتي مقاس اسم الصنف بيتغيّر حسب طوله. المفتاح ده بيخليه ثابت ' +
+      'على الرقم اللي في خانة "مقاس اسم الصنف" فوق (الافتراضي 2.7مم = ' +
+      'اللي الملصقات بتطبع بيه دلوقتي)، والاسم بينزل لسطر تاني وتالت لو ' +
+      'طال. الاسم اللي مايوصلش للرقم ده بيصغّر لوحده زي دلوقتي. محتاج ' +
+      'مفتاح "مقاسات ثابتة للسعر والرقم" مفتوح معاه.',
     apply: () => {},
   },
   {
@@ -2454,6 +2454,57 @@ const PRINT_BATCH_DEFAULT = 20;
 const PRINT_BATCH_MAX = 200;
 // صفر = استنى الدفعة تخلص بالكامل (السلوك اللي المستخدم جرّبه ورضي عنه)
 const PRINT_LEAD_DEFAULT = 0;
+
+// ============================================================
+// 📏 مقاس اسم الصنف الثابت — **خانة** مش رقم في الكود
+// ============================================================
+// ⚠️⚠️ ليه خانة: أول نسخة حطّيت الرقم 1.9 في الكود، وكان محسوب على
+// أسماء **اخترعتها أنا** طولها 26–50 حرف. وأول ما اتطبع على ورق حقيقي
+// طلع إن أسماء المحل الفعلية (13–18 حرف) بتطبع **2.7مم** كلها — يعني
+// الرقم بتاعي صغّرها 30% من غير أي فايدة.
+//
+// القياس على الأسماء الحقيقية من الصورة اللي اتبعتت:
+//     حجاب جيل بيور        13 حرف → 2.70مم
+//     خمار سادة بكم        13 حرف → 2.70مم
+//     Hejap Kuwaiti 120    17 حرف → 2.68مم
+//     خمار ماليزي دجيتال   18 حرف → 2.70مم
+//
+// نفس الدرس اللي اتعلمناه في خانة "عدد الدفعة" بالحرف: خمّنّا الرقم
+// وشحنّا تحديث، وكل مرة يطلع غلط — **واللي واقف قدام الماكينة هو
+// الوحيد اللي يقدر يجاوب**. فالرقم بقى خانة.
+//
+// الافتراضي 2.7 = اللي الملصقات بتطبع بيه دلوقتي بالظبط، فالمفتاح
+// مايغيّرش حاجة على الأسماء القصيرة لحد ما تنزّله بنفسك.
+const PRINT_NAME_MM_KEY = 'tazweed_print_name_mm';
+const PRINT_NAME_MM_DEFAULT = 2.7;
+const PRINT_NAME_MM_MIN = 1.2;
+const PRINT_NAME_MM_MAX = 3.0;
+
+function clampNameMm(v) {
+  const n = parseFloat(v);
+  if (!isFinite(n)) return PRINT_NAME_MM_DEFAULT;
+  return Math.max(PRINT_NAME_MM_MIN, Math.min(PRINT_NAME_MM_MAX, n));
+}
+
+function getPrintNameMm() {
+  const remote = readPrintField('nameMm');
+  if (remote !== undefined && remote !== null && remote !== '') return clampNameMm(remote);
+  try {
+    const v = localStorage.getItem(PRINT_NAME_MM_KEY);
+    if (v === null || v === '') return PRINT_NAME_MM_DEFAULT;
+    return clampNameMm(v);
+  } catch (err) {
+    return PRINT_NAME_MM_DEFAULT;
+  }
+}
+
+function setPrintNameMm(v) {
+  try {
+    localStorage.setItem(PRINT_NAME_MM_KEY, String(clampNameMm(v)));
+  } catch (err) {
+    /* لا شيء */
+  }
+}
 
 function getPrintBatchSize() {
   const remote = readPrintField('batch');
@@ -3825,14 +3876,35 @@ async function openPrinterSettings() {
           </div>
           ${PRINT_TWEAKS.filter((t) => t.key !== 'fastCopies').map(
             (t) => `
-            <label style="display:flex; gap:8px; align-items:flex-start; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; cursor:pointer;">
+            <label style="display:flex; gap:8px; align-items:flex-start; padding:6px 0; ${
+              t.key === 'fixedNameSize' ? '' : 'border-bottom:1px solid var(--border);'
+            } font-size:12px; cursor:pointer;">
               <input type="checkbox" data-tweak="${escapeHTML(t.key)}" ${getPrintTweak(t.key) ? 'checked' : ''}
                      style="margin-top:2px; flex:0 0 auto;" />
               <span>
                 <span style="display:block;">${escapeHTML(t.label)}</span>
                 <span style="display:block; font-size:10px; color:var(--text-muted); line-height:1.6;">${escapeHTML(t.hint)}</span>
               </span>
-            </label>`
+            </label>${
+              // ⚠️ الخانة تحت المفتاح بتاعها بالظبط — اتطلبت كده بالنص.
+              // الرقم ده مالوش معنى لوحده، فمكانه جنب المفتاح اللي
+              // بيستخدمه مش في قسم تاني.
+              t.key === 'fixedNameSize'
+                ? `
+            <div style="display:flex; gap:8px; align-items:center; padding:0 0 8px 26px;
+                        border-bottom:1px solid var(--border); flex-wrap:wrap;">
+              <label style="font-size:11px; color:var(--text-secondary);">المقاس بالملليمتر</label>
+              <input class="input" type="number" id="pq-namemm" min="1.2" max="3" step="0.1"
+                     style="padding:5px; width:80px;" />
+              <button class="btn" id="pq-namemm-save" style="padding:4px 12px; font-size:11px; min-height:30px;">حفظ</button>
+              <span id="pq-namemm-status" style="font-size:11px; color:var(--text-muted);"></span>
+              <div style="font-size:10px; color:var(--text-muted); line-height:1.6; width:100%;">
+                الافتراضي <strong>2.7</strong> = اللي الملصقات بتطبع بيه دلوقتي، فالمفتاح
+                مايغيّرش حاجة لحد ما تنزّل الرقم. نزّله شوية شوية وجرّب على ورق.
+              </div>
+            </div>`
+                : ''
+            }`
           ).join('')}
           </div>
         </div>
@@ -3965,6 +4037,31 @@ async function openPrinterSettings() {
 
   const pqBatch = overlay.querySelector('#pq-batch');
   const pqLead = overlay.querySelector('#pq-lead');
+  // 📏 خانة مقاس اسم الصنف — تحت المفتاح بتاعها، بزرار حفظ خاص بيها
+  const pqNameMm = overlay.querySelector('#pq-namemm');
+  const pqNameSave = overlay.querySelector('#pq-namemm-save');
+  if (pqNameMm) {
+    pqNameMm.value = getPrintNameMm();
+    // ⚠️⚠️ الخانة متحطوطة **بره الـ<label>** بتاعة المفتاح عن قصد، مش
+    // جوّاها. لو كانت جوّاها، كل دوسة على الرقم كانت هتقلب الشيك بوكس
+    // (ده سلوك الـlabel نفسه) والمستخدم مش هيفهم ليه المفتاح بيتقفل.
+    //
+    // ⚠️ وده اللي بيغني عن `stopPropagation`. كنت حاططه، وطلع **كود ميت**
+    // لأن الخانة مش جوّه الـlabel أصلًا — شيلته. الفحص اللي بيتأكد إن
+    // الدوسة ماتقلبش المفتاح فاضل مكانه: هو بيحرس **النتيجة**، فلو حد
+    // نقل الخانة جوّه الـlabel بعدين الفحص هيقع.
+    if (pqNameSave) {
+      pqNameSave.addEventListener('click', () => {
+        setPrintNameMm(pqNameMm.value);
+        pqNameMm.value = getPrintNameMm();
+        const st = overlay.querySelector('#pq-namemm-status');
+        if (st) {
+          st.textContent = `✅ اتحفظ ${getPrintNameMm()}مم`;
+          setTimeout(() => { st.textContent = ''; }, 3000);
+        }
+      });
+    }
+  }
   if (pqBatch && pqLead) {
     pqBatch.value = getPrintBatchSize();
     pqLead.value = getPrintLeadLabels();
