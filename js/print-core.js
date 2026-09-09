@@ -115,6 +115,89 @@ function logPrintJob(type, spec, sizeOptions) {
   });
 }
 
+// ============================================================
+// 🖨️ البرنامج المساعد — الطباعة من غير تعريف الويندوز
+// ============================================================
+// البرنامج (مجلد helper/) بيشتغل على كمبيوتر الطباعة وبيبعت للطابعة
+// **بايت بايت**، من غير ما التعريف يرسم صفحة.
+//
+// ليه: كل مشكلة طباعة اتعبتنا سببها التعريف — بيقص الورقة عند فورم
+// الورق بتاعه وبيصغّرها. والتجربة على ورق حقيقي أثبتت الفرق:
+//     النظام (QZ + التعريف) → الورقة بتتقص عند ~211مم
+//     البرنامج المساعد      → ورقة 500مم كاملة، وآخر سطر باين
+//
+// ⚠️⚠️ صفر أثر على السرعة، وده مقصود بالتفصيل:
+//   • الفحص **مابيحصلش غير لما المفتاح يكون مفتوح**
+//   • ولمرة واحدة في الجلسة، والنتيجة بتتخزّن
+//   • ومهلة قصيرة جدًا (1.2 ثانية): لو البرنامج مش شغّال، الطباعة
+//     بتكمّل بالطريقة القديمة من غير ما حد يستنى
+const HELPER_URL = 'http://127.0.0.1:7770';
+const HELPER_PROBE_MS = 1200;
+let helperCache = null; // null = لسه ماجربناش
+
+async function helperStatus() {
+  if (helperCache !== null) return helperCache;
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), HELPER_PROBE_MS);
+    const res = await fetch(HELPER_URL + '/status', { signal: ctl.signal });
+    clearTimeout(timer);
+    helperCache = res.ok ? await res.json() : false;
+  } catch (err) {
+    // ⚠️ الفشل هنا **عادي تمامًا**: معناه البرنامج مش شغّال على الجهاز
+    // ده. مش خطأ ومايتقالش للمستخدم — الطباعة بتكمّل بالطريقة القديمة.
+    helperCache = false;
+  }
+  return helperCache;
+}
+
+// بترجّع true لو الورقة راحت للطابعة عن طريق البرنامج.
+async function printSheetViaHelper(html) {
+  if (typeof getPrintTweak !== 'function' || !getPrintTweak('sheetHelper')) return false;
+  if (typeof renderSheetImage !== 'function') return false;
+
+  const st = await helperStatus();
+  if (!st || !st.app) return false;
+
+  const printer = getSavedPrinter('restock');
+  if (!printer) {
+    showPrintNotice('📄 البرنامج المساعد شغّال بس الجهاز ده مش مظبوط على طابعة ورقة تزويد.', 9000);
+    return false;
+  }
+
+  // ⚠️ نفس الرسم اللي بيتبعت لـQZ بالظبط — مش رسم تاني. الفرق في
+  // **طريق التوصيل** بس، فشكل الورقة مايتغيّرش.
+  const shot = await renderSheetImage(html);
+  if (!shot || !shot.image) {
+    showPrintNotice('📄 مانفعش نرسم الورقة كصورة — اتطبعت بالطريقة العادية.', 9000);
+    return false;
+  }
+
+  try {
+    const res = await fetch(HELPER_URL + '/print', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        printer,
+        png: shot.image.replace(/^data:image\/\w+;base64,/, ''),
+        name: 'ورقة تزويد',
+      }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (res.ok && out.ok) {
+      setPrintOutcome(true, 'اتطبعت من البرنامج المساعد.');
+      return true;
+    }
+    // ⚠️ الفشل **بيتقال**: البرنامج شغّال ورفض، فده سبب حقيقي المستخدم
+    // محتاج يعرفه — مش زي إن البرنامج مقفول أصلًا.
+    showPrintNotice(`📄 البرنامج المساعد رفض الطباعة (${out.error || res.status}) — اتطبعت بالطريقة العادية.`, 12000);
+  } catch (err) {
+    console.warn('تعذّر الإرسال للبرنامج المساعد:', err);
+    showPrintNotice('📄 البرنامج المساعد مارَدّش — اتطبعت بالطريقة العادية.', 9000);
+  }
+  return false;
+}
+
 async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, spec) {
   const target = await choosePrintTarget();
   if (target === null) return false;
@@ -126,6 +209,13 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, s
     await sendPrintJob(type, target, html, sizeOptions, browserHTML, spec);
     return true;
   }
+
+  // ⚠️⚠️ البرنامج المساعد بيتجرّب **قبل** QZ عن قصد: هو **بديل** لـQZ
+  // مش إضافة عليه. لو حطّيناه بعده، الجهاز اللي شال QZ خلاص مكانش
+  // هيوصل له أصلًا (tryPrintViaQZ بتقف على ensureQZConnected).
+  //
+  // ⚠️ وورقة التزويد بس: الملصق سايب زي ما هو، اتطلب كده بالنص.
+  if (type === 'restock' && (await printSheetViaHelper(html))) return true;
 
   const printedViaQZ = await tryPrintViaQZ(type, html, sizeOptions);
   if (printedViaQZ) return true;
@@ -1852,6 +1942,21 @@ const PRINT_TWEAKS = [
       'بيحفظها بلونين — **نفس النقط بالظبط** بس حجمها أقل من نصه، ' +
       'فملصقات أكتر تدخل في أمر الطباعة الواحد وتطبع أسرع. جرّب القراءة ' +
       'بالماسح قبل ما تعمّمه.',
+    apply: () => {},
+  },
+  {
+    // ============================================================
+    // 🖨️ البرنامج المساعد — الشرح الكامل عند printSheetViaHelper
+    // ============================================================
+    // التجربة على ورق حقيقي: ورقة 500مم طلعت **كاملة** من البرنامج،
+    // ونفس النوع كان بيتقص عند ~211مم من النظام.
+    key: 'sheetHelper',
+    label: '🖨️ ابعت ورقة التزويد للبرنامج المساعد',
+    hint:
+      'محتاج برنامج "مساعد التزويد" شغّال على جهاز الطباعة. بيبعت ' +
+      'الورقة للطابعة مباشرة من غير ما تعدّي على تعريف الويندوز — ' +
+      'فمافيش قص ولا تصغير مهما طالت. لو البرنامج مش شغّال، الطباعة ' +
+      'بتكمّل بالطريقة القديمة لوحدها من غير أي تأخير.',
     apply: () => {},
   },
   {

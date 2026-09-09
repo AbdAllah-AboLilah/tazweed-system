@@ -39,6 +39,23 @@ func openBrowser(url string) {
 	}
 }
 
+// ⚠️⚠️ الشباك الأسود بيعرض **مربعات** مكان العربي
+// ------------------------------------------------------------
+// اتبلّغ بالصورة: كل الرسائل طلعت ؟؟؟؟. الرسائل بتتبعت صح — الشباك
+// هو اللي مش عارف يرسمها، لأنه بيفتح على صفحة ترميز قديمة (437 أو
+// 1252) مش UTF-8.
+//
+// SetConsoleOutputCP(65001) بتحوّله لـUTF-8.
+//
+// ⚠️ وده **مش ضمان كامل**: الشباك القديم (conhost) بخط نقطي مش
+// هيرسم عربي حتى مع UTF-8. اللي بيحل ده نهائيًا هو إننا نبطّل
+// نعتمد على الشباك أصلًا — الواجهة في المتصفح بتعرض كل حاجة.
+func fixConsoleEncoding() {
+	kernel32 := syscall.NewLazyDLL("kernel32.dll")
+	kernel32.NewProc("SetConsoleOutputCP").Call(65001)
+	kernel32.NewProc("SetConsoleCP").Call(65001)
+}
+
 var (
 	winspool           = syscall.NewLazyDLL("winspool.drv")
 	procOpenPrinterW   = winspool.NewProc("OpenPrinterW")
