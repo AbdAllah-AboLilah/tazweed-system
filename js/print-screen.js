@@ -319,7 +319,13 @@ function printWorkHTML() {
           ${isBarcodeScanSupported() ? `<button class="btn" id="print-camera-btn">🎥 الكاميرا</button>` : ''}
           <button class="btn" id="print-clear-btn" ${cart.length ? '' : 'disabled'}>تفريغ السلة</button>
           ${
-            can(state.profile, 'printerSetup') || canManageProducts(state.profile)
+            // ⚠️ مفتاح تحميل البرنامج مضاف هنا كمان: من غيره الزرار
+            // نفسه مايظهرش، والصف اللي تحته (اللي فيه التحميل) يبقى
+            // مقفول — نفس عطل "المفتاح مفتوح ومايحصلش حاجة" اللي حصل
+            // قبل كده مع استيراد الأصناف.
+            can(state.profile, 'printerSetup') ||
+            canManageProducts(state.profile) ||
+            can(state.profile, 'downloadHelper')
               ? `<button class="btn print-gear" id="print-tools-btn" title="إعدادات" aria-label="إعدادات">⚙️</button>`
               : ''
           }
@@ -337,6 +343,12 @@ function printWorkHTML() {
                 الحل إن الزرار ييجي **له**، مش إنه يروح للشاشة — عشان
                 الحساب ده مقصود إنه مايشوفش المخزن. */ ''}
           ${canManageProducts(state.profile) ? `<button class="btn" id="print-products-import-btn">📥 حدّث ملف الأصناف</button>` : ''}
+          ${
+            // ⬇️ تحميل البرنامج المساعد — مقفول لكل الحسابات افتراضيًا.
+            can(state.profile, 'downloadHelper')
+              ? `<button class="btn" id="print-helper-dl-btn">⬇️ برنامج المساعد</button>`
+              : ''
+          }
         </div>
         ${
           // سطر صغير تحت الأزرار — بيقول آخر مرة الملف اتحدّث فيها.
@@ -448,6 +460,9 @@ function updatePrintResults() {
   if (!box) return;
   box.innerHTML = printResultsHTML();
   box.scrollTop = 0;
+  const helperBtn = document.getElementById('print-helper-dl-btn');
+  if (helperBtn) helperBtn.addEventListener('click', () => openHelperDownloadDialog());
+
   attachPrintResultEvents();
 }
 
@@ -887,6 +902,78 @@ function openPrintSettingsDialog(preselectDeviceId) {
       setTimeout(close, 1200);
     }, 'حفظ الإعدادات')
   );
+}
+
+// ============================================================
+// ⬇️ تحميل برنامج "مساعد التزويد"
+// ============================================================
+// اتطلب بالنص: "زرار تحميل ل البرنامج المساعد من جوه النظام ... افتح
+// يظهر زرار اضغط عليه يحمل احدث اصدار ... اثبت البرنامج وبعدين اقفل
+// علي حسابه يختفي الزرار".
+//
+// ⚠️ نافذة مش رابط مباشر عن قصد: الملف ٧ ميجا، والويندوز هيطلّع تحذير
+// "برنامج غير معروف" أول مرة (لأن شهادة التوقيع لسه مااتشترتش). اللي
+// يدوس رابط من غير ما يعرف الاتنين دول هيفتكر إن حاجة باظت.
+//
+// ⚠️⚠️ والملف بيتحمّل من **نفس الموقع** (helper/dist/) مش من مكان
+// تاني: كده اللي بينزل هو بالظبط اللي في المستودع، والـ`download`
+// بيشتغل لأنه نفس المصدر.
+const HELPER_EXE_URL = 'helper/dist/tazweed-helper.exe';
+const HELPER_VERSION_URL = 'helper/dist/VERSION';
+
+function openHelperDownloadDialog() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:2200;padding:12px;';
+  overlay.innerHTML = `
+    <div class="card" style="max-width:400px; width:100%; max-height:92vh; overflow:auto;">
+      <div style="font-size:15px; font-weight:500; margin-bottom:4px;">⬇️ برنامج "مساعد التزويد"</div>
+      <div style="font-size:12px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">
+        بيخلّي الورقة والملصقات يروحوا للطابعة <strong>مباشرة</strong> من غير ما
+        يعدّوا على تعريف الويندوز. بيتثبّت على <strong>كمبيوتر الطباعة</strong> بس.
+      </div>
+
+      <a class="btn btn-primary" id="helper-dl-link" href="${HELPER_EXE_URL}" download="tazweed-helper.exe"
+         style="display:block; text-align:center; text-decoration:none;">⬇️ نزّل البرنامج</a>
+      <div id="helper-dl-ver" style="font-size:11px; color:var(--text-muted); text-align:center; margin-top:6px; min-height:15px;"></div>
+
+      <div style="font-size:12px; line-height:1.9; margin-top:12px;">
+        <strong>بعد ما ينزل:</strong>
+        <div>١) دوبل كليك على الملف. مافيش تنصيب.</div>
+        <div>٢) الويندوز هيقول <strong>"برنامج غير معروف"</strong> — دوس
+             <strong>مزيد من المعلومات</strong> وبعدين <strong>تشغيل على أي حال</strong>.
+             ده عشان شهادة التوقيع لسه مااتشترتش، مش عشان فيه مشكلة.</div>
+        <div>٣) هتفتح صفحة البرنامج لوحدها — اختار الطابعتين واحفظ،
+             وعلّم على <strong>يشتغل لوحده مع الويندوز</strong>.</div>
+      </div>
+
+      <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-top:10px;
+                  background:var(--surface-muted); padding:8px; border-radius:8px;">
+        ⚠️ الملف حوالي <strong>٧ ميجا</strong>، فنزّله من الكمبيوتر مش من التليفون.
+        <br>وبعد التثبيت البرنامج <strong>بيحدّث نفسه</strong> من صفحته — فالزرار ده
+        مالوش لازمة تاني وتقدر تقفل صلاحيته.
+      </div>
+
+      <button class="btn" id="helper-dl-close" style="width:100%; margin-top:12px;">تمام</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('#helper-dl-close').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+
+  // ⚠️ رقم النسخة **زيادة مش أساس**: لو النداء فشل، النافذة زي ما هي
+  // والتحميل شغّال. عشان كده مافيش أي رسالة خطأ هنا.
+  fetch(HELPER_VERSION_URL, { cache: 'no-cache' })
+    .then((r) => (r.ok ? r.text() : ''))
+    .then((t) => {
+      const ver = String(t || '').split('\n')[0].trim();
+      const el = overlay.querySelector('#helper-dl-ver');
+      if (ver && el) el.textContent = 'أحدث نسخة: ' + ver;
+    })
+    .catch(() => {});
 }
 
 function attachPrintScreenEvents() {
