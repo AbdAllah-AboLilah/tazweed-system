@@ -133,6 +133,9 @@ function logPrintJob(type, spec, sizeOptions) {
 //     بتكمّل بالطريقة القديمة من غير ما حد يستنى
 const HELPER_URL = 'http://127.0.0.1:7770';
 const HELPER_PROBE_MS = 1200;
+// ⚠️ الطباعة مهلتها أطول بكتير من الفحص: الورقة الطويلة بتتبعت
+// وبتتحوّل، وده بياخد وقت حقيقي.
+const HELPER_PRINT_MS = 30000;
 let helperCache = null; // null = لسه ماجربناش
 
 async function helperStatus() {
@@ -157,11 +160,14 @@ async function printSheetViaHelper(html) {
   if (typeof renderSheetImage !== 'function') return false;
 
   const st = await helperStatus();
-  if (!st || !st.app) return false;
+  if (!st || !st.app) {
+    helperFail('البرنامج المساعد مش شغّال على الجهاز ده.');
+    return false;
+  }
 
   const printer = getSavedPrinter('restock');
   if (!printer) {
-    showPrintNotice('📄 البرنامج المساعد شغّال بس الجهاز ده مش مظبوط على طابعة ورقة تزويد.', 9000);
+    helperFail('البرنامج المساعد شغّال بس الجهاز ده مش مظبوط على طابعة ورقة تزويد.');
     return false;
   }
 
@@ -169,11 +175,15 @@ async function printSheetViaHelper(html) {
   // **طريق التوصيل** بس، فشكل الورقة مايتغيّرش.
   const shot = await renderSheetImage(html);
   if (!shot || !shot.image) {
-    showPrintNotice('📄 مانفعش نرسم الورقة كصورة — اتطبعت بالطريقة العادية.', 9000);
+    helperFail('مانفعش نرسم الورقة كصورة.');
     return false;
   }
 
   try {
+    // ⚠️⚠️ مهلة صريحة: من غيرها الطلب ممكن يفضل معلّق للأبد لو حاجة
+    // وقفت في النص، والطبعة تفضل مستنية من غير ما حد يعرف ليه.
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), HELPER_PRINT_MS);
     const res = await fetch(HELPER_URL + '/print', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -182,20 +192,47 @@ async function printSheetViaHelper(html) {
         png: shot.image.replace(/^data:image\/\w+;base64,/, ''),
         name: 'ورقة تزويد',
       }),
+      signal: ctl.signal,
     });
+    clearTimeout(timer);
     const out = await res.json().catch(() => ({}));
     if (res.ok && out.ok) {
       setPrintOutcome(true, 'اتطبعت من البرنامج المساعد.');
       return true;
     }
-    // ⚠️ الفشل **بيتقال**: البرنامج شغّال ورفض، فده سبب حقيقي المستخدم
-    // محتاج يعرفه — مش زي إن البرنامج مقفول أصلًا.
-    showPrintNotice(`📄 البرنامج المساعد رفض الطباعة (${out.error || res.status}) — اتطبعت بالطريقة العادية.`, 12000);
+    // ⚠️⚠️ الحالة الخطيرة: البرنامج **طبع فعلًا** بس إحنا مقدرناش
+    // نتأكد من الرد. اتبلّغت بالنص: "الورقة طلعت كامله بس ظهر امر
+    // معاينة بتاع المتصفح".
+    //
+    // الرجوع لنافذة المتصفح هنا **غلط مرتين**: الورقة اتطبعت خلاص
+    // (فطبعة تانية = ورق ضايع)، ونافذة المتصفح بتطلّعها **مقصوصة**
+    // أصلًا. فبنوقف هنا ونقول السبب بدل ما نطبع تاني.
+    helperFail(
+      `البرنامج المساعد رد بحاجة مش مفهومة (${out.error || 'كود ' + res.status}). ` +
+        'لو الورقة طلعت خلاص، متطبعش تاني.',
+      true
+    );
+    return true; // ⚠️ true = **اتعاملنا معاها** — مانفتحش نافذة المتصفح
   } catch (err) {
     console.warn('تعذّر الإرسال للبرنامج المساعد:', err);
-    showPrintNotice('📄 البرنامج المساعد مارَدّش — اتطبعت بالطريقة العادية.', 9000);
+    // ⚠️ الانقطاع بعد الإرسال ممكن يكون الورقة اتطبعت. نفس المنطق:
+    // مانطبعش تاني ومانفتحش نافذة مقصوصة — بنقول ونسيب القرار له.
+    const aborted = err && err.name === 'AbortError';
+    helperFail(
+      aborted
+        ? 'البرنامج المساعد أخد وقت طويل ومارَدّش. لو الورقة طلعت خلاص، متطبعش تاني.'
+        : 'الاتصال بالبرنامج المساعد اتقطع. لو الورقة طلعت خلاص، متطبعش تاني.',
+      true
+    );
+    return true;
   }
-  return false;
+}
+
+// بتكتب السبب في مكانين: تنبيه على الشاشة، و**نتيجة الطبعة** — عشان
+// اللي بعت من التليفون يشوف السبب في حالة الطلب بدل "فشلت" الغامضة.
+function helperFail(reason, loud) {
+  showPrintNotice('📄 ' + reason, loud ? 16000 : 9000);
+  setPrintOutcome(false, reason);
 }
 
 async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, spec) {

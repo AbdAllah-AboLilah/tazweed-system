@@ -74,7 +74,17 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     reset();
     out.downResult = await printSheetViaHelper('<p>ورقة</p>');
 
-    // ---------- البرنامج رفض → بيقول ليه ----------
+    // ============================================================
+    // ⚠️⚠️ البرنامج طبع بس الرد مش مفهوم → **مانطبعش تاني**
+    // ============================================================
+    // اتبلّغ بالنص: "كل حاجه اشتغلت كويس والورقة طلعت كامله بس ظهر
+    // امر معاينة بتاع المتصفح".
+    //
+    // يعني البرنامج طبع، والنظام مشافش النجاح، فرجع لنافذة المتصفح.
+    // والرجوع ده **غلط مرتين**: الورقة اتطبعت خلاص (فطبعة تانية = ورق
+    // ضايع)، ونافذة المتصفح بتطلّعها **مقصوصة** أصلًا.
+    //
+    // فالمطلوب: يرجّع **true** (يعني اتعاملنا معاها) ويقول السبب.
     mode = 'refuse';
     reset();
     const notices = [];
@@ -82,7 +92,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     window.showPrintNotice = (m) => notices.push(String(m));
     out.refuseResult = await printSheetViaHelper('<p>ورقة</p>');
     out.refuseSaid = notices.join(' | ');
+
+    // ولو الاتصال اتقطع خالص — نفس المنطق
+    mode = 'down';
+    helperCache = { app: 'tazweed-helper' }; // البرنامج كان شغّال ووصلنا له
+    notices.length = 0;
+    out.cutResult = await printSheetViaHelper('<p>ورقة</p>');
+    out.cutSaid = notices.join(' | ');
     window.showPrintNotice = realNotice;
+    mode = 'ok';
 
     // ---------- من غير طابعة متظبطة ----------
     mode = 'ok';
@@ -149,7 +167,12 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐⭐ والحالة بتتفحص **مرة واحدة** مش مع كل طبعة',
     r.repeatStatusCalls === 0 && r.repeatPrintCalls === 2, [r.repeatStatusCalls, r.repeatPrintCalls]);
   check('⭐⭐⭐ البرنامج مش شغّال → الطباعة بتكمّل بالقديم', r.downResult === false);
-  check('⭐⭐ والبرنامج رفض → بيقول ليه', /رفض|الطابعة مش موجودة/.test(r.refuseSaid), r.refuseSaid);
+  check('⭐⭐⭐⭐ البرنامج رد بحاجة مش مفهومة → **مانفتحش نافذة المتصفح**',
+    r.refuseResult === true, r.refuseResult);
+  check('⭐⭐⭐ وبيحذّر إن الورقة يمكن اتطبعت', /متطبعش تاني/.test(r.refuseSaid), r.refuseSaid);
+  check('⭐⭐⭐⭐ والاتصال اتقطع → **مانفتحش نافذة المتصفح** كمان',
+    r.cutResult === true, r.cutResult);
+  check('⭐⭐ وبيحذّر برضه', /متطبعش تاني/.test(r.cutSaid), r.cutSaid);
   check('⚠️ ومن غير طابعة متظبطة مايبعتش', r.noPrinter === false);
   check('⭐⭐⭐⭐ الطلب الجاي من التليفون بيعدّي على البرنامج كمان',
     r.remoteHelperCalls === 1, r.remoteHelperCalls);
