@@ -614,7 +614,30 @@ async function executePrintJob(jobId, job) {
 
   let printedViaQZ = false;
   try {
-    printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions, onProgress);
+    // ============================================================
+    // ⚠️⚠️ البرنامج المساعد هنا كمان — مش في deliverPrint بس
+    // ============================================================
+    // العطل اللي بيصلحه، اتبلّغ بالنص: "اشتغل بس فقط من جهاز الكمبيوتر
+    // لكن لما ببعت من التليفون يبعت علي النظام القديم".
+    //
+    // السبب: الطلب الجاي من التليفون **مابيعديش على deliverPrint**
+    // خالص. اللي بيوصل للكمبيوتر بيدخل من هنا مباشرة، وأنا كنت حاطط
+    // البرنامج في المسار التاني بس.
+    //
+    // ⚠️ والقراءة من `list[0].html` مش من الطلب: الطلب الجاي من بعيد
+    // فيه الـHTML بعد ما اتوحّد، وده اللي renderSheetImage بتاخده.
+    if (
+      job.type === 'restock' &&
+      list.length === 1 &&
+      list[0] &&
+      typeof list[0].html === 'string' &&
+      (await printSheetViaHelper(list[0].html))
+    ) {
+      printedViaQZ = true; // اتطبعت فعلًا — مانرجعش لنافذة المتصفح
+      onProgress(1, 1);
+    } else {
+      printedViaQZ = await tryPrintViaQZ(job.type, list, job.sizeOptions, onProgress);
+    }
   } finally {
     stopWatch();
   }

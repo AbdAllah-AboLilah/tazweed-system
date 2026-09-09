@@ -1,0 +1,10 @@
+# github.com/energye/systray v1.0.3
+## explicit; go 1.20
+github.com/energye/systray
+github.com/energye/systray/internal/generated/menu
+github.com/energye/systray/internal/generated/notifier
+# github.com/godbus/dbus/v5 v5.1.0
+## explicit; go 1.12
+github.com/godbus/dbus/v5
+github.com/godbus/dbus/v5/introspect
+github.com/godbus/dbus/v5/prop
