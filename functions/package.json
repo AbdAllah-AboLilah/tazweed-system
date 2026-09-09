@@ -1,0 +1,14 @@
+{
+  "name": "tazweed-functions",
+  "description": "إشعارات التزويد وقت ما النظام مقفول",
+  "private": true,
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.1.0"
+  }
+}

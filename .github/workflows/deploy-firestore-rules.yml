@@ -24,7 +24,7 @@
 #    tazweed-system وبس — مايقدرش يقرا بيانات ولا يمسح ولا يلمس أي مشروع
 #    تاني. الخطوات في README قسم "رفع القواعد تلقائيًا".
 
-name: رفع قواعد وفهارس Firestore
+name: رفع قواعد وفهارس Firestore ودالة الإشعارات
 
 on:
   push:
@@ -33,6 +33,7 @@ on:
       - 'firestore.rules'
       - 'firestore.indexes.json'
       - 'firebase.json'
+      - 'functions/**'
       - '.github/workflows/deploy-firestore-rules.yml'
   # زرار يدوي من تبويب Actions، لو حبيت ترفع القواعد من غير أي تعديل.
   workflow_dispatch:
@@ -105,6 +106,33 @@ jobs:
             --only firestore:indexes \
             --project tazweed-system \
             --non-interactive
+
+      # ------------------------------------------------------------
+      # 🔔 دالة الإشعارات — **اختيارية زي الفهارس**
+      # ------------------------------------------------------------
+      # ⚠️⚠️ الخطوة دي بتفشل لحد ما حاجتين يتعملوا **مرة واحدة بإيدك**:
+      #   ١) المشروع يتحوّل لخطة Blaze (كارت بنكي — الاستهلاك المتوقع صفر)
+      #   ٢) مفتاح الدخول ياخد صلاحية رفع الدوال (Cloud Functions Admin)
+      #
+      # ولحد ما ده يحصل، **مش لازم كل رفعة تبان حمرا**: باقي النظام
+      # مالوش دعوة بالدالة دي، والإشعار المحلي شغّال من غيرها. نفس منطق
+      # الفهارس فوق بالظبط — بنسجّل تنبيه ونكمّل.
+      - name: رفع دالة الإشعارات
+        id: functions
+        continue-on-error: true
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+        run: |
+          firebase deploy \
+            --only functions \
+            --project tazweed-system \
+            --non-interactive
+
+      - name: تنبيه لو الدالة مااترفعتش
+        if: steps.functions.outcome == 'failure'
+        run: |
+          echo "::warning::دالة الإشعارات مااترفعتش. ده متوقّع لحد ما المشروع يتحوّل لخطة Blaze ومفتاح الدخول ياخد صلاحية Cloud Functions Admin."
+          echo "::warning::الإشعار وقت ما النظام مفتوح شغّال عادي من غيرها — اللي مش هيشتغل هو الإشعار والنظام مقفول."
 
       - name: تنبيه لو الفهارس مااترفعتش
         if: steps.indexes.outcome == 'failure'

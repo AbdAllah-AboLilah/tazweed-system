@@ -359,6 +359,136 @@ function resetRestockNotifyState() {
   resetRestockBurst();
 }
 
+
+// ============================================================
+// ☁️ الإشعار والنظام مقفول — تسجيل التليفون
+// ============================================================
+// الإشعار اللي فوق بيشتغل **والنظام مفتوح**. اللي هنا بيكمّل الناقص:
+// بيسجّل التليفون في السحابة، والدالة اللي في مجلد functions/ بتبعتله
+// أول ما درجة تبقى معلّقة — حتى لو النظام مقفول تمامًا.
+//
+// ⚠️⚠️ الحاجتين **منفصلين تمامًا**: لو التسجيل ده فشل لأي سبب (مفتاح
+// ناقص، متصفح مش شايله، نت واقع)، الإشعار المحلي بيفضل شغّال زي ما
+// هو بالحرف. عشان كده كل حاجة تحت جوّه try، ومافيش سطر فيها بيقدر
+// يوقّف enableRestockNotifications.
+const PUSH_TOKENS = 'pushTokens';
+const PUSH_SW_SCOPE = 'firebase-cloud-messaging-push-scope';
+
+// آخر توكن اتسجّل من الجهاز ده — عشان مانكتبش في السحابة كل فتحة.
+const PUSH_TOKEN_KEY = 'tazweed_push_token';
+
+function pushSupported() {
+  return (
+    typeof firebase !== 'undefined' &&
+    typeof firebase.messaging === 'function' &&
+    typeof FIREBASE_VAPID_KEY === 'string' &&
+    FIREBASE_VAPID_KEY.length > 0 &&
+    'serviceWorker' in navigator &&
+    typeof PushManager !== 'undefined'
+  );
+}
+
+// ليه الإشعار البعيد مش شغّال — بالنص، عشان يتعرض للمستخدم بدل السكوت.
+function pushBlockedReason() {
+  if (typeof firebase === 'undefined' || typeof firebase.messaging !== 'function') {
+    return 'مكتبة الإشعارات مش متحمّلة على الجهاز ده.';
+  }
+  if (typeof FIREBASE_VAPID_KEY !== 'string' || !FIREBASE_VAPID_KEY) {
+    return 'مفتاح الإشعارات لسه مااتحطش في النظام (Web Push certificate).';
+  }
+  if (!('serviceWorker' in navigator) || typeof PushManager === 'undefined') {
+    return 'المتصفح ده مابيدعمش الإشعارات وهو مقفول.';
+  }
+  return '';
+}
+
+// ⚠️ الـService Worker بتاع الإشعارات بيتسجّل بنطاق **خاص بيه**، عشان
+// مايتخانقش مع sw.js على مين بيتحكم في الصفحة.
+async function pushServiceWorker() {
+  return navigator.serviceWorker.register('./firebase-messaging-sw.js', { scope: PUSH_SW_SCOPE });
+}
+
+// بتسجّل الجهاز (أو بتحدّث تسجيله). بترجّع التوكن أو '' لو ماتمّتش.
+async function registerPushDevice() {
+  if (!pushSupported()) return '';
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return '';
+  if (!state.user || !db) return '';
+  try {
+    const reg = await pushServiceWorker();
+    const token = await firebase.messaging().getToken({
+      vapidKey: FIREBASE_VAPID_KEY,
+      serviceWorkerRegistration: reg,
+    });
+    if (!token) return '';
+    await savePushToken(token);
+    return token;
+  } catch (err) {
+    // ⚠️ الفشل هنا **مايتقالش كتحذير مزعج**: الإشعار المحلي شغّال،
+    // واللي ضاع هو الإضافة بس. بيتسجّل في الكونسول وخلاص.
+    console.warn('تعذّر تسجيل الجهاز للإشعارات البعيدة:', err);
+    return '';
+  }
+}
+
+// ⚠️ `wantsRestock` بيتكتب من **الجهاز** لأنه عارف صلاحية صاحبه لايف.
+// والبديل (إن السحابة تحسبها) معناه نسخة تالتة من جدول الصلاحيات —
+// وهي أصلًا في مكانين وبتفرق. الشرح الكامل في functions/notify-core.js.
+async function savePushToken(token) {
+  const want = notifyEnabled() && notifyAudience();
+  await db
+    .collection(PUSH_TOKENS)
+    .doc(token)
+    .set(
+      {
+        uid: state.user.uid,
+        name: (state.profile && state.profile.name) || '',
+        wantsRestock: !!want,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  try {
+    localStorage.setItem(PUSH_TOKEN_KEY, token);
+  } catch (err) {
+    /* تجاهل */
+  }
+}
+
+// بتقفل الاستقبال من غير ما تمسح التوكن: المستخدم ممكن يرجّعها بعد
+// دقيقة، ومسح التوكن معناه استئذان جديد من الأول.
+async function mutePushDevice() {
+  let token = '';
+  try {
+    token = localStorage.getItem(PUSH_TOKEN_KEY) || '';
+  } catch (err) {
+    /* تجاهل */
+  }
+  if (!token || !db || !state.user) return;
+  try {
+    await db.collection(PUSH_TOKENS).doc(token).set({ wantsRestock: false }, { merge: true });
+  } catch (err) {
+    console.warn('تعذّر إيقاف الإشعارات البعيدة:', err);
+  }
+}
+
+// ⚠️⚠️ بتتنادى لما **الصلاحية** تتغيّر وهو فاتح. من غيرها، اللي
+// اتقفلت عنه الصلاحية النهارده يفضل تليفونه يرن لحد ما يقفل النظام
+// ويفتحه — والسحابة بتثق في العلامة اللي هو كاتبها.
+function syncPushAudience() {
+  let token = '';
+  try {
+    token = localStorage.getItem(PUSH_TOKEN_KEY) || '';
+  } catch (err) {
+    return;
+  }
+  if (!token || !db || !state.user) return;
+  const want = notifyEnabled() && notifyAudience();
+  db.collection(PUSH_TOKENS)
+    .doc(token)
+    .set({ wantsRestock: !!want }, { merge: true })
+    .catch((err) => console.warn('تعذّر تحديث حالة الإشعارات:', err));
+}
+
 // ============================================================
 // طلب الإذن
 // ============================================================
@@ -381,12 +511,17 @@ async function enableRestockNotifications() {
   }
   setNotifyEnabled(true);
   playNotifySound(); // يسمع النغمة عشان يعرف شكلها
+  // ⚠️ من غير `await`: التسجيل في السحابة ممكن ياخد ثانية، والمستخدم
+  // المفروض يشوف المفتاح اتفتح **فورًا**. ولو فشل، الإشعار المحلي
+  // شغّال زي ما هو.
+  registerPushDevice();
   return true;
 }
 
 function disableRestockNotifications() {
   setNotifyEnabled(false);
   resetRestockBurst();
+  mutePushDevice();
 }
 
 // حالة المفتاح للشاشة: شغّال / مقفول / المتصفح رافض
@@ -413,7 +548,16 @@ function restockNotifyButtonHTML() {
     off: '🔕 شغّل إشعارات التزويد',
     blocked: '🔕 الإشعارات محجوبة من المتصفح',
   }[st];
-  return `<button class="btn" id="restock-notify-btn">${label}</button>`;
+  // ⚠️⚠️ الفرق بين "شغّالة" و"شغّالة والنظام مقفول" **لازم يبان**.
+  // من غير السطر ده، اللي مفعّل الإشعارات هيفتكر إنها هتوصله وهو قافل
+  // النظام — وهي مش هتوصل، وهو مش هيعرف ليه.
+  const why = st === 'on' && typeof pushBlockedReason === 'function' ? pushBlockedReason() : '';
+  const note = why
+    ? `<div style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin-top:4px;">
+         ⚠️ وهي بتوصل <strong>والنظام مفتوح بس</strong> — ${escapeHTML(why)}
+       </div>`
+    : '';
+  return `<button class="btn" id="restock-notify-btn">${label}</button>${note}`;
 }
 
 async function toggleRestockNotifications() {
