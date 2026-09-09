@@ -426,6 +426,49 @@ const PROFILES = {
   await T4('⭐⭐ استثناء جهازه هو', 'owner', writeDevice, true);
   await T4('⭐⭐⭐ استثناء الجهاز', 'plain', writeDevice, false);
 
+  // ============================================================
+  // 🔔 توكن الإشعارات — أخطر حاجة القراءة
+  // ============================================================
+  // التوكن ده **مفتاح**: أي حد يقراه يقدر يبعت إشعارات للتليفون ده.
+  // والنظام مش محتاج يقراه أصلًا (الجهاز عارف توكنه، والسحابة بتقرا
+  // بصلاحية المدير اللي بتتخطى القواعد).
+  const myToken = (uid) => as(uid).collection('pushTokens').doc('tok_' + uid);
+  const otherToken = (uid) => as(uid).collection('pushTokens').doc('tok_owner');
+
+  // ⚠️ التجهيز بحساب صاحبه نفسه مش بصلاحية المدير: مكتبة الفحص بتوقع
+  // لو فتحنا سياق مدير جديد بعد ما الفحوصات اشتغلت
+  // ("Firestore has already been started"). وصاحب التوكن مسموح له
+  // يسجّله أصلًا، فالتجهيز ده **بيفحص القاعدة** كمان بدل ما يتخطّاها.
+  await as('owner').collection('pushTokens').doc('tok_owner').set({ uid: 'owner', wantsRestock: true });
+
+  const T5 = async (label, uid, op, shouldPass) => {
+    let ok;
+    try { await (shouldPass ? assertSucceeds(op(uid)) : assertFails(op(uid))); ok = true; }
+    catch (e) { ok = false; if (process.env.VERBOSE) console.log('   ↳', label, String(e.message || e).slice(0, 160)); }
+    check(`${label} — ${PROFILES[uid].name}: ${shouldPass ? 'مسموح' : 'ممنوع'}`, ok);
+  };
+
+  await T5('⭐⭐⭐⭐ قراءة توكن الإشعارات مقفولة على الكل', 'owner',
+    (u) => otherToken(u).get(), false);
+  await T5('⭐⭐⭐⭐ قراءة توكن الإشعارات مقفولة على الكل', 'plain',
+    (u) => myToken(u).get(), false);
+  await T5('⭐⭐⭐ الجهاز بيسجّل نفسه', 'plain',
+    (u) => myToken(u).set({ uid: u, wantsRestock: true }), true);
+  // ⚠️⚠️ وده الحارس الأهم في الكتابة: محدش يسجّل تليفون **باسم حد تاني**
+  await T5('⭐⭐⭐⭐ ومايقدرش يسجّل باسم حساب تاني', 'plain',
+    (u) => as(u).collection('pushTokens').doc('tok_fake').set({ uid: 'owner', wantsRestock: true }), false);
+  // ولا يقفل إشعارات حد تاني
+  await T5('⭐⭐⭐⭐ ولا يقفل إشعارات حد تاني', 'plain',
+    (u) => otherToken(u).set({ wantsRestock: false }, { merge: true }), false);
+  await T5('⭐⭐ وصاحب التوكن بيقفل بتاعه عادي', 'plain',
+    (u) => myToken(u).set({ uid: u, wantsRestock: false }, { merge: true }), true);
+
+  // ⏱️ خنق الإشعارات: بتتكتب من السحابة بس، مقفولة تمامًا من النظام
+  await T5('⭐⭐⭐ خنق الإشعارات مقفول على النظام (قراءة)', 'owner',
+    (u) => as(u).collection('pushState').doc('restock').get(), false);
+  await T5('⭐⭐⭐ خنق الإشعارات مقفول على النظام (كتابة)', 'owner',
+    (u) => as(u).collection('pushState').doc('restock').set({ lastSentAt: 0 }), false);
+
   await env.cleanup();
   console.log('\n✅ نجح (' + pass.length + ')');
   if (fail.length) { console.log('\n❌ فشل (' + fail.length + '):'); fail.forEach((x) => console.log('   ' + x)); }

@@ -493,6 +493,33 @@ service cloud.firestore {
     // الطابعة") — الشرح الكامل فوق عند deviceSettings. باختصار:
     // الكتابة هنا معناها **تغيير كل أجهزة المحل من مكانك**، ودي
     // بالحرف اللي مفتاح التحكم عن بُعد اتعمل عشانها.
+    // ============================================================
+    // 🔔 تليفونات الإشعارات
+    // ============================================================
+    // كل تليفون بيسجّل نفسه بتوكن من المتصفح، والدالة اللي في السحابة
+    // بتقرا القايمة دي وتبعت.
+    //
+    // ⚠️⚠️ **القراءة مقفولة على الكل.** التوكن ده مفتاح: أي حد يقراه
+    // يقدر يبعت إشعارات للتليفون ده. والنظام نفسه مش محتاج يقراه —
+    // الجهاز عارف توكنه، والسحابة بتقرا بصلاحية المدير.
+    //
+    // ⚠️ والكتابة **لصاحب التوكن بس**: بيكتب uid بتاعه، ومايقدرش
+    // يسجّل تليفون باسم حد تاني ولا يقفل إشعارات حد تاني.
+    match /pushTokens/{token} {
+      allow read: if false;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // ⏱️ خنق الإشعارات — بتتكتب من السحابة بس (بصلاحية المدير، وهي
+    // بتتخطى القواعد دي أصلًا). مقفولة على كل حد من النظام.
+    match /pushState/{docId} {
+      allow read, write: if false;
+    }
+
     match /settings/{docId} {
       allow read: if isSignedIn();
       allow write: if can('remoteControl');

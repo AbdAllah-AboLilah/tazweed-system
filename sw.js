@@ -7,7 +7,7 @@
 // ببايت مع النسخة القديمة المسجّلة عنده. لازم نغيّر رقم SW_VERSION هنا في
 // كل مرة نرفع فيها تحديث فعلي (حتى لو التحديث نفسه في app.js مش هنا) —
 // وإلا المتصفح مش هيحس إن فيه حاجة اتغيّرت، والإشعار مش هيظهر خالص.
-const SW_VERSION = '0.85.1';
+const SW_VERSION = '0.86.0';
 
 const CACHE_NAME = 'tazweed-' + SW_VERSION;
 
@@ -25,6 +25,7 @@ const CDN_LIBS = [
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js',
   'https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jsrsasign/10.8.6/jsrsasign-all-min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
@@ -37,6 +38,9 @@ const APP_SHELL = [
   './index.html',
   './styles.css',
   './manifest.json',
+  // ⚠️ ملف القيم قبل firebase-config.js — التاني بيستخدمه، ولو اتحمّل
+  // من غيره الصفحة بتقع على `firebaseConfig is not defined`.
+  './firebase-config-values.js',
   './firebase-config.js',
   './js/app-info.js',
   './js/vendor/qrcode-generator.js',
