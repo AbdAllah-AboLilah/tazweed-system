@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 )
 
+func openBrowser(url string) {}
+
 func listPrinters() ([]string, error) {
 	return []string{"جهاز-تجريبي"}, nil
 }

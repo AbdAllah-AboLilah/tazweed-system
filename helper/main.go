@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.0.0"
+	version = "1.1.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -50,11 +50,32 @@ var allowedOrigins = map[string]bool{
 	"http://localhost:7770": true,
 }
 
+// ⚠️⚠️ الطلب اللي **من غير** ترويسة Origin
+// ------------------------------------------------------------
+// أول نسخة كانت بترفضه، والنتيجة إن **صفحة التجربة بتاعة البرنامج
+// نفسه** اترفضت وطلّعت: «مش قادر أقرا الحالة: غير مسموح».
+//
+// السبب: المتصفح **مابيبعتش** Origin في طلب GET من **نفس العنوان**.
+// فالصفحة اللي البرنامج بيقدّمها بتنده على /status من غير الترويسة.
+//
+// والقبول ده **مش** ثغرة: أي صفحة على موقع تاني بتبعت Origin
+// إجباريًا — المتصفح هو اللي بيحطها ومحدش يقدر يمنعها. فاللي بيوصل
+// من غير Origin يبقى: نفس الصفحة، أو برنامج على الجهاز نفسه (وده
+// أصلًا شغّال على الماكينة وعنده وصول كامل ليها من غيرنا).
+//
+// وبنشدّها أكتر بـSec-Fetch-Site لما تكون موجودة: لو المتصفح قال
+// إن الطلب من موقع تاني، بنرفض حتى لو Origin فاضية.
 func originAllowed(o string) bool {
 	if o == "" {
-		return false
+		return true
 	}
 	return allowedOrigins[strings.TrimSuffix(o, "/")]
+}
+
+// بترجّع true لو المتصفح قال صراحةً إن الطلب جاي من موقع تاني.
+func crossSite(r *http.Request) bool {
+	site := r.Header.Get("Sec-Fetch-Site")
+	return site == "cross-site" || site == "same-site"
 }
 
 // ⚠️⚠️ `Access-Control-Allow-Private-Network` مش رفاهية:
@@ -73,6 +94,10 @@ func setCORS(w http.ResponseWriter, origin string) {
 func guard(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+		if origin == "" && crossSite(r) {
+			http.Error(w, "غير مسموح", http.StatusForbidden)
+			return
+		}
 		if !originAllowed(origin) {
 			// مانقولش السبب بالتفصيل لصفحة مش مسموح لها
 			http.Error(w, "غير مسموح", http.StatusForbidden)
@@ -189,10 +214,35 @@ func newServer() *http.ServeMux {
 	})
 	mux.HandleFunc("/status", guard(handleStatus))
 	mux.HandleFunc("/print", guard(handlePrint))
+	mux.HandleFunc("/update/check", guard(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, checkUpdate())
+	}))
+	// ⚠️ التحديث **POST** مش GET عن قصد: حاجة بتغيّر البرنامج نفسه
+	// مايصحّش تتنفّذ بمجرد فتح رابط.
+	mux.HandleFunc("/update/apply", guard(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})
+			return
+		}
+		if err := applyUpdate(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		// ⚠️ الرد بيتبعت **قبل** إعادة التشغيل: لو قفلنا الأول،
+		// الصفحة مش هتعرف إن التحديث نجح.
+		go func() {
+			time.Sleep(600 * time.Millisecond)
+			restartSelf()
+			os.Exit(0)
+		}()
+	}))
 	return mux
 }
 
 func main() {
+	// نضّف نسخة قديمة فاضلة من تحديث سابق
+	cleanupOldBinary()
 	mux := newServer()
 	srv := &http.Server{
 		Handler:           mux,
@@ -215,6 +265,9 @@ func main() {
 	fmt.Println("✅ شغّال على http://" + addr)
 	fmt.Println("   سيبه مفتوح والنظام هيلاقيه لوحده.")
 	fmt.Println("   للإيقاف: اقفل الشباك ده.")
+	// ⚠️ الفتح **بعد** ما الاستماع يبدأ فعلًا (net.Listen فوق نجحت)،
+	// وإلا المتصفح بيفتح على صفحة فاضية قبل ما الخادم يجهز.
+	openBrowser("http://" + addr)
 	log.SetFlags(log.Ltime)
 	if err := srv.Serve(ln); err != nil {
 		log.Println("وقف:", err)

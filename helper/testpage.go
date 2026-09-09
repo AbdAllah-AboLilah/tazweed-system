@@ -34,7 +34,9 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
  <label>الطابعة</label><select id="p"></select>
  <label>طول الورقة التجريبية (مم)</label><input id="mm" type="number" value="250" min="20" max="1000">
  <button id="go">اطبع ورقة تجربة</button>
+ <button id="up" style="background:#475569;margin-top:10px">شوف لو فيه تحديث</button>
  <div id="out"></div>
+ <div id="uout" style="margin-top:10px;font-size:13.5px;line-height:1.8"></div>
 </div>
 <script>
 const out=document.getElementById('out'),sel=document.getElementById('p'),go=document.getElementById('go');
@@ -67,5 +69,35 @@ go.onclick=async()=>{
     say(j.ok?'\u2705 اتبعتت: '+j.width+'x'+j.height+' نقطة، '+j.bytes+' بايت.\n\nقيس الورقة بالمسطرة: آخر رقم شايفه المفروض يكون قريب من '+mm+'مم.':'\u274c '+(j.error||'مش عارف'),j.ok?'ok':'bad');
   }catch(e){say('\u274c '+e,'bad');}
   go.disabled=false;
+};
+
+// ⚠️ التحديث خطوتين عن قصد: بيقولك النسخة الأول، وانت اللي تقرر.
+// حاجة بتستبدل البرنامج نفسه مايصحّش تحصل بدوسة واحدة من غير ما تعرف.
+const uo=document.getElementById('uout'), up=document.getElementById('up');
+up.onclick=async()=>{
+  up.disabled=true; uo.textContent='بيشوف...'; uo.className='';
+  try{
+    const j=await (await fetch('/update/check')).json();
+    if(j.error){ uo.textContent='\u274c '+j.error; uo.className='bad'; }
+    else if(!j.newer){ uo.textContent='\u2705 انت على آخر نسخة ('+j.current+')'; uo.className='ok'; }
+    else if(!j.supported){ uo.textContent='فيه نسخة '+j.version+' بس التحديث الذاتي على الويندوز بس'; }
+    else {
+      uo.innerHTML='فيه نسخة جديدة: <b>'+j.version+'</b> (عندك '+j.current+')';
+      const b=document.createElement('button');
+      b.textContent='حدّث دلوقتي'; b.style.marginTop='10px';
+      b.onclick=async()=>{
+        b.disabled=true; uo.textContent='بينزّل...';
+        try{
+          const r=await (await fetch('/update/apply',{method:'POST'})).json();
+          uo.innerHTML = r.ok
+            ? '\u2705 اتحدّث. البرنامج بيقفل ويفتح تاني — استنى ثانيتين واعمل ريفريش للصفحة.'
+            : '\u274c '+(r.error||'مش عارف');
+          uo.className = r.ok?'ok':'bad';
+        }catch(e){ uo.textContent='\u274c '+e; uo.className='bad'; }
+      };
+      uo.appendChild(document.createElement('br')); uo.appendChild(b);
+    }
+  }catch(e){ uo.textContent='\u274c '+e; uo.className='bad'; }
+  up.disabled=false;
 };
 </script></html>`
