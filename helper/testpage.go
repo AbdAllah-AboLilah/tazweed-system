@@ -33,14 +33,22 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
  <div class="sub">صفحة تجربة — بتطبع ورقة على الطابعة مباشرة من غير ما تعدّي على تعريف الويندوز.</div>
  <label>طابعة ورقة التزويد</label><select id="p"></select>
  <label>طابعة الملصق</label><select id="l"></select>
+ <div style="display:flex;gap:10px">
+  <div style="flex:1"><label>الفاصل بين اللاصقات (مم)</label><input id="gap" type="number" step="0.5" min="0" max="20" value="2"></div>
+  <div style="flex:1"><label>اتجاه الملصق</label><select id="dir"><option value="1">1</option><option value="0">0</option></select></div>
+ </div>
+ <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:14px;font-weight:400">
+   <input type="checkbox" id="flip" style="width:auto;margin:0"> اقلب ألوان الملصق (افتحه لو طلع أسود بالكامل)
+ </label>
  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:14px;font-weight:400">
    <input type="checkbox" id="auto" style="width:auto;margin:0"> يشتغل لوحده مع الويندوز (في الخلفية، من غير ما يفتح الصفحة)
  </label>
- <button id="save" style="background:#0a6b2e;margin-top:12px">احفظ اختيار الطابعتين</button>
+ <button id="save" style="background:#0a6b2e;margin-top:12px">احفظ الإعدادات</button>
  <div id="sout" style="margin-top:8px;font-size:13px"></div>
  <hr style="margin:18px 0;border:0;border-top:1px solid #e5e7eb">
  <label>طول الورقة التجريبية (مم)</label><input id="mm" type="number" value="250" min="20" max="1000">
  <button id="go">اطبع ورقة تجربة</button>
+ <button id="lgo" style="background:#7c3aed;margin-top:10px">اطبع ملصق تجربة (لاصقة واحدة)</button>
  <button id="up" style="background:#475569;margin-top:10px">شوف لو فيه تحديث</button>
  <div id="out"></div>
  <div id="uout" style="margin-top:10px;font-size:13.5px;line-height:1.8"></div>
@@ -57,6 +65,9 @@ fetch('/status').then(r=>r.json()).then(s=>{
   if(s.restockPrinter) sel.value=s.restockPrinter;
   if(s.labelPrinter) lsel.value=s.labelPrinter;
   document.getElementById('auto').checked=!!s.autostart;
+  document.getElementById('gap').value=(s.labelGapMm!==undefined?s.labelGapMm:2);
+  document.getElementById('dir').value=String(s.labelDirection!==undefined?s.labelDirection:1);
+  document.getElementById('flip').checked=!!s.labelFlip;
   say('نسخة '+s.version+' — '+(s.printers||[]).length+' طابعة');
 }).catch(e=>say('مش قادر أقرا الحالة: '+e,'bad'));
 
@@ -77,7 +88,10 @@ document.getElementById('save').onclick=async()=>{
   sout.textContent='بيحفظ...'; sout.className='';
   try{
     const r=await (await fetch('/settings',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({restockPrinter:sel.value,labelPrinter:lsel.value})})).json();
+      body:JSON.stringify({restockPrinter:sel.value,labelPrinter:lsel.value,
+        labelGapMm:+document.getElementById('gap').value,
+        labelDirection:+document.getElementById('dir').value,
+        labelFlip:document.getElementById('flip').checked})})).json();
     sout.textContent=r.ok?'\u2705 اتحفظ':'\u274c '+(r.error||'مش عارف');
     sout.className=r.ok?'ok':'bad';
   }catch(e){ sout.textContent='\u274c '+e; sout.className='bad'; }
@@ -110,6 +124,40 @@ go.onclick=async()=>{
     say(j.ok?'\u2705 اتبعتت: '+j.width+'x'+j.height+' نقطة، '+j.bytes+' بايت.\n\nقيس الورقة بالمسطرة: آخر رقم شايفه المفروض يكون قريب من '+mm+'مم.':'\u274c '+(j.error||'مش عارف'),j.ok?'ok':'bad');
   }catch(e){say('\u274c '+e,'bad');}
   go.disabled=false;
+};
+
+// ============================================================
+// 🏷️ ملصق تجربة — **لاصقة واحدة بس**
+// ============================================================
+// ⚠️ العدد واحد عن قصد ومش قابل للتغيير من هنا: أخطر حاجة في مسار
+// الملصق هي **قطبية النقط** — لو مقلوبة اللاصقة بتطلع سودا بالكامل.
+// فالتجربة لازم تكلّف لاصقة واحدة، مش عشرة.
+//
+// والرسم أبيض في أغلبه عن قصد كمان: لو طلع أسود، القطبية مقلوبة
+// والحكم بالعين من غير قياس.
+const lgo=document.getElementById('lgo');
+lgo.onclick=async()=>{
+  const W=304,H=200; // 38x25 مم على 203 نقطة/بوصة
+  const c=document.createElement('canvas');c.width=W;c.height=H;
+  const x=c.getContext('2d');
+  x.fillStyle='#fff';x.fillRect(0,0,W,H);
+  x.strokeStyle='#000';x.lineWidth=3;x.strokeRect(6,6,W-12,H-12);
+  x.fillStyle='#000';x.textAlign='center';
+  x.font='bold 26px system-ui';x.fillText('ملصق تجربة',W/2,52);
+  x.font='20px system-ui';x.fillText('38 x 25 مم',W/2,84);
+  x.font='bold 30px system-ui';x.fillText('10632103',W/2,126);
+  x.fillRect(W/2-40,146,80,26);
+  x.fillStyle='#fff';x.font='bold 18px system-ui';x.fillText('اسود',W/2,165);
+  const png=c.toDataURL('image/png').split(',')[1];
+  lgo.disabled=true;say('بيتبعت ملصق...');
+  try{
+    const r=await fetch('/label',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({printer:lsel.value,widthMm:38,heightMm:25,name:'ملصق تجربة',
+        labels:[{png:png,copies:1}]})});
+    const j=await r.json();
+    say(j.ok?'\u2705 اتبعت ملصق واحد: '+j.width+'x'+j.height+' نقطة، '+j.bytes+' بايت.\n\nلو اللاصقة طلعت سودا بالكامل، علّم على "اقلب ألوان الملصق" فوق واحفظ وجرّب تاني.':'\u274c '+(j.error||'مش عارف'),j.ok?'ok':'bad');
+  }catch(e){say('\u274c '+e,'bad');}
+  lgo.disabled=false;
 };
 
 // ⚠️ التحديث خطوتين عن قصد: بيقولك النسخة الأول، وانت اللي تقرر.

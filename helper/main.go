@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.4.0"
+	version = "1.5.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -121,6 +121,11 @@ type statusReply struct {
 	RestockPrinter string   `json:"restockPrinter"`
 	LabelPrinter   string   `json:"labelPrinter"`
 	Autostart      bool     `json:"autostart"`
+	// ⚠️ بترجع **القيم الفعلية** (الإعداد أو الافتراضي) مش الخام:
+	// الصفحة لازم تعرض اللي هيتبعت للطابعة فعلًا، مش خانة فاضية.
+	LabelGapMm     float64 `json:"labelGapMm"`
+	LabelDirection int     `json:"labelDirection"`
+	LabelFlip      bool    `json:"labelFlip"`
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -130,10 +135,14 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		printers = []string{}
 	}
 	cur := getSettings()
+	gapMm, direction, flip := labelOptions()
 	writeJSON(w, http.StatusOK, statusReply{
 		App: "tazweed-helper", Version: version, OS: osName(), Printers: printers,
 		RestockPrinter: cur.RestockPrinter, LabelPrinter: cur.LabelPrinter,
-		Autostart: autostartEnabled(),
+		Autostart:      autostartEnabled(),
+		LabelGapMm:     gapMm,
+		LabelDirection: direction,
+		LabelFlip:      flip,
 	})
 }
 
@@ -167,12 +176,7 @@ func handlePrint(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, printReply{Error: "مافيش طابعة متظبطة لورقة التزويد"})
 		return
 	}
-	// ⚠️ بنقبل الترويسة لو جت بالغلط بدل ما نفشل بسببها
-	png := req.PNG
-	if i := strings.Index(png, "base64,"); i >= 0 {
-		png = png[i+7:]
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(png))
+	raw, err := decodePNG(req.PNG)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, printReply{Error: "الصورة مش base64 سليمة"})
 		return
@@ -201,6 +205,104 @@ func handlePrint(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, printReply{OK: true, Bytes: len(data), Width: wpx, Height: hpx})
 }
 
+// ============================================================
+// 🏷️ الملصقات — نفس الفكرة، بلغة تانية
+// ============================================================
+// ⚠️⚠️ مسار **منفصل تمامًا** عن /print عن قصد: ورقة التزويد شغّالة
+// ومجرّبة على ورق حقيقي، ومايصحّش نلمس سطر واحد من مسارها عشان
+// نضيف الملصق. الاتنين مابيشاركوش غير قراءة الـPNG.
+//
+// الفرق عن /print:
+//   - ESC/POS → TSPL (لغة طابعة الملصق)
+//   - صورة واحدة → قايمة صور، كل واحدة بعددها
+//   - العدد بيتنفّذ **جوه الطابعة** مش بتكرار الصورة
+type labelItem struct {
+	PNG    string `json:"png"`
+	Copies int    `json:"copies"`
+}
+
+type labelRequest struct {
+	Printer  string      `json:"printer"`
+	WidthMm  float64     `json:"widthMm"`
+	HeightMm float64     `json:"heightMm"`
+	Labels   []labelItem `json:"labels"`
+	Name     string      `json:"name"`
+}
+
+type labelReply struct {
+	OK     bool   `json:"ok"`
+	Bytes  int    `json:"bytes"`
+	Count  int    `json:"count"` // عدد اللاصقات اللي هتخرج فعلًا
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Error  string `json:"error,omitempty"`
+}
+
+func handleLabel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, labelReply{Error: "POST بس"})
+		return
+	}
+	var req labelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, labelReply{Error: "الطلب مش مفهوم: " + err.Error()})
+		return
+	}
+	printer := pickPrinter(strings.TrimSpace(req.Printer), "label")
+	if printer == "" {
+		writeJSON(w, http.StatusBadRequest, labelReply{Error: "مافيش طابعة متظبطة للملصق"})
+		return
+	}
+	if len(req.Labels) == 0 {
+		writeJSON(w, http.StatusBadRequest, labelReply{Error: "مافيش ملصقات في الطلب"})
+		return
+	}
+
+	items := make([]tsplLabel, 0, len(req.Labels))
+	total := 0
+	for i, it := range req.Labels {
+		raw, err := decodePNG(it.PNG)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, labelReply{Error: fmt.Sprintf("ملصق %d: الصورة مش base64 سليمة", i+1)})
+			return
+		}
+		copies := it.Copies
+		if copies < 1 {
+			copies = 1
+		}
+		items = append(items, tsplLabel{PNG: raw, Copies: copies})
+		total += copies
+	}
+
+	gapMm, direction, flip := labelOptions()
+	data, wpx, hpx, err := buildTSPLJob(items, req.WidthMm, req.HeightMm, gapMm, direction, flip)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, labelReply{Error: err.Error(), Width: wpx, Height: hpx})
+		return
+	}
+
+	jobName := req.Name
+	if jobName == "" {
+		jobName = "ملصقات"
+	}
+	if err := printRaw(printer, data, jobName); err != nil {
+		log.Println("فشل إرسال الملصقات للطابعة:", err)
+		writeJSON(w, http.StatusInternalServerError, labelReply{Error: err.Error()})
+		return
+	}
+	log.Printf("اتطبعت ملصقات: %s — %d لاصقة، %dx%d نقطة، %d بايت\n", printer, total, wpx, hpx, len(data))
+	writeJSON(w, http.StatusOK, labelReply{OK: true, Bytes: len(data), Count: total, Width: wpx, Height: hpx})
+}
+
+// ⚠️ بنقبل الترويسة `data:image/png;base64,` لو جت بالغلط بدل ما
+// نفشل بسببها.
+func decodePNG(s string) ([]byte, error) {
+	if i := strings.Index(s, "base64,"); i >= 0 {
+		s = s[i+7:]
+	}
+	return base64.StdEncoding.DecodeString(strings.TrimSpace(s))
+}
+
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
@@ -221,6 +323,7 @@ func newServer() *http.ServeMux {
 	})
 	mux.HandleFunc("/status", guard(handleStatus))
 	mux.HandleFunc("/print", guard(handlePrint))
+	mux.HandleFunc("/label", guard(handleLabel))
 	mux.HandleFunc("/settings", guard(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})

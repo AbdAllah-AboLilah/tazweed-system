@@ -20,6 +20,36 @@ import (
 type settings struct {
 	RestockPrinter string `json:"restockPrinter"`
 	LabelPrinter   string `json:"labelPrinter"`
+
+	// ------------------------------------------------------------
+	// ⚠️ الثلاثة دول **مفاتيح طوارئ** لطباعة الملصق بلغة الطابعة
+	// ------------------------------------------------------------
+	// إحنا بنبعت أوامر TSPL مباشرة للماكينة، والثلاث حاجات اللي ممكن
+	// تختلف من ماكينة لماكينة هي: مسافة الفاصل بين اللاصقات، اتجاه
+	// الطباعة، وقطبية النقط. لو أي واحدة فيهم طلعت غلط على ورق حقيقي،
+	// بتتظبط **من صفحة البرنامج في ثانية** بدل ما نبني نسخة جديدة
+	// ونستنى حد يجرّب تاني.
+	//
+	// كلهم مؤشرات (*) عن قصد: الملف القديم مافيهوش الحقول دي، والصفر
+	// فيهم قيمة صحيحة (GAP 0 = ورق مستمر، DIRECTION 0 = اتجاه صحيح).
+	// من غير المؤشر مكانش فيه فرق بين "مكتوب صفر" و"مش مكتوب".
+	LabelGapMm     *float64 `json:"labelGapMm,omitempty"`
+	LabelDirection *int     `json:"labelDirection,omitempty"`
+	LabelFlip      bool     `json:"labelFlip,omitempty"`
+}
+
+// القيم اللي هتتبعت للطابعة فعلًا — الإعداد لو موجود، وإلا الافتراضي
+// اللي اتجرّب على ماكينة المحل.
+func labelOptions() (gapMm float64, direction int, flip bool) {
+	s := getSettings()
+	gapMm, direction, flip = defaultGapMm, defaultDirection, s.LabelFlip
+	if s.LabelGapMm != nil && *s.LabelGapMm >= 0 {
+		gapMm = *s.LabelGapMm
+	}
+	if s.LabelDirection != nil && (*s.LabelDirection == 0 || *s.LabelDirection == 1) {
+		direction = *s.LabelDirection
+	}
+	return gapMm, direction, flip
 }
 
 var (

@@ -145,10 +145,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     window.tryPrintViaQZ = realQZ;
 
     // ============================================================
-    // ⚠️ الملصق **عمره ما يعدّي** على البرنامج
+    // ⚠️⚠️ مفتاح الورقة **مالوش دعوة** بالملصق
     // ============================================================
+    // للملصق مفتاحه هو (labelHelper، مقفول هنا). لو الاتنين اتربطوا
+    // ببعض، اللي بيفتح الورقة يلاقي الملصقات اتغيّرت من ورا ظهره —
+    // وده بالظبط اللي اتقال: "متلمسيش اي حاجه في الملصق طلما
+    // موافقتيش عليها".
     reset();
     mode = 'ok';
+    setPrintTweak('labelHelper', false);
     await deliverPrint('label', [{ html: '<b>x</b>', copies: 1 }], { pageWidthMm: 38, pageHeightMm: 25 });
     out.labelTouchedHelper = calls.some((c) => c.url.indexOf('7770') !== -1);
 
@@ -177,7 +182,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐⭐ الطلب الجاي من التليفون بيعدّي على البرنامج كمان',
     r.remoteHelperCalls === 1, r.remoteHelperCalls);
   check('⭐⭐⭐ ومابيروحش لـQZ بعدها (مش طبعتين)', r.remoteSkippedQZ);
-  check('⭐⭐⭐ الملصق عمره ما يعدّي على البرنامج', r.labelTouchedHelper === false);
+  check('⭐⭐⭐ مفتاح الورقة لوحده مايوديش الملصق للبرنامج', r.labelTouchedHelper === false);
   check('⭐ والمفتاح مقفول افتراضيًا', r.defaultOff);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
