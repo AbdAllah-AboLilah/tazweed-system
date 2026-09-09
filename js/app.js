@@ -5393,10 +5393,44 @@ async function requestShortage(gradeId, qty) {
   });
 }
 
+// ============================================================
+// ⛔ الحالة اللي مايتلغيش فيها الطلب
+// ============================================================
+// اتطلبت بالنص: "انا مش عاوز حد يعرف يلغي طلب تزويد في حالة ان كمية
+// الفرع صفر وفي كميه في المخزن الرئيسي ... في الحالة دي بس اللي ممكن
+// منشئ النظام يلغي".
+//
+// **ليه الحالة دي بالذات**: الإلغاء بيكتب الحالة "عادي" **من غير ما
+// يلمس الكمية**. فالدرجة بتفضل صفر في الفرع ومكتوب عليها عادي، وتختفي
+// من ورقة التزويد — والنظام مابيراجعش الحالة غير لما كمية تتغيّر.
+// يعني بضاعة موجودة في الرئيسي وقافلة على الرف من غير ما حد ياخد باله.
+//
+// وباقي الحالات عادية: فيه كمية في الفرع (١ مثلًا) → الإلغاء يعدّي
+// من غير رجوع لحد. والرئيسي فاضي كمان → مافيش تزويد ممكن أصلًا.
+function cancelNeedsOwner(data) {
+  const branch = Number((data || {}).branchQty) || 0;
+  const main = Number((data || {}).mainQty) || 0;
+  return branch === 0 && main > 0;
+}
+
 async function cancelShortage(gradeId) {
   const categoryId = state.activeCategoryId;
   const data = await readGrade(categoryId, gradeId);
   if (!data) return;
+
+  // ⚠️ الحارس هنا **مش وحده**: نفس الشرط متنفّذ في firestore.rules،
+  // لأن إخفاء الزرار من الشاشة مش حماية.
+  if (cancelNeedsOwner(data) && !isOwner(state.profile)) {
+    alert(
+      '⛔ مينفعش تلغي طلب التزويد ده.\n\n' +
+        `الكمية في مخزن الفرع **صفر**، وفيه ${Number(data.mainQty) || 0} في المخزن الرئيسي.\n\n` +
+        'لو اتلغى، الدرجة هتختفي من ورقة التزويد وهي فاضية على الرف — ' +
+        'والبضاعة هتفضل قافلة في المخزن.\n\n' +
+        'ارجع للمدير أو منشئ النظام.'
+    );
+    return;
+  }
+
   const gradeRef = gradeRefOf(categoryId, gradeId);
   // الكمية المطلوبة بتتشال مع الإلغاء — الطلب اتلغى يعني مفيش كمية مطلوبة
   fireWrite(gradeRef.update({ status: 'normal', requestedQty: null, manualRequest: null }), 'إلغاء طلب تزويد');
@@ -6224,6 +6258,64 @@ function subscribeCategories() {
     );
 }
 
+// ============================================================
+// 🩹 الدرجات الفاضية اللي مش بتطلب تزويد
+// ============================================================
+// الحالة: فرع صفر + الرئيسي فيه كمية + الحالة مكتوبة "عادي".
+// يعني بضاعة موجودة في المخزن والرف فاضي، والدرجة **مش ظاهرة** في
+// ورقة التزويد لأن حالتها بتقول عادي.
+//
+// إزاي بتحصل؟ إلغاء الطلب. الإلغاء بيكتب "عادي" من غير ما يلمس الكمية،
+// والنظام مابيراجعش الحالة غير لما كمية تتغيّر — فبتفضل نايمة.
+// (الإلغاء ده بقى **ممنوع** من v0.78.5، بس الدرجات اللي اتلغت قبل كده
+//  لسه واقفة، ومحدش هيلاحظها لأنها مختفية أصلًا.)
+//
+// ⚠️⚠️ تلات حراس لازم يفضلوا:
+//   ١) **مرة واحدة لكل فئة في الجلسة** — الدالة دي بتتنده من جوه
+//      onSnapshot، والكتابة بتولّد لقطة جديدة. من غير الحارس ده تبقى
+//      لفة لا نهائية بتضرب السحابة.
+//   ٢) **مش وإحنا لسه بنكتب** (hasPendingWrites) — اللقطة ساعتها
+//      بتوصف كتابة لسه ماوصلتش، فالقراءة منها بتقرا حالة مؤقتة.
+//   ٣) **بس اللي معاه صلاحية** — غير كده الكتابة هترفض من السحابة
+//      وتملا الكونسول أخطاء من غير أي فايدة.
+const healedCats = {};
+
+function healStuckPending(categoryId, pendingWrites) {
+  if (!categoryId || pendingWrites) return;
+  if (healedCats[categoryId]) return;
+  if (typeof canEditWarehouse !== 'function' || !canEditWarehouse(state.profile, 'branch')) return;
+  if (typeof canEditCategory === 'function' && !canEditCategory(state.profile, categoryId)) return;
+  healedCats[categoryId] = true;
+
+  const stuck = (state.grades || []).filter((g) => {
+    const branch = Number(g.branchQty) || 0;
+    const main = Number(g.mainQty) || 0;
+    // ⚠️ الحقول لازم تكون **موجودة**: الدرجة اللي لسه بتتضاف ومالهاش
+    // كميات كانت هتتحسب "فاضية" وتتكتب معلّقة بالغلط.
+    const hasQty = g.branchQty !== undefined && g.mainQty !== undefined;
+    return hasQty && branch === 0 && main > 0 && (g.status || 'normal') === 'normal';
+  });
+  if (!stuck.length) return;
+
+  stuck.forEach((g) => {
+    fireWrite(
+      gradeRefOf(categoryId, g.id).update({ status: 'pending', manualRequest: false }),
+      'طلب تزويد تلقائي لدرجة فاضية'
+    );
+  });
+
+  // ⚠️ التصليح **بيتقال**. لو حصل في سكوت، هتلاقي درجات رجعت "معلّقة"
+  // من غير ما حد يطلب، وتفتكر إن النظام بيعمل من دماغه.
+  const cat = (state.categories || []).find((c) => c.id === categoryId);
+  const many = stuck.length > 1;
+  const msg =
+    `🔄 ${many ? `${stuck.length} درجات فاضية رجعت` : 'درجة فاضية رجعت'} لطلب التزويد` +
+    `${cat && cat.name ? ` في ${cat.name}` : ''} — ` +
+    `${many ? 'كانوا' : 'كانت'} صفر في الفرع وفيها كمية في المخزن الرئيسي.`;
+  if (typeof showPrintNotice === 'function') showPrintNotice(msg, 12000);
+  else console.info(msg);
+}
+
 function subscribeGrades(categoryId) {
   if (unsubGrades) unsubGrades();
   unsubGrades = db
@@ -6237,6 +6329,7 @@ function subscribeGrades(categoryId) {
         state.grades = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         state.hasPendingWrites = snap.metadata.hasPendingWrites;
         renderFromData();
+        healStuckPending(categoryId, snap.metadata.hasPendingWrites);
       },
       (err) => console.warn('تعذّر قراءة الدرجات:', err)
     );

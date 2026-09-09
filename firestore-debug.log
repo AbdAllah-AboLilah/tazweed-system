@@ -1,5 +1,5 @@
-Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=34427 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
-Sep 08, 2026 9:08:31 PM com.google.cloud.datastore.emulator.firestore.websocket.WebSocketServer start
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/root/.ccr/java-truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=46111 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+Sep 09, 2026 12:30:28 PM com.google.cloud.datastore.emulator.firestore.websocket.WebSocketServer start
 INFO: Started WebSocket server on ws://127.0.0.1:9150
 
 API endpoint: http://127.0.0.1:8080
@@ -17,17 +17,17 @@ If you are running a Firestore in Datastore Mode project, run:
 Note: Support for Datastore Mode is in preview. If you encounter any bugs please file at https://github.com/firebase/firebase-tools/issues.
 Dev App Server is now running.
 
-Sep 08, 2026 9:08:31 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+Sep 09, 2026 12:30:29 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
 INFO: Detected non-HTTP/2 connection.
-Sep 08, 2026 9:08:32 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+Sep 09, 2026 12:30:29 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
 INFO: Detected HTTP/2 connection.
-Sep 08, 2026 9:08:33 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+Sep 09, 2026 12:30:30 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
 INFO: Detected HTTP/2 connection.
-Sep 08, 2026 9:08:34 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+Sep 09, 2026 12:30:30 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
 INFO: Detected HTTP/2 connection.
-Sep 08, 2026 9:08:34 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
+Sep 09, 2026 12:30:31 PM io.gapi.emulators.netty.HttpVersionRoutingHandler channelRead
 INFO: Detected HTTP/2 connection.
-Sep 08, 2026 9:08:34 PM com.google.firebase.rules.runtime.impl.CompositeListener tryInvoke
+Sep 09, 2026 12:30:31 PM com.google.firebase.rules.runtime.impl.CompositeListener tryInvoke
 WARNING: [CONTEXT ratelimit_period="1 MINUTES" ]
 java.lang.ArrayIndexOutOfBoundsException: Index 0 out of bounds for length 0
 	at com.google.common.collect.RegularImmutableList.get(RegularImmutableList.java:81)
@@ -87,11 +87,11 @@ java.lang.ArrayIndexOutOfBoundsException: Index 0 out of bounds for length 0
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:31 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -118,11 +118,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:31 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -149,11 +149,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:31 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -180,11 +180,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:31 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -211,11 +211,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:31 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -242,11 +242,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:31 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -273,11 +273,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:31 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -304,11 +304,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:32 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'create' @ L279
+evaluation error at L323:26 for 'create' @ L323, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'create' @ L323
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'create' @ L279
+evaluation error at L323:26 for 'create' @ L323, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'create' @ L323
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -335,11 +335,11 @@ evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expressi
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:32 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'create' @ L279
+evaluation error at L323:26 for 'create' @ L323, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'create' @ L323
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'create' @ L279
+evaluation error at L323:26 for 'create' @ L323, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'create' @ L323
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -366,11 +366,11 @@ evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expressi
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:32 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'create' @ L279
+evaluation error at L323:26 for 'create' @ L323, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'create' @ L323
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'create' @ L279
+evaluation error at L323:26 for 'create' @ L323, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'create' @ L323
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -397,11 +397,11 @@ evaluation error at L279:26 for 'create' @ L279, Unable to evaluate the expressi
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:32 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
+evaluation error at L324:26 for 'delete' @ L324, false for 'delete' @ L324
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
+evaluation error at L324:26 for 'delete' @ L324, false for 'delete' @ L324
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -428,11 +428,11 @@ evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:32 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
+evaluation error at L324:26 for 'delete' @ L324, false for 'delete' @ L324
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
+evaluation error at L324:26 for 'delete' @ L324, false for 'delete' @ L324
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -459,11 +459,11 @@ evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:32 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
+evaluation error at L324:26 for 'delete' @ L324, false for 'delete' @ L324
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
+evaluation error at L324:26 for 'delete' @ L324, false for 'delete' @ L324
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -490,11 +490,11 @@ evaluation error at L280:26 for 'delete' @ L280, false for 'delete' @ L280
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:32 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
+evaluation error at L318:32 for 'update' @ L318, false for 'update' @ L318
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
+evaluation error at L318:32 for 'update' @ L318, false for 'update' @ L318
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -521,11 +521,11 @@ evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:32 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
+evaluation error at L318:32 for 'update' @ L318, false for 'update' @ L318
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
+evaluation error at L318:32 for 'update' @ L318, false for 'update' @ L318
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -552,11 +552,11 @@ evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L275:24 for 'delete' @ L275, false for 'delete' @ L275
+evaluation error at L319:24 for 'delete' @ L319, false for 'delete' @ L319
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L275:24 for 'delete' @ L275, false for 'delete' @ L275
+evaluation error at L319:24 for 'delete' @ L319, false for 'delete' @ L319
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -583,11 +583,11 @@ evaluation error at L275:24 for 'delete' @ L275, false for 'delete' @ L275
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L275:24 for 'delete' @ L275, false for 'delete' @ L275
+evaluation error at L319:24 for 'delete' @ L319, false for 'delete' @ L319
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L275:24 for 'delete' @ L275, false for 'delete' @ L275
+evaluation error at L319:24 for 'delete' @ L319, false for 'delete' @ L319
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -614,11 +614,11 @@ evaluation error at L275:24 for 'delete' @ L275, false for 'delete' @ L275
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -645,11 +645,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:36 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -676,11 +676,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L396:23 for 'create' @ L396, evaluation error at L396:23 for 'update' @ L396, false for 'update' @ L396
+evaluation error at L440:23 for 'create' @ L440, evaluation error at L440:23 for 'update' @ L440, false for 'update' @ L440
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L396:23 for 'create' @ L396, evaluation error at L396:23 for 'update' @ L396, false for 'update' @ L396
+evaluation error at L440:23 for 'create' @ L440, evaluation error at L440:23 for 'update' @ L440, false for 'update' @ L440
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -707,11 +707,11 @@ evaluation error at L396:23 for 'create' @ L396, evaluation error at L396:23 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L396:23 for 'create' @ L396, evaluation error at L396:23 for 'update' @ L396, false for 'update' @ L396
+evaluation error at L440:23 for 'create' @ L440, evaluation error at L440:23 for 'update' @ L440, false for 'update' @ L440
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L396:23 for 'create' @ L396, evaluation error at L396:23 for 'update' @ L396, false for 'update' @ L396
+evaluation error at L440:23 for 'create' @ L440, evaluation error at L440:23 for 'update' @ L440, false for 'update' @ L440
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -738,11 +738,11 @@ evaluation error at L396:23 for 'create' @ L396, evaluation error at L396:23 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for 'update' @ L245, false for 'update' @ L251, false for 'update' @ L245, false for 'update' @ L251
+evaluation error at L288:24 for 'create' @ L288, evaluation error at L289:32 for 'update' @ L289, false for 'update' @ L295, false for 'update' @ L289, false for 'update' @ L295
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for 'update' @ L245, false for 'update' @ L251, false for 'update' @ L245, false for 'update' @ L251
+evaluation error at L288:24 for 'create' @ L288, evaluation error at L289:32 for 'update' @ L289, false for 'update' @ L295, false for 'update' @ L289, false for 'update' @ L295
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -769,11 +769,11 @@ evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for 'update' @ L245, false for 'update' @ L251, false for 'update' @ L245, false for 'update' @ L251
+evaluation error at L288:24 for 'create' @ L288, evaluation error at L289:32 for 'update' @ L289, false for 'update' @ L295, false for 'update' @ L289, false for 'update' @ L295
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for 'update' @ L245, false for 'update' @ L251, false for 'update' @ L245, false for 'update' @ L251
+evaluation error at L288:24 for 'create' @ L288, evaluation error at L289:32 for 'update' @ L289, false for 'update' @ L295, false for 'update' @ L289, false for 'update' @ L295
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -800,11 +800,11 @@ evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for 'update' @ L245, false for 'update' @ L251, false for 'update' @ L245, false for 'update' @ L251
+evaluation error at L288:24 for 'create' @ L288, evaluation error at L289:32 for 'update' @ L289, false for 'update' @ L295, false for 'update' @ L289, false for 'update' @ L295
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for 'update' @ L245, false for 'update' @ L251, false for 'update' @ L245, false for 'update' @ L251
+evaluation error at L288:24 for 'create' @ L288, evaluation error at L289:32 for 'update' @ L289, false for 'update' @ L295, false for 'update' @ L289, false for 'update' @ L295
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -831,11 +831,11 @@ evaluation error at L244:24 for 'create' @ L244, evaluation error at L245:32 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-false for 'update' @ L245, false for 'update' @ L251
+false for 'update' @ L289, false for 'update' @ L295
 com.google.cloud.datastore.core.exception.DatastoreException: 
-false for 'update' @ L245, false for 'update' @ L251
+false for 'update' @ L289, false for 'update' @ L295
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -862,11 +862,11 @@ false for 'update' @ L245, false for 'update' @ L251
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-false for 'update' @ L245, false for 'update' @ L251
+false for 'update' @ L289, false for 'update' @ L295
 com.google.cloud.datastore.core.exception.DatastoreException: 
-false for 'update' @ L245, false for 'update' @ L251
+false for 'update' @ L289, false for 'update' @ L295
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -893,11 +893,11 @@ false for 'update' @ L245, false for 'update' @ L251
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-false for 'update' @ L245, false for 'update' @ L251
+false for 'update' @ L289, false for 'update' @ L295
 com.google.cloud.datastore.core.exception.DatastoreException: 
-false for 'update' @ L245, false for 'update' @ L251
+false for 'update' @ L289, false for 'update' @ L295
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -924,11 +924,11 @@ false for 'update' @ L245, false for 'update' @ L251
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:33 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-false for 'delete' @ L245
+false for 'delete' @ L289
 com.google.cloud.datastore.core.exception.DatastoreException: 
-false for 'delete' @ L245
+false for 'delete' @ L289
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -955,11 +955,11 @@ false for 'delete' @ L245
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:37 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L359:24 for 'create' @ L359, evaluation error at L375:24 for 'update' @ L375, false for 'create' @ L359
+evaluation error at L403:24 for 'create' @ L403, evaluation error at L419:24 for 'update' @ L419, false for 'create' @ L403
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L359:24 for 'create' @ L359, evaluation error at L375:24 for 'update' @ L375, false for 'create' @ L359
+evaluation error at L403:24 for 'create' @ L403, evaluation error at L419:24 for 'update' @ L419, false for 'create' @ L403
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -986,11 +986,11 @@ evaluation error at L359:24 for 'create' @ L359, evaluation error at L375:24 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:38 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L359:24 for 'create' @ L359, evaluation error at L375:24 for 'update' @ L375, false for 'create' @ L359
+evaluation error at L403:24 for 'create' @ L403, evaluation error at L419:24 for 'update' @ L419, false for 'create' @ L403
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L359:24 for 'create' @ L359, evaluation error at L375:24 for 'update' @ L375, false for 'create' @ L359
+evaluation error at L403:24 for 'create' @ L403, evaluation error at L419:24 for 'update' @ L419, false for 'create' @ L403
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1017,11 +1017,11 @@ evaluation error at L359:24 for 'create' @ L359, evaluation error at L375:24 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:38 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1048,11 +1048,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:38 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1079,11 +1079,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:38 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for 'update' @ L438, false for 'update' @ L438
+evaluation error at L482:23 for 'create' @ L482, evaluation error at L482:23 for 'update' @ L482, false for 'update' @ L482
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for 'update' @ L438, false for 'update' @ L438
+evaluation error at L482:23 for 'create' @ L482, evaluation error at L482:23 for 'update' @ L482, false for 'update' @ L482
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1110,11 +1110,11 @@ evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:38 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for 'update' @ L438, false for 'update' @ L438
+evaluation error at L482:23 for 'create' @ L482, evaluation error at L482:23 for 'update' @ L482, false for 'update' @ L482
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for 'update' @ L438, false for 'update' @ L438
+evaluation error at L482:23 for 'create' @ L482, evaluation error at L482:23 for 'update' @ L482, false for 'update' @ L482
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1141,11 +1141,11 @@ evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:38 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for 'update' @ L438, false for 'update' @ L438
+evaluation error at L482:23 for 'create' @ L482, evaluation error at L482:23 for 'update' @ L482, false for 'update' @ L482
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for 'update' @ L438, false for 'update' @ L438
+evaluation error at L482:23 for 'create' @ L482, evaluation error at L482:23 for 'update' @ L482, false for 'update' @ L482
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1172,11 +1172,11 @@ evaluation error at L438:23 for 'create' @ L438, evaluation error at L438:23 for
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:38 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1203,11 +1203,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:39 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1234,11 +1234,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:39 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1265,11 +1265,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:39 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1296,11 +1296,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:39 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1327,11 +1327,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:39 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:34 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L281, false for 'update' @ L281
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1358,11 +1358,11 @@ Unable to evaluate the expression as the maximum of 1000 expressions to evaluate
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:39 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-false for 'create' @ L267, false for 'update' @ L267
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 com.google.cloud.datastore.core.exception.DatastoreException: 
-false for 'create' @ L267, false for 'update' @ L267
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1389,11 +1389,11 @@ false for 'create' @ L267, false for 'update' @ L267
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-Sep 08, 2026 9:08:39 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+Sep 09, 2026 12:30:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
 WARNING: Operation failed: 
-evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
+false for 'create' @ L311, false for 'update' @ L311
 com.google.cloud.datastore.core.exception.DatastoreException: 
-evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
+false for 'create' @ L311, false for 'update' @ L311
 	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
 	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
@@ -1419,7 +1419,194 @@ evaluation error at L274:32 for 'update' @ L274, false for 'update' @ L274
 	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
 	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
 	at java.base/java.lang.Thread.run(Thread.java:1583)
+
+Sep 09, 2026 12:30:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+WARNING: Operation failed: 
+evaluation error at L318:32 for 'update' @ L318, false for 'update' @ L318
+com.google.cloud.datastore.core.exception.DatastoreException: 
+evaluation error at L318:32 for 'update' @ L318, false for 'update' @ L318
+	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.checkCommit(DefaultEmulatorRulesAuthorizer.java:113)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.commitHelper(FirestoreEmulatorHelper.java:407)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.internalCommit(FirestoreEmulatorHelper.java:348)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.internalCommit(CloudFirestoreV1.java:1336)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.write(CloudFirestoreV1.java:1321)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.handleRequest(CloudFirestoreV1WriteStream.java:222)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.write(CloudFirestoreV1WriteStream.java:144)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:99)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:27)
+	at io.grpc.stub.ServerCalls$StreamingServerCallHandler$StreamingServerCallListener.onMessage(ServerCalls.java:262)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailableInternal(ServerCallImpl.java:334)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailable(ServerCallImpl.java:319)
+	at io.grpc.internal.ServerImpl$JumpToApplicationThreadServerStreamListener$1MessagesAvailable.runInContext(ServerImpl.java:852)
+	at io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+
+Sep 09, 2026 12:30:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+WARNING: Operation failed: 
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
+com.google.cloud.datastore.core.exception.DatastoreException: 
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
+	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.checkCommit(DefaultEmulatorRulesAuthorizer.java:113)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.commitHelper(FirestoreEmulatorHelper.java:407)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.internalCommit(FirestoreEmulatorHelper.java:348)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.internalCommit(CloudFirestoreV1.java:1336)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.write(CloudFirestoreV1.java:1321)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.handleRequest(CloudFirestoreV1WriteStream.java:222)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.write(CloudFirestoreV1WriteStream.java:144)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:99)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:27)
+	at io.grpc.stub.ServerCalls$StreamingServerCallHandler$StreamingServerCallListener.onMessage(ServerCalls.java:262)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailableInternal(ServerCallImpl.java:334)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailable(ServerCallImpl.java:319)
+	at io.grpc.internal.ServerImpl$JumpToApplicationThreadServerStreamListener$1MessagesAvailable.runInContext(ServerImpl.java:852)
+	at io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+
+Sep 09, 2026 12:30:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+WARNING: Operation failed: 
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
+com.google.cloud.datastore.core.exception.DatastoreException: 
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
+	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.checkCommit(DefaultEmulatorRulesAuthorizer.java:113)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.commitHelper(FirestoreEmulatorHelper.java:407)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.internalCommit(FirestoreEmulatorHelper.java:348)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.internalCommit(CloudFirestoreV1.java:1336)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.write(CloudFirestoreV1.java:1321)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.handleRequest(CloudFirestoreV1WriteStream.java:222)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.write(CloudFirestoreV1WriteStream.java:144)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:99)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:27)
+	at io.grpc.stub.ServerCalls$StreamingServerCallHandler$StreamingServerCallListener.onMessage(ServerCalls.java:262)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailableInternal(ServerCallImpl.java:334)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailable(ServerCallImpl.java:319)
+	at io.grpc.internal.ServerImpl$JumpToApplicationThreadServerStreamListener$1MessagesAvailable.runInContext(ServerImpl.java:852)
+	at io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+
+Sep 09, 2026 12:30:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+WARNING: Operation failed: 
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
+com.google.cloud.datastore.core.exception.DatastoreException: 
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, false for 'update' @ L325
+	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.checkCommit(DefaultEmulatorRulesAuthorizer.java:113)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.commitHelper(FirestoreEmulatorHelper.java:407)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.internalCommit(FirestoreEmulatorHelper.java:348)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.internalCommit(CloudFirestoreV1.java:1336)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.write(CloudFirestoreV1.java:1321)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.handleRequest(CloudFirestoreV1WriteStream.java:222)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.write(CloudFirestoreV1WriteStream.java:144)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:99)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:27)
+	at io.grpc.stub.ServerCalls$StreamingServerCallHandler$StreamingServerCallListener.onMessage(ServerCalls.java:262)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailableInternal(ServerCallImpl.java:334)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailable(ServerCallImpl.java:319)
+	at io.grpc.internal.ServerImpl$JumpToApplicationThreadServerStreamListener$1MessagesAvailable.runInContext(ServerImpl.java:852)
+	at io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+
+Sep 09, 2026 12:30:35 PM com.google.cloud.datastore.emulator.impl.util.WrappedStreamObserver onError
+WARNING: Operation failed: 
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325
+com.google.cloud.datastore.core.exception.DatastoreException: 
+Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325, Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached. for 'update' @ L325
+	at com.google.cloud.datastore.core.exception.DatastoreException$Builder.build(DatastoreException.java:152)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.verboseError(DefaultEmulatorRulesAuthorizer.java:349)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:326)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.checkCommit(DefaultEmulatorRulesAuthorizer.java:113)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.commitHelper(FirestoreEmulatorHelper.java:407)
+	at com.google.cloud.datastore.emulator.impl.firestore.FirestoreEmulatorHelper.internalCommit(FirestoreEmulatorHelper.java:348)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.internalCommit(CloudFirestoreV1.java:1336)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1.write(CloudFirestoreV1.java:1321)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.handleRequest(CloudFirestoreV1WriteStream.java:222)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.write(CloudFirestoreV1WriteStream.java:144)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:99)
+	at com.google.cloud.datastore.emulator.impl.firestore.CloudFirestoreV1WriteStream.onNext(CloudFirestoreV1WriteStream.java:27)
+	at io.grpc.stub.ServerCalls$StreamingServerCallHandler$StreamingServerCallListener.onMessage(ServerCalls.java:262)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.ForwardingServerCallListener.onMessage(ForwardingServerCallListener.java:33)
+	at io.grpc.Contexts$ContextualizedServerCallListener.onMessage(Contexts.java:76)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailableInternal(ServerCallImpl.java:334)
+	at io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.messagesAvailable(ServerCallImpl.java:319)
+	at io.grpc.internal.ServerImpl$JumpToApplicationThreadServerStreamListener$1MessagesAvailable.runInContext(ServerImpl.java:852)
+	at io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37)
+	at io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: com.google.firebase.rules.runtime.common.EvaluationException: Error:  line [114], column [14]. Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.
+	at com.google.firebase.rules.runtime.impl.DefaultEvaluator$TransformEvaluationException.apply(DefaultEvaluator.java:275)
+	at com.google.firebase.rules.runtime.impl.DefaultEvaluator$TransformEvaluationException.apply(DefaultEvaluator.java:261)
+	at com.google.common.util.concurrent.AbstractCatchingFuture$AsyncCatchingFuture.doFallback(AbstractCatchingFuture.java:207)
+	at com.google.common.util.concurrent.AbstractCatchingFuture$AsyncCatchingFuture.doFallback(AbstractCatchingFuture.java:194)
+	at com.google.common.util.concurrent.AbstractCatchingFuture.run(AbstractCatchingFuture.java:136)
+	at com.google.common.util.concurrent.DirectExecutor.execute(DirectExecutor.java:30)
+	at com.google.common.util.concurrent.AbstractFuture.executeListener(AbstractFuture.java:1045)
+	at com.google.common.util.concurrent.AbstractFuture.addListener(AbstractFuture.java:492)
+	at com.google.common.util.concurrent.FluentFuture$TrustedFuture.addListener(FluentFuture.java:122)
+	at com.google.common.util.concurrent.AbstractCatchingFuture.createAsync(AbstractCatchingFuture.java:58)
+	at com.google.common.util.concurrent.Futures.catchingAsync(Futures.java:411)
+	at com.google.firebase.rules.runtime.impl.DefaultEvaluator.evaluate(DefaultEvaluator.java:177)
+	at com.google.cloud.datastore.emulator.impl.rules.EmulatorRuleClient$EmulatorRuleEvaluator.evaluate(EmulatorRuleClient.java:88)
+	at com.google.cloud.datastore.core.auth.rules.AsyncTwoPhaseRulesAuthorizer.lambda$fullEvaluate$0(AsyncTwoPhaseRulesAuthorizer.java:993)
+	at com.google.cloud.datastore.computation.Computation.tryCatch(Computation.java:472)
+	at com.google.cloud.datastore.core.auth.rules.AsyncTwoPhaseRulesAuthorizer.fullEvaluate(AsyncTwoPhaseRulesAuthorizer.java:992)
+	at com.google.cloud.datastore.core.auth.rules.AsyncTwoPhaseRulesAuthorizer$WriteAuthorizerImpl.lambda$checkWrite$0(AsyncTwoPhaseRulesAuthorizer.java:1227)
+	at com.google.cloud.datastore.computation.Computation.lambda$tryClose$1(Computation.java:741)
+	at com.google.cloud.datastore.computation.Computation.tryCatch(Computation.java:472)
+	at com.google.cloud.datastore.computation.Computation.tryFinally(Computation.java:708)
+	at com.google.cloud.datastore.computation.Computation.tryFinally(Computation.java:714)
+	at com.google.cloud.datastore.computation.Computation.tryClose(Computation.java:741)
+	at com.google.cloud.datastore.core.auth.rules.AsyncTwoPhaseRulesAuthorizer$WriteAuthorizerImpl.checkWrite(AsyncTwoPhaseRulesAuthorizer.java:1199)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.lambda$checkCommit$2(DefaultEmulatorRulesAuthorizer.java:124)
+	at com.google.cloud.datastore.computation.Computation.run(Computation.java:82)
+	at com.google.cloud.datastore.computation.Computation$Terminated.toFuture(Computation.java:950)
+	at com.google.cloud.datastore.computation.Computation.toFuture(Computation.java:93)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.finish(DefaultEmulatorRulesAuthorizer.java:308)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.lambda$checkCommit$0(DefaultEmulatorRulesAuthorizer.java:122)
+	at com.google.cloud.datastore.emulator.impl.rules.DefaultEmulatorRulesAuthorizer.withVerboseErrors(DefaultEmulatorRulesAuthorizer.java:321)
+	... 22 more
 
 *** shutting down gRPC server since JVM is shutting down
 *** server shut down
-260908 21:08:40.298:I 1 [main] [com.google.cloud.datastore.emulator.firestore.websocket.WebSocketServer.stop:79] Stopping WebSocket server...
+260909 12:30:36.237
