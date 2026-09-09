@@ -173,6 +173,7 @@ node tests/qz-version-show-test.js
 node tests/remote-reload-test.js
 node tests/account-scope-test.js
 node tests/sheet-raw-test.js
+node tests/label-name-qr-test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
 node tests/grade-add-test.js
