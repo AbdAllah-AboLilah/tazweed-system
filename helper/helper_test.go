@@ -129,7 +129,6 @@ func post(t *testing.T, mux *http.ServeMux, path, origin, body string) *httptest
 func TestOriginLockedDown(t *testing.T) {
 	mux := newServer()
 	bad := []string{
-		"",                          // من غير مصدر
 		"https://evil.example",      // موقع تاني
 		"http://abdallah-abolilah.github.io", // نفس الاسم بس http
 		"https://abdallah-abolilah.github.io.evil.com", // بادئة مخادعة
@@ -144,6 +143,42 @@ func TestOriginLockedDown(t *testing.T) {
 	// بيعدّي لأن كل حاجة مرفوضة، مش لأن القفل شغّال صح.
 	if w := post(t, mux, "/print", "https://abdallah-abolilah.github.io", `{"printer":""}`); w.Code == http.StatusForbidden {
 		t.Fatal("المصدر الصح اترفض")
+	}
+}
+
+// ⚠️⚠️ الطلب من غير Origin لازم **يعدّي** — ده طلب صفحة التجربة
+// بتاعة البرنامج نفسه. المتصفح مابيبعتش Origin في GET من نفس العنوان،
+// وأول نسخة كانت بترفضه فالصفحة طلّعت «غير مسموح» وهي بتاعتنا.
+func TestSameOriginNoHeaderAllowed(t *testing.T) {
+	mux := newServer()
+	r := httptest.NewRequest(http.MethodGet, "/status", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("طلب صفحة التجربة اترفض: %d — %s", w.Code, w.Body.String())
+	}
+}
+
+// ⚠️ بس لو المتصفح قال صراحةً إن الطلب من موقع تاني، بنرفض حتى من
+// غير Origin — ده اللي بيمنع صفحة تحاول تتحايل بإخفاء الترويسة.
+func TestCrossSiteWithoutOriginRejected(t *testing.T) {
+	mux := newServer()
+	for _, site := range []string{"cross-site", "same-site"} {
+		r := httptest.NewRequest(http.MethodGet, "/status", nil)
+		r.Header.Set("Sec-Fetch-Site", site)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("Sec-Fetch-Site=%s اتقبل (%d)", site, w.Code)
+		}
+	}
+	// ⚠️ (تحقّق) و same-origin لازم يعدّي
+	r := httptest.NewRequest(http.MethodGet, "/status", nil)
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("same-origin اترفض: %d", w.Code)
 	}
 }
 
@@ -224,5 +259,52 @@ func TestSelfTestPage(t *testing.T) {
 	mux.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/haga", nil))
 	if w2.Code != http.StatusNotFound {
 		t.Fatalf("مسار غريب رجع %d", w2.Code)
+	}
+}
+
+// ============================================================
+// التحديث الذاتي
+// ============================================================
+// ⚠️ المقارنة النصّية بتغلط هنا: "1.9.0" أكبر من "1.10.0" كنص، وهو
+// العكس. الفحص ده بيمسك الغلطة دي بالذات.
+func TestVersionCompare(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"1.0.1", "1.0.0", true},
+		{"1.10.0", "1.9.0", true}, // ⚠️ دي اللي بتكشف المقارنة النصّية
+		{"2.0.0", "1.99.99", true},
+		{"1.0.0", "1.0.0", false},
+		{"1.0.0", "1.0.1", false},
+		{"1.0", "1.0.0", false},
+	}
+	for _, c := range cases {
+		if got := newerThan(c.a, c.b); got != c.want {
+			t.Fatalf("newerThan(%q,%q)=%v المفروض %v", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// ⚠️ التحديث لازم يكون POST: حاجة بتستبدل البرنامج نفسه مايصحّش
+// تتنفّذ بمجرد إن حد يفتح رابط.
+func TestUpdateApplyNeedsPost(t *testing.T) {
+	mux := newServer()
+	r := httptest.NewRequest(http.MethodGet, "/update/apply", nil)
+	r.Header.Set("Origin", "https://abdallah-abolilah.github.io")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET على التحديث رجع %d", w.Code)
+	}
+}
+
+// ⚠️ ومسارات التحديث ورا نفس الحارس زي الطباعة
+func TestUpdateGuarded(t *testing.T) {
+	mux := newServer()
+	for _, path := range []string{"/update/check", "/update/apply"} {
+		if w := post(t, mux, path, "https://evil.example", "{}"); w.Code != http.StatusForbidden {
+			t.Fatalf("%s اتقبل من موقع تاني (%d)", path, w.Code)
+		}
 	}
 }

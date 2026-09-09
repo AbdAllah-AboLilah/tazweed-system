@@ -16,9 +16,28 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
 	"syscall"
 	"unsafe"
 )
+
+// ⚠️ بيفتح المتصفح على صفحة التجربة أول ما البرنامج يشتغل — اتطلب
+// بالنص: "ينفع نعمل فتح الواجهه والتجربة من البرنامج".
+//
+// ⚠️⚠️ ليه المتصفح مش شباك برنامج حقيقي: الشباك الحقيقي محتاج مكتبة
+// واجهات (WebView2 أو غيرها) — تنصيب زيادة وحجم أكبر بمرات، وده ضد
+// "خفيفة وبسيطة". بالطريقة دي الواجهة بتفتح لوحدها والبرنامج فاضل
+// ملف واحد من غير أي اعتماد.
+//
+// `start` جوّه cmd عشان تشتغل مع المتصفح الافتراضي أيًا كان.
+// و`HideWindow` عشان مايظهرش شباك أسود تاني للحظة.
+func openBrowser(url string) {
+	cmd := exec.Command("cmd", "/c", "start", "", url)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := cmd.Start(); err != nil {
+		fmt.Println("   (مقدرتش أفتح المتصفح لوحدي — افتح العنوان بنفسك)")
+	}
+}
 
 var (
 	winspool           = syscall.NewLazyDLL("winspool.drv")
