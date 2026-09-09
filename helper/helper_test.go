@@ -308,3 +308,81 @@ func TestUpdateGuarded(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================
+// اختيار الطابعتين المحفوظ
+// ============================================================
+// ⚠️ الطلب اللي بيحدد طابعة بالاسم لازم **يكسب** على المحفوظ: النظام
+// بيبعت اسم الطابعة المتظبطة عنده، والمحفوظ للتجربة من الصفحة.
+func TestPickPrinter(t *testing.T) {
+	saveSettings(settings{RestockPrinter: "XP-80C", LabelPrinter: "XP-235B"})
+	if got := pickPrinter("", "restock"); got != "XP-80C" {
+		t.Fatalf("ورقة التزويد: %q", got)
+	}
+	if got := pickPrinter("", "label"); got != "XP-235B" {
+		t.Fatalf("الملصق: %q", got)
+	}
+	if got := pickPrinter("طابعة-تانية", "restock"); got != "طابعة-تانية" {
+		t.Fatalf("المطلوب المفروض يكسب: %q", got)
+	}
+	saveSettings(settings{})
+	if got := pickPrinter("", "restock"); got != "" {
+		t.Fatalf("بعد المسح: %q", got)
+	}
+}
+
+func TestSettingsRoundTrip(t *testing.T) {
+	mux := newServer()
+	ok := "https://abdallah-abolilah.github.io"
+	w := post(t, mux, "/settings", ok, `{"restockPrinter":"A","labelPrinter":"B"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("الحفظ رجع %d: %s", w.Code, w.Body.String())
+	}
+	// ⚠️ ولازم ترجع في /status — وإلا الصفحة تفتح على اختيار غلط
+	r := httptest.NewRequest(http.MethodGet, "/status", nil)
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, r)
+	var s statusReply
+	json.Unmarshal(w2.Body.Bytes(), &s)
+	if s.RestockPrinter != "A" || s.LabelPrinter != "B" {
+		t.Fatalf("الحالة مارجّعتش المحفوظ: %+v", s)
+	}
+	// GET على الحفظ مرفوض
+	rg := httptest.NewRequest(http.MethodGet, "/settings", nil)
+	rg.Header.Set("Origin", ok)
+	wg := httptest.NewRecorder()
+	mux.ServeHTTP(wg, rg)
+	if wg.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET على الحفظ رجع %d", wg.Code)
+	}
+	saveSettings(settings{})
+}
+
+// ⚠️ التشغيل مع الويندوز POST مش GET — بيغيّر سجل الويندوز
+func TestAutostartNeedsPost(t *testing.T) {
+	mux := newServer()
+	r := httptest.NewRequest(http.MethodGet, "/autostart", nil)
+	r.Header.Set("Origin", "https://abdallah-abolilah.github.io")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET رجع %d", w.Code)
+	}
+	// وورا نفس الحارس
+	if w2 := post(t, mux, "/autostart", "https://evil.example", "{}"); w2.Code != http.StatusForbidden {
+		t.Fatalf("موقع تاني اتقبل: %d", w2.Code)
+	}
+}
+
+// ⚠️ الصفحة لازم يكون فيها الحقلين والخيار — الفحص ده بيمسك لو حد
+// شال واحد منهم وهو بيعدّل في الصفحة.
+func TestPageHasControls(t *testing.T) {
+	for _, want := range []string{
+		`id="p"`, `id="l"`, `id="auto"`, `id="save"`, `id="up"`,
+		"طابعة ورقة التزويد", "طابعة الملصق", "يشتغل لوحده مع الويندوز",
+	} {
+		if !strings.Contains(testPage, want) {
+			t.Fatalf("الصفحة ناقصها: %s", want)
+		}
+	}
+}

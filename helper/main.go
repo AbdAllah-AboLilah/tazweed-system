@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.2.0"
+	version = "1.4.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -114,10 +114,13 @@ func guard(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 }
 
 type statusReply struct {
-	App      string   `json:"app"`
-	Version  string   `json:"version"`
-	OS       string   `json:"os"`
-	Printers []string `json:"printers"`
+	App            string   `json:"app"`
+	Version        string   `json:"version"`
+	OS             string   `json:"os"`
+	Printers       []string `json:"printers"`
+	RestockPrinter string   `json:"restockPrinter"`
+	LabelPrinter   string   `json:"labelPrinter"`
+	Autostart      bool     `json:"autostart"`
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -126,8 +129,11 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		log.Println("تعذّرت قراءة الطابعات:", err)
 		printers = []string{}
 	}
+	cur := getSettings()
 	writeJSON(w, http.StatusOK, statusReply{
 		App: "tazweed-helper", Version: version, OS: osName(), Printers: printers,
+		RestockPrinter: cur.RestockPrinter, LabelPrinter: cur.LabelPrinter,
+		Autostart: autostartEnabled(),
 	})
 }
 
@@ -156,8 +162,9 @@ func handlePrint(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, printReply{Error: "الطلب مش مفهوم: " + err.Error()})
 		return
 	}
-	if strings.TrimSpace(req.Printer) == "" {
-		writeJSON(w, http.StatusBadRequest, printReply{Error: "مافيش اسم طابعة"})
+	printer := pickPrinter(strings.TrimSpace(req.Printer), "restock")
+	if printer == "" {
+		writeJSON(w, http.StatusBadRequest, printReply{Error: "مافيش طابعة متظبطة لورقة التزويد"})
 		return
 	}
 	// ⚠️ بنقبل الترويسة لو جت بالغلط بدل ما نفشل بسببها
@@ -185,12 +192,12 @@ func handlePrint(w http.ResponseWriter, r *http.Request) {
 	if jobName == "" {
 		jobName = "ورقة تزويد"
 	}
-	if err := printRaw(req.Printer, data, jobName); err != nil {
+	if err := printRaw(printer, data, jobName); err != nil {
 		log.Println("فشل الإرسال للطابعة:", err)
 		writeJSON(w, http.StatusInternalServerError, printReply{Error: err.Error()})
 		return
 	}
-	log.Printf("اتطبعت: %s — %dx%d نقطة، %d بايت\n", req.Printer, wpx, hpx, len(data))
+	log.Printf("اتطبعت: %s — %dx%d نقطة، %d بايت\n", printer, wpx, hpx, len(data))
 	writeJSON(w, http.StatusOK, printReply{OK: true, Bytes: len(data), Width: wpx, Height: hpx})
 }
 
@@ -214,6 +221,40 @@ func newServer() *http.ServeMux {
 	})
 	mux.HandleFunc("/status", guard(handleStatus))
 	mux.HandleFunc("/print", guard(handlePrint))
+	mux.HandleFunc("/settings", guard(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})
+			return
+		}
+		var in settings
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "الطلب مش مفهوم"})
+			return
+		}
+		if err := saveSettings(in); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}))
+	mux.HandleFunc("/autostart", guard(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})
+			return
+		}
+		var in struct {
+			On bool `json:"on"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "الطلب مش مفهوم"})
+			return
+		}
+		if err := setAutostart(in.On); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "on": autostartEnabled()})
+	}))
 	mux.HandleFunc("/update/check", guard(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, checkUpdate())
 	}))
@@ -244,6 +285,7 @@ func main() {
 	// ⚠️ أول سطر خالص: قبل أي طباعة على الشباك، وإلا أول الرسائل
 	// بيطلع مربعات.
 	fixConsoleEncoding()
+	loadSettings()
 	// نضّف نسخة قديمة فاضلة من تحديث سابق
 	cleanupOldBinary()
 	mux := newServer()
@@ -267,12 +309,34 @@ func main() {
 	fmt.Println("🖨️  مساعد التزويد — نسخة", version)
 	fmt.Println("✅ شغّال على http://" + addr)
 	fmt.Println("   سيبه مفتوح والنظام هيلاقيه لوحده.")
-	fmt.Println("   للإيقاف: اقفل الشباك ده.")
+	fmt.Println("   للإيقاف: من الأيقونة اللي جنب الساعة.")
 	// ⚠️ الفتح **بعد** ما الاستماع يبدأ فعلًا (net.Listen فوق نجحت)،
 	// وإلا المتصفح بيفتح على صفحة فاضية قبل ما الخادم يجهز.
-	openBrowser("http://" + addr)
-	log.SetFlags(log.Ltime)
-	if err := srv.Serve(ln); err != nil {
-		log.Println("وقف:", err)
+	// ⚠️ لما الويندوز يشغّله مع البداية، بيبعت `--startup` — وساعتها
+	// **مايفتحش المتصفح**. من غير كده كل مرة تفتح الكمبيوتر هتلاقي
+	// صفحة فاتحة في وشك، وده اللي اتطلب إنه مايحصلش.
+	silent := false
+	for _, a := range os.Args[1:] {
+		if a == "--startup" || a == "-startup" {
+			silent = true
+		}
 	}
+	if !silent {
+		openBrowser("http://" + addr)
+	}
+	log.SetFlags(log.Ltime)
+
+	// ⚠️ الخادم في خيط لوحده، والأيقونة بتمسك الخيط الرئيسي: مكتبة
+	// شريط المهام **لازم** تشتغل على الخيط الرئيسي في الويندوز، وإلا
+	// الأيقونة مابتظهرش خالص.
+	go func() {
+		if err := srv.Serve(ln); err != nil {
+			log.Println("وقف:", err)
+		}
+	}()
+
+	// ⚠️ الإخفاء **بعد** ما كل حاجة تشتغل: لو البورت كان مشغول،
+	// الرسالة اللي فوق بتفضل باينة والمستخدم يقدر يقراها.
+	hideConsoleWindow()
+	startTray(func() { os.Exit(0) })
 }

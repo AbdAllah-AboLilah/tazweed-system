@@ -92,6 +92,41 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     saveSelectedPrinter('restock', 'XP-80C');
 
     // ============================================================
+    // ⚠️⚠️ الطلب الجاي من **التليفون** لازم يعدّي على البرنامج كمان
+    // ============================================================
+    // اتبلّغ بالنص: "اشتغل بس فقط من جهاز الكمبيوتر لكن لما ببعت من
+    // التليفون يبعت علي النظام القديم".
+    //
+    // السبب: الطلب الجاي من بعيد **مابيعديش على deliverPrint** خالص —
+    // بيدخل من executePrintJob مباشرة، والبرنامج كان في المسار التاني بس.
+    reset();
+    mode = 'ok';
+    // ⚠️ executePrintJob بتقرا state.user و state.profile — من غيرهم
+    // بتقع قبل ما توصل للجزء اللي بنفحصه.
+    state.user = { uid: 'u1' };
+    state.profile = { name: 'الكمبيوتر', role: 'owner' };
+    let qzCalls = 0;
+    const realQZ = window.tryPrintViaQZ;
+    window.tryPrintViaQZ = async () => { qzCalls++; return true; };
+    window.db = {
+      collection: () => ({
+        doc: () => ({
+          update: () => Promise.resolve(),
+          onSnapshot: () => () => {},
+          get: async () => ({ exists: false, data: () => null }),
+        }),
+      }),
+    };
+    await executePrintJob('j1', {
+      type: 'restock',
+      jobs: [{ html: '<p>ورقة من التليفون</p>', copies: 1 }],
+      sizeOptions: { pageWidthMm: 80, autoHeight: true },
+    });
+    out.remoteHelperCalls = calls.filter((c) => c.url.endsWith('/print')).length;
+    out.remoteSkippedQZ = qzCalls === 0;
+    window.tryPrintViaQZ = realQZ;
+
+    // ============================================================
     // ⚠️ الملصق **عمره ما يعدّي** على البرنامج
     // ============================================================
     reset();
@@ -116,6 +151,9 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐ البرنامج مش شغّال → الطباعة بتكمّل بالقديم', r.downResult === false);
   check('⭐⭐ والبرنامج رفض → بيقول ليه', /رفض|الطابعة مش موجودة/.test(r.refuseSaid), r.refuseSaid);
   check('⚠️ ومن غير طابعة متظبطة مايبعتش', r.noPrinter === false);
+  check('⭐⭐⭐⭐ الطلب الجاي من التليفون بيعدّي على البرنامج كمان',
+    r.remoteHelperCalls === 1, r.remoteHelperCalls);
+  check('⭐⭐⭐ ومابيروحش لـQZ بعدها (مش طبعتين)', r.remoteSkippedQZ);
   check('⭐⭐⭐ الملصق عمره ما يعدّي على البرنامج', r.labelTouchedHelper === false);
   check('⭐ والمفتاح مقفول افتراضيًا', r.defaultOff);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
