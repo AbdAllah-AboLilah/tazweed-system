@@ -55,18 +55,39 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     setPrintTweak('fixedNameSize', true);
     out.after = NAMES.map(nameMm);
 
-    // ---------- الافتراضي 2.7 = زي ما هي دلوقتي ----------
-    // أسماء المحل الحقيقية من الصورة اللي اتبعتت
-    const REAL = ['حجاب جيل بيور', 'خمار سادة بكم', 'خمار ماليزي دجيتال', 'Hejap Kuwaiti 120'];
+    // ============================================================
+    // ⚠️⚠️ الافتراضي لازم **يوحّد** الأسماء فعلًا
+    // ============================================================
+    // أول نسخة خلّت الافتراضي 2.7 (= اللي بيطبع دلوقتي) عشان "مايغيّرش
+    // حاجة"، والنتيجة إن المفتاح بقى **مايعملش حاجة لما يتفتح** —
+    // واتبلّغ من الاستعمال بالنص: "الاسماء بتطلع اكن الزرار مش شغال".
+    //
+    // الأسماء دي من الصور اللي اتبعتت فعلًا، فيها الطويل (بياخد سطرين)
+    // والقصير (سطر واحد) — وده اللي بيكشف الفرق.
+    const REAL = [
+      'كوكير تيشرت رقبة دائرية كم طويل 2XL-3XL أبيض', // 44 حرف — سطرين
+      'Sencse Laverne Women Perfum Gift Box',          // 36 حرف — سطرين
+      'خمار اسدال بكم مشجر القدس',                     // 25 حرف
+      'خمار ماليزي دجيتال',                            // 18 حرف — سطر
+      'Hejap Kuwaiti 120',                             // 17 حرف — سطر
+    ];
     setPrintTweak('fixedNameSize', false);
     out.realNow = REAL.map(nameMm);
-    setPrintNameMm(2.7);
+    setPrintNameMm(PRINT_NAME_MM_DEFAULT);
     setPrintTweak('fixedNameSize', true);
     out.realDefault = REAL.map(nameMm);
 
+    // ⚠️ و2.7 **مايقدرش** يوحّد: مساحة الاسم 4.6مم، وسطرين × 2.7 = 6.48.
+    // الفحص ده بيوثّق الحد الفيزيائي عشان محدش يجرّب يرفع الافتراضي تاني.
+    setPrintNameMm(2.7);
+    out.realAt27 = REAL.map(nameMm);
+
     // ---------- والخانة بتغيّر فعلًا ----------
-    setPrintNameMm(2.4);
-    out.at24 = REAL.map(nameMm);
+    // ⚠️ بنستخدم رقم **تحت** السقف (1.5) عشان نقيس إن الخانة بتتحكم.
+    // 2.4 مايصلحش هنا: الأسماء اللي بتاخد سطرين مش هتوصله أصلًا (سقف
+    // المساحة)، فالفحص كان هيفشل على حاجة **صح**.
+    setPrintNameMm(1.5);
+    out.at15 = REAL.map(nameMm);
     // ⚠️ والقيم البايظة مابتكسرش حاجة
     setPrintNameMm('كلام');
     out.junk = getPrintNameMm();
@@ -200,11 +221,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐ والاسم الطويل جدًا **بيصغّر** مايتقصّش', r.longMm !== null && r.longMm < 1.9, r.longMm);
   check('⭐⭐⭐ (51 حرف) صندوق الاسم مايكبرش عن المتاح — السطر مايتقصّش',
     r.box51On.mh <= r.box51Off.mh + 0.05, { مفتوح: r.box51On, مقفول: r.box51Off });
-  check('⭐⭐⭐ الافتراضي 2.7 = أسماء المحل زي ما بتطبع دلوقتي بالظبط',
-    JSON.stringify(r.realDefault) === JSON.stringify(r.realNow), { دلوقتي: r.realNow, بالمفتاح: r.realDefault });
+  check('⚠️ (تحقّق) الأسماء دي مختلفة فعلًا وهو مقفول',
+    spread(r.realNow) >= 20, { دلوقتي: r.realNow, فرق: spread(r.realNow) + '%' });
+  check('⭐⭐⭐ والافتراضي بيوحّدها كلها (المفتاح بيشتغل لما يتفتح)',
+    spread(r.realDefault) === 0, { بالمفتاح: r.realDefault, فرق: spread(r.realDefault) + '%' });
+  check('⚠️⚠️ و2.7 مايقدرش يوحّد — سطرين × 2.7 = 6.48مم في مساحة 4.6',
+    spread(r.realAt27) > 0, r.realAt27);
   check('⭐⭐ والخانة بتغيّر المقاس فعلًا',
-    r.at24.every((x) => x === 2.4), r.at24);
-  check('⚠️ وقيمة بايظة بترجع للافتراضي', r.junk === 2.7, r.junk);
+    r.at15.every((x) => x === 1.5), r.at15);
+  check('⚠️ وقيمة بايظة بترجع للافتراضي', r.junk === 1.9, r.junk);
   check('⚠️ ورقم كبير أوي بيتقصّ للحد', r.tooBig === 3, r.tooBig);
   check('⚠️ ورقم صغير أوي كمان', r.tooSmall === 1.2, r.tooSmall);
   check('⚠️⚠️ والمفتاح الأب مقفول → مالوش أي أثر',
