@@ -129,10 +129,6 @@ func post(t *testing.T, mux *http.ServeMux, path, origin, body string) *httptest
 func TestOriginLockedDown(t *testing.T) {
 	mux := newServer()
 	bad := []string{
-<<<<<<< HEAD
-=======
-		"",                          // من غير مصدر
->>>>>>> origin/main
 		"https://evil.example",      // موقع تاني
 		"http://abdallah-abolilah.github.io", // نفس الاسم بس http
 		"https://abdallah-abolilah.github.io.evil.com", // بادئة مخادعة
@@ -150,7 +146,6 @@ func TestOriginLockedDown(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 // ⚠️⚠️ الطلب من غير Origin لازم **يعدّي** — ده طلب صفحة التجربة
 // بتاعة البرنامج نفسه. المتصفح مابيبعتش Origin في GET من نفس العنوان،
 // وأول نسخة كانت بترفضه فالصفحة طلّعت «غير مسموح» وهي بتاعتنا.
@@ -187,8 +182,6 @@ func TestCrossSiteWithoutOriginRejected(t *testing.T) {
 	}
 }
 
-=======
->>>>>>> origin/main
 // ⚠️ من غير الترويسة دي كروم بيمنع النداء على العناوين المحلية،
 // والبرنامج يبان "مش شغّال" وهو شغّال.
 func TestPrivateNetworkHeader(t *testing.T) {
@@ -268,7 +261,6 @@ func TestSelfTestPage(t *testing.T) {
 		t.Fatalf("مسار غريب رجع %d", w2.Code)
 	}
 }
-<<<<<<< HEAD
 
 // ============================================================
 // التحديث الذاتي
@@ -316,5 +308,3 @@ func TestUpdateGuarded(t *testing.T) {
 		}
 	}
 }
-=======
->>>>>>> origin/main
