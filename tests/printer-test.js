@@ -140,10 +140,27 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   });
   // ⚠️ نفس الدرس: **كل** مفتاح في القايمة لازم يبان في الشاشة — مش عدد
   // ثابت. كده لو حد ضاف مفتاح ونسي يعرضه، الفحص يمسكه.
-  const allKeys = await p.evaluate(() => PRINT_TWEAKS.map((t) => t.key));
-  check('⭐ كل مفتاح في القايمة ظاهر في الشاشة',
-    allKeys.every((k) => ui.tweakBoxes.includes(k)) && ui.tweakBoxes.length === allKeys.length,
-    { الشاشة: ui.tweakBoxes, القايمة: allKeys });
+  //
+  // ⚠️⚠️ الاستثناء الوحيد مجموعة 'hidden': دي مفاتيح **بتتعرض في مكان
+  // تاني** (زي fastCopies اللي جنب خانة الدفعة) أو **اتدمجت** في مفتاح
+  // غيرها (زي sheetImage اللي بقى مفتاح "الورقة خام" بيكتبه معاه).
+  // قيمتها لسه بتتقرا وبتتنسخ بين الأجهزة، فمش مشالة.
+  const meta = await p.evaluate(() =>
+    PRINT_TWEAKS.map((t) => ({ key: t.key, group: t.group || '' }))
+  );
+  const shownKeys = meta.filter((t) => t.group !== 'hidden').map((t) => t.key);
+  const hiddenKeys = meta.filter((t) => t.group === 'hidden').map((t) => t.key);
+  // ⚠️ كل مفتاح **لازم** يكون في مجموعة: من غير مجموعة مايترسمش خالص
+  // ويختفي في سكوت — وده أسوأ من إنه يبان في المكان الغلط.
+  check('⭐⭐⭐ كل مفتاح في مجموعة (مفيش مفتاح بيختفي في سكوت)',
+    meta.every((t) => t.group), meta.filter((t) => !t.group));
+  check('⭐ كل مفتاح ظاهر (غير المخفي عن قصد) بيبان في الشاشة',
+    shownKeys.every((k) => ui.tweakBoxes.includes(k)), { الشاشة: ui.tweakBoxes, المفروض: shownKeys });
+  // ⚠️ والعكس كمان: الشاشة مافيهاش مفتاح مش في القايمة، والمخفي
+  // **مايبانش** — وإلا "المخفي" يبقى اسم على غير مسمّى.
+  const extra = ui.tweakBoxes.filter((k) => !shownKeys.includes(k) && k !== 'fastCopies');
+  check('⭐⭐ ومفيش مفاتيح زيادة في الشاشة', extra.length === 0, extra);
+  check('⭐⭐ والمخفي فعلًا مش باين', hiddenKeys.every((k) => k === 'fastCopies' || !ui.tweakBoxes.includes(k)), hiddenKeys);
   check('كلهم مقفولين افتراضيًا', ui.allUnchecked, ui);
   check('زرار المعايرة وبيانات الطابعات موجودين', ui.hasCalBtn && ui.hasDetails, ui);
   check('المقاسات الافتراضية 38×25 وفراغ 2', ui.defaults.w === '38' && ui.defaults.h === '25' && ui.defaults.gap === '2', ui.defaults);
