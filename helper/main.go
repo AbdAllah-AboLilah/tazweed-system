@@ -31,7 +31,11 @@ import (
 )
 
 const (
+<<<<<<< HEAD
 	version = "1.1.0"
+=======
+	version = "1.0.0"
+>>>>>>> origin/main
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -50,6 +54,7 @@ var allowedOrigins = map[string]bool{
 	"http://localhost:7770": true,
 }
 
+<<<<<<< HEAD
 // ⚠️⚠️ الطلب اللي **من غير** ترويسة Origin
 // ------------------------------------------------------------
 // أول نسخة كانت بترفضه، والنتيجة إن **صفحة التجربة بتاعة البرنامج
@@ -68,16 +73,24 @@ var allowedOrigins = map[string]bool{
 func originAllowed(o string) bool {
 	if o == "" {
 		return true
+=======
+func originAllowed(o string) bool {
+	if o == "" {
+		return false
+>>>>>>> origin/main
 	}
 	return allowedOrigins[strings.TrimSuffix(o, "/")]
 }
 
+<<<<<<< HEAD
 // بترجّع true لو المتصفح قال صراحةً إن الطلب جاي من موقع تاني.
 func crossSite(r *http.Request) bool {
 	site := r.Header.Get("Sec-Fetch-Site")
 	return site == "cross-site" || site == "same-site"
 }
 
+=======
+>>>>>>> origin/main
 // ⚠️⚠️ `Access-Control-Allow-Private-Network` مش رفاهية:
 // كروم بقى بيمنع الصفحات العامة إنها تنده على عناوين محلية إلا لو
 // الرد فيه الترويسة دي في طلب الـpreflight. من غيرها البرنامج
@@ -94,10 +107,13 @@ func setCORS(w http.ResponseWriter, origin string) {
 func guard(next func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+<<<<<<< HEAD
 		if origin == "" && crossSite(r) {
 			http.Error(w, "غير مسموح", http.StatusForbidden)
 			return
 		}
+=======
+>>>>>>> origin/main
 		if !originAllowed(origin) {
 			// مانقولش السبب بالتفصيل لصفحة مش مسموح لها
 			http.Error(w, "غير مسموح", http.StatusForbidden)
@@ -214,6 +230,7 @@ func newServer() *http.ServeMux {
 	})
 	mux.HandleFunc("/status", guard(handleStatus))
 	mux.HandleFunc("/print", guard(handlePrint))
+<<<<<<< HEAD
 	mux.HandleFunc("/update/check", guard(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, checkUpdate())
 	}))
@@ -237,12 +254,17 @@ func newServer() *http.ServeMux {
 			os.Exit(0)
 		}()
 	}))
+=======
+>>>>>>> origin/main
 	return mux
 }
 
 func main() {
+<<<<<<< HEAD
 	// نضّف نسخة قديمة فاضلة من تحديث سابق
 	cleanupOldBinary()
+=======
+>>>>>>> origin/main
 	mux := newServer()
 	srv := &http.Server{
 		Handler:           mux,
@@ -265,9 +287,12 @@ func main() {
 	fmt.Println("✅ شغّال على http://" + addr)
 	fmt.Println("   سيبه مفتوح والنظام هيلاقيه لوحده.")
 	fmt.Println("   للإيقاف: اقفل الشباك ده.")
+<<<<<<< HEAD
 	// ⚠️ الفتح **بعد** ما الاستماع يبدأ فعلًا (net.Listen فوق نجحت)،
 	// وإلا المتصفح بيفتح على صفحة فاضية قبل ما الخادم يجهز.
 	openBrowser("http://" + addr)
+=======
+>>>>>>> origin/main
 	log.SetFlags(log.Ltime)
 	if err := srv.Serve(ln); err != nil {
 		log.Println("وقف:", err)

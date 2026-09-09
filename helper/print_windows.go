@@ -16,11 +16,15 @@ package main
 
 import (
 	"fmt"
+<<<<<<< HEAD
 	"os/exec"
+=======
+>>>>>>> origin/main
 	"syscall"
 	"unsafe"
 )
 
+<<<<<<< HEAD
 // ⚠️ بيفتح المتصفح على صفحة التجربة أول ما البرنامج يشتغل — اتطلب
 // بالنص: "ينفع نعمل فتح الواجهه والتجربة من البرنامج".
 //
@@ -39,6 +43,8 @@ func openBrowser(url string) {
 	}
 }
 
+=======
+>>>>>>> origin/main
 var (
 	winspool           = syscall.NewLazyDLL("winspool.drv")
 	procOpenPrinterW   = winspool.NewProc("OpenPrinterW")
