@@ -1394,6 +1394,9 @@ const PRINT_FIELDS = [
   { key: 'labelPrinter', label: 'طابعة الملصق' },
   { key: 'restockPrinter', label: 'طابعة ورقة التزويد' },
   { key: 'deviceName', label: 'اسم الجهاز' },
+  // ⚠️ لازم يكون هنا وإلا `cleanPrintFields` بتشيله، فمستحيل تظبطه من
+  // التليفون — اتبلّغ: "مش لاقي حجم الخط في ارسال اعدادات الطابعة".
+  { key: 'nameMm', label: 'مقاس اسم الصنف' },
 ];
 
 const PRINT_FIELD_KEYS = PRINT_FIELDS.map((f) => f.key);

@@ -623,6 +623,14 @@ function openPrintSettingsDialog(preselectDeviceId) {
           <label style="font-size:11px;">الإيقاع (مث)</label>
           <input class="input" type="number" id="ps-pace" min="0" max="3000" inputmode="numeric" style="padding:6px;" />
         </div>
+        <div class="field" style="width:125px; margin-bottom:0;">
+          <label style="font-size:11px;">مقاس اسم الصنف</label>
+          <input class="input" type="number" id="ps-namemm" min="1.2" max="3" step="0.1" inputmode="decimal" style="padding:6px;" />
+        </div>
+      </div>
+      <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin:-6px 0 10px;">
+        📏 مقاس اسم الصنف بيشتغل مع مفتاح <strong>"اسم الصنف بمقاس ثابت"</strong> تحت.
+        سيبه فاضي = ماتغيّرش حاجة على الجهاز.
       </div>
 
       <div style="font-size:12px; font-weight:500; margin-bottom:5px;">🎯 المعايرة</div>
@@ -704,6 +712,7 @@ function openPrintSettingsDialog(preselectDeviceId) {
         batch: has(sh.batch) ? sh.batch : PRINT_BATCH_DEFAULT,
         lead: has(sh.lead) ? sh.lead : PRINT_LEAD_DEFAULT,
         pace: has(sh.pace) ? sh.pace : PRINT_PACE_MS_PER_LABEL,
+        nameMm: has(sh.nameMm) ? sh.nameMm : PRINT_NAME_MM_DEFAULT,
         x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
         tweaks: sh.tweaks || {},
         fromDefault,
@@ -718,6 +727,7 @@ function openPrintSettingsDialog(preselectDeviceId) {
       batch: ps.batch ?? PRINT_BATCH_DEFAULT,
       lead: ps.lead ?? PRINT_LEAD_DEFAULT,
       pace: ps.pace ?? PRINT_PACE_MS_PER_LABEL,
+      nameMm: ps.nameMm ?? PRINT_NAME_MM_DEFAULT,
       x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
       tweaks: ps.tweaks || {},
     };
@@ -751,6 +761,7 @@ function openPrintSettingsDialog(preselectDeviceId) {
       batch: num('ps-batch'),
       lead: num('ps-lead'),
       pace: num('ps-pace'),
+      nameMm: num('ps-namemm'),
       align: Object.keys(align).length ? align : undefined,
       tweaks: Object.keys(tweaks).length ? tweaks : undefined,
       labelPrinter: pick('ps-label-printer'),
@@ -772,6 +783,7 @@ function openPrintSettingsDialog(preselectDeviceId) {
     ph('ps-batch', cur.batch);
     ph('ps-lead', cur.lead);
     ph('ps-pace', cur.pace);
+    ph('ps-namemm', cur.nameMm);
     ph('ps-x', cur.x);
     ph('ps-y', cur.y);
     ph('ps-shrink', cur.shrink);
