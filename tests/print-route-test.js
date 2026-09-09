@@ -30,8 +30,9 @@ check('⭐⭐⭐ حقل printRoute مسموح في firestore.rules', rulesSrc.in
     const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
     const SIZE = { pageWidthMm: 38, pageHeightMm: 25 };
     const notices = [];
+    const kinds = [];
     const realNotice = window.showPrintNotice;
-    window.showPrintNotice = (m) => notices.push(String(m));
+    window.showPrintNotice = (m, ms, kind) => { notices.push(String(m)); kinds.push(kind || 'info'); };
 
     const realFetch = window.fetch;
     window.fetch = async (u) => {
@@ -76,6 +77,19 @@ check('⭐⭐⭐ حقل printRoute مسموح في firestore.rules', rulesSrc.in
     notices.length = 0;
     notePrintRoute('browser');
     out.browserSaid = notices.join(' | ');
+
+    // ============================================================
+    // ⭐⭐⭐ لون الشريط بيقول نوع الرسالة
+    // ============================================================
+    // اتطلب بالنص: "مينفعش نحط الخطا بتاعه او السكوت في الشريط الاحمر
+    // اللي عندنا في النظام لما يحصل خطا او مشكلة". قبل كده كان لون
+    // واحد لكل حاجة، فالرسالة الخطيرة كانت بتعدّي زي أي رسالة.
+    notices.length = 0; kinds.length = 0;
+    helperFail('حاجة بسيطة', false);
+    out.softKind = kinds[0];
+    notices.length = 0; kinds.length = 0;
+    helperFail('الورقة يمكن طلعت — متطبعش تاني', true);
+    out.loudKind = kinds[0];
 
     // ---------- اسم مش معروف مايطلّعش تنبيه فاضي ----------
     notices.length = 0;
@@ -135,6 +149,9 @@ check('⭐⭐⭐ حقل printRoute مسموح في firestore.rules', rulesSrc.in
   check('⭐⭐⭐ وساعتها بيقول "من QZ Tray"',
     r.qzRoute === 'qz' && /QZ Tray/.test(r.qzSaid), [r.qzRoute, r.qzSaid]);
   check('⭐⭐ ونافذة المتصفح ليها نصها', /نافذة المتصفح/.test(r.browserSaid), r.browserSaid);
+  check('⭐⭐⭐⭐ رسالة "يمكن الورق خرج، متطبعش تاني" بتطلع **حمرا**',
+    r.loudKind === 'bad', r.loudKind);
+  check('⭐⭐ والرسالة العادية تحذير مش خطر', r.softKind === 'warn', r.softKind);
   check('⭐⭐ وطريق مش معروف مايطلّعش تنبيه فاضي', r.emptyNotices === 0, r.emptyNotices);
   check('⭐ والمفتاح مفتوح افتراضيًا (إحنا في نص التجربة)', r.defaultOn, r.defaultOn);
   check('⭐⭐⭐ وقفله بيوقّف التنبيه', r.offNotices === 0, r.offNotices);

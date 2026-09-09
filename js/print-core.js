@@ -232,7 +232,10 @@ async function printSheetViaHelper(html) {
 // بتكتب السبب في مكانين: تنبيه على الشاشة، و**نتيجة الطبعة** — عشان
 // اللي بعت من التليفون يشوف السبب في حالة الطلب بدل "فشلت" الغامضة.
 function helperFail(reason, loud) {
-  showPrintNotice('📄 ' + reason, loud ? 16000 : 9000);
+  // ⚠️ الرسالة القوية (اللي معناها "يمكن الورق خرج، متطبعش تاني")
+  // بقت **حمرا**: دي أخطر رسالة في مسار الطباعة كله، ومايصحّش تعدّي
+  // بنفس لون رسالة عادية.
+  showPrintNotice('📄 ' + reason, loud ? 16000 : 9000, loud ? 'bad' : 'warn');
   setPrintOutcome(false, reason);
 }
 
@@ -1432,11 +1435,29 @@ function cancellableSleep(ms) {
 // بالغالي في v0.34.1: `confirm()` بتجمّد خيط الجافاسكريبت **كله**، والجهاز
 // اللي بيستقبل طباعة عن بُعد مافيش حد واقف عنده يرد — فكان بيقف تمامًا،
 // ويقفل الطباعة عن بُعد كلها، والطلب عمره ما بيتعلّم "خلص".
-function showPrintNotice(text, ms) {
+// ============================================================
+// 🎨 لون الشريط بيقول نوع الرسالة
+// ============================================================
+// اتطلب بالنص: "مينفعش نحط الخطا بتاعه او السكوت في الشريط الاحمر
+// اللي عندنا في النظام لما يحصل خطا او مشكلة".
+//
+// كان لون واحد لكل حاجة — النجاح والتحذير والعطل كلهم أزرق. فالعين
+// مابتفرّقش، والرسالة المهمة بتعدّي زي أي رسالة.
+//
+// ⚠️ الوسيط التالت **اختياري**: كل النداءات القديمة زي ما هي بالحرف
+// وبتاخد الأزرق.
+const PRINT_NOTICE_COLORS = {
+  info: '#1f3a5f',
+  warn: '#7a5300',
+  bad: '#8a1c1c',
+};
+
+function showPrintNotice(text, ms, kind) {
   const el = document.createElement('div');
   el.style.cssText =
     'position:fixed; left:50%; bottom:18px; transform:translateX(-50%); z-index:3200;' +
-    'background:#1f3a5f; color:#fff; padding:10px 16px; border-radius:8px; max-width:88vw;' +
+    `background:${PRINT_NOTICE_COLORS[kind] || PRINT_NOTICE_COLORS.info};` +
+    'color:#fff; padding:10px 16px; border-radius:8px; max-width:88vw;' +
     'font-size:12.5px; line-height:1.8; box-shadow:0 4px 18px rgba(0,0,0,.3); text-align:center;';
   el.textContent = text;
   document.body.appendChild(el);
