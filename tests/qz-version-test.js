@@ -54,6 +54,10 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const realNotice = window.showPrintNotice;
     const notices = [];
     window.showPrintNotice = (m) => notices.push(m);
+    // ⚠️ تنبيه "الطبعة خرجت منين" مقفول هنا **عن قصد**: الملف ده
+    // بيفحص حاجة تانية خالص، والتنبيه ده بيتحط على كل طبعة ناجحة
+    // فبيلوّث عدّ التنبيهات. مفتاحه متفحوص لوحده في print-route-test.
+    setPrintTweak('showPrintRoute', false);
 
     // ⚠️ tryPrintViaQZ بتخرج بدري لو الطابعة مش متظبطة أو الاتصال فشل —
     // فلازم نزوّد الحاجتين دول عشان نوصل لبناء الإعداد أصلًا.

@@ -424,7 +424,7 @@ service cloud.firestore {
               && newStatus() == 'pending'
               && request.resource.data.cancelRequested == true
               && resource.data.requestedByUid == request.auth.uid)
-          || (onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt', 'error', 'failReason', 'progressDone', 'progressTotal'])
+          || (onlyChangedKeys(['status', 'printedByUid', 'printedByName', 'printedAt', 'error', 'failReason', 'printRoute', 'progressDone', 'progressTotal'])
               && newStatus() in ['printed', 'failed', 'stopped'])
         );
       allow delete: if can('manageCategories');
