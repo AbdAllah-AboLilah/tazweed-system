@@ -39,8 +39,16 @@ const cacheAt = swSrc.indexOf("fetch(request, { cache: 'no-cache' })");
 check('⭐⭐⭐⭐ الـService Worker بيستثني ملف البرنامج من الكاش', guardAt !== -1);
 check('⭐⭐⭐ والاستثناء **قبل** الجزء اللي بيحفظ', guardAt !== -1 && cacheAt !== -1 && guardAt < cacheAt,
   [guardAt, cacheAt]);
-check('⭐⭐ ورقم نسخة الـSW اتغيّر (وإلا الاستثناء مش هيتركّب أصلًا)',
-  /const SW_VERSION = '0\.81\./.test(swSrc));
+// ⚠️ الاستثناء مايشتغلش غير لما نسخة الـService Worker تتغيّر — المتصفح
+// مابيركّبش نسخة جديدة إلا لما الملف يختلف. الفحص ده بيتأكد إن الرقم
+// **مش أقدم** من النسخة اللي الاستثناء اتضاف فيها.
+//
+// ⚠️⚠️ مقارنة رقمية مش نص ثابت: الرقم بيتغيّر مع كل تحديث، والنص
+// الثابت كان هيفشل بعد أول رفعة حتى لو كل حاجة مظبوطة.
+const swVer = (swSrc.match(/const SW_VERSION = '([^']+)'/) || [])[1] || '0.0.0';
+const asNum = (v) => v.split('.').map(Number).reduce((a, x) => a * 1000 + (x || 0), 0);
+check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا الاستثناء مش هيتركّب)`,
+  asNum(swVer) >= asNum('0.81.0'), swVer);
 
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
@@ -95,19 +103,94 @@ check('⭐⭐ ورقم نسخة الـSW اتغيّر (وإلا الاستثنا
     state.profile = { id: 'me', role: 'owner' };
     const fetched = [];
     const realFetch = window.fetch;
-    window.fetch = async (u) => { fetched.push(String(u)); return { ok: true, text: async () => '1.5.0\n' + 'a'.repeat(64) + '\n' }; };
+    const EXE = new Uint8Array(300).fill(77);
+    // خادم وهمي: بيرجّع الملف على تلات أجزاء عشان الشريط يتحرك فعلًا
+    let mode = 'ok';
+    const fakeBody = () => {
+      let i = 0;
+      const cuts = [0, 100, 220, 300];
+      return {
+        getReader: () => ({
+          read: async () => {
+            if (i >= cuts.length - 1) return { done: true };
+            const v = EXE.slice(cuts[i], cuts[i + 1]);
+            i++;
+            return { done: false, value: v };
+          },
+        }),
+      };
+    };
+    window.fetch = async (u) => {
+      fetched.push(String(u));
+      if (String(u).indexOf('VERSION') !== -1) return { ok: true, text: async () => '1.5.0\n' + 'a'.repeat(64) + '\n' };
+      if (mode === 'missing') return { ok: false, status: 404, headers: { get: () => null } };
+      if (mode === 'short') {
+        return { ok: true, headers: { get: (k) => (k === 'content-length' ? '999' : null) }, body: fakeBody() };
+      }
+      return { ok: true, headers: { get: (k) => (k === 'content-length' ? '300' : null) }, body: fakeBody() };
+    };
+
     openHelperDownloadDialog();
-    const link = document.getElementById('helper-dl-link');
-    out.linkHref = link ? link.getAttribute('href') : '';
-    out.linkDownload = link ? link.getAttribute('download') : '';
     out.saysSmartScreen = /برنامج غير معروف/.test(document.body.textContent);
-    out.saysNotFromPhone = /من التليفون/.test(document.body.textContent);
-    await new Promise((res) => setTimeout(res, 30));
+    out.saysNotFromPhone = /من الكمبيوتر/.test(document.body.textContent);
+    await new Promise((res) => setTimeout(res, 40));
     out.verShown = (document.getElementById('helper-dl-ver') || {}).textContent || '';
     out.verFetched = fetched.filter((u) => u.indexOf('VERSION') !== -1).length;
+
+    // ============================================================
+    // ⭐ التحميل نفسه — بشريط تقدم وسؤال "احفظه فين"
+    // ============================================================
+    const dlg = document.getElementById('helper-dl-go').closest('.card');
+    const barEl = document.getElementById('helper-dl-bar');
+    out.barHiddenBeforeStart = document.getElementById('helper-dl-bar-wrap').hidden === true;
+    out.backupHiddenAtStart = document.getElementById('helper-dl-backup').hidden === true;
+
+    // ⚠️ بنمسك النداء على "احفظه فين" ونتأكد إنه بيحصل **قبل** التنزيل
+    const order = [];
+    let savedBytes = 0;
+    window.showSaveFilePicker = async () => {
+      order.push('ask');
+      return {
+        createWritable: async () => ({
+          write: async (b) => { order.push('write'); savedBytes = b.size; },
+          close: async () => { order.push('close'); },
+        }),
+      };
+    };
+    fetched.length = 0;
+    document.getElementById('helper-dl-go').click();
+    await new Promise((res) => setTimeout(res, 120));
+    out.askedFirst = order[0] === 'ask' && fetched.length > 0;
+    out.savedBytes = savedBytes;
+    out.orderOK = JSON.stringify(order) === JSON.stringify(['ask', 'write', 'close']);
+    out.barFull = barEl.style.width === '100%';
+    out.okText = document.getElementById('helper-dl-state').textContent;
+
+    // ---------- المستخدم قفل نافذة "احفظه فين" → مافيش تحميل ----------
+    order.length = 0; fetched.length = 0;
+    window.showSaveFilePicker = async () => { const e = new Error('x'); e.name = 'AbortError'; throw e; };
+    document.getElementById('helper-dl-go').click();
+    await new Promise((res) => setTimeout(res, 80));
+    out.abortNoFetch = fetched.length === 0;
+
+    // ---------- الملف مش موجود → رسالة واضحة + الرابط الاحتياطي ----------
+    delete window.showSaveFilePicker;
+    mode = 'missing';
+    document.getElementById('helper-dl-go').click();
+    await new Promise((res) => setTimeout(res, 100));
+    out.missingText = document.getElementById('helper-dl-state').textContent;
+    out.backupShownAfterFail = document.getElementById('helper-dl-backup').hidden === false;
+
+    // ---------- الملف نزل ناقص → بيترفض بدل ما يتحفظ بايظ ----------
+    mode = 'short';
+    document.getElementById('helper-dl-go').click();
+    await new Promise((res) => setTimeout(res, 100));
+    out.shortText = document.getElementById('helper-dl-state').textContent;
+
     document.getElementById('helper-dl-close').click();
-    out.closedDialog = !document.getElementById('helper-dl-link');
+    out.closedDialog = !document.getElementById('helper-dl-go');
     window.fetch = realFetch;
+    void dlg;
     return out;
   });
 
@@ -123,12 +206,19 @@ check('⭐⭐ ورقم نسخة الـSW اتغيّر (وإلا الاستثنا
   check('⭐⭐⭐ وقفل المفتاح بيخفي الزرار تاني', r.closedAgain === false);
   check('⭐⭐ ومابيسيبش الترس ظاهر لحساب مالوش مفاتيح تانية', r.closedNoGear === false);
 
-  check('⭐⭐⭐ الرابط على ملف البرنامج في نفس الموقع',
-    r.linkHref === 'helper/dist/tazweed-helper.exe', r.linkHref);
-  check('⭐⭐ ومعاه download عشان ينزل باسم واضح',
-    r.linkDownload === 'tazweed-helper.exe', r.linkDownload);
   check('⭐⭐⭐ والنافذة بتحذّر من رسالة "برنامج غير معروف" قبل ما تظهر', r.saysSmartScreen);
-  check('⭐⭐ وبتقول إنه مش من التليفون', r.saysNotFromPhone);
+  check('⭐⭐ وبتقول إنه ينزّل من الكمبيوتر', r.saysNotFromPhone);
+  check('⭐ الشريط مخفي قبل ما تدوس', r.barHiddenBeforeStart);
+  check('⭐⭐ والرابط الاحتياطي مخفي في الأول (مش بديل، ده آخر حل)', r.backupHiddenAtStart);
+  check('⭐⭐⭐⭐ بيسأل "احفظه فين" **قبل** ما ينزّل',
+    r.askedFirst === true && r.orderOK === true, [r.askedFirst, r.orderOK]);
+  check('⭐⭐⭐ وبيحفظ الملف كامل في المكان اللي اتختار', r.savedBytes === 300, r.savedBytes);
+  check('⭐⭐ والشريط بيوصل للآخر', r.barFull, r.barFull);
+  check('⭐⭐ وبيقول إنه خلص', /اتحفظ/.test(r.okText), r.okText);
+  check('⭐⭐⭐⭐ المستخدم قفل نافذة الحفظ → **مافيش تحميل أصلًا**', r.abortNoFetch, r.abortNoFetch);
+  check('⭐⭐⭐⭐ الملف مش موجود → رسالة واضحة مش سكوت', /مش موجود/.test(r.missingText), r.missingText);
+  check('⭐⭐⭐ والرابط المباشر بيظهر بعد الفشل', r.backupShownAfterFail);
+  check('⭐⭐⭐⭐ الملف نزل ناقص → بيترفض بدل ما يتحفظ بايظ', /ناقص/.test(r.shortText), r.shortText);
   check('⭐⭐ وبتعرض أحدث نسخة', /1\.5\.0/.test(r.verShown), r.verShown);
   check('⭐ وبتقرا النسخة نداء واحد بس', r.verFetched === 1, r.verFetched);
   check('⭐ والنافذة بتتقفل', r.closedDialog === true);

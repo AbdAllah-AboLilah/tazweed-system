@@ -198,6 +198,7 @@ async function printSheetViaHelper(html) {
     const out = await res.json().catch(() => ({}));
     if (res.ok && out.ok) {
       setPrintOutcome(true, 'اتطبعت من البرنامج المساعد.');
+      notePrintRoute('helper');
       return true;
     }
     // ⚠️⚠️ الحالة الخطيرة: البرنامج **طبع فعلًا** بس إحنا مقدرناش
@@ -401,6 +402,7 @@ async function printLabelsViaHelper(type, jobs, sizeOptions, onProgress) {
   if (progress) showPrintHint(total);
   endPrintCancelScope();
   setPrintOutcome(true, '', total, total);
+  notePrintRoute('helper');
   return true;
 }
 
@@ -483,6 +485,7 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, s
     alert('المتصفح منع فتح نافذة الطباعة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول تاني.');
     return false;
   }
+  notePrintRoute('browser');
   win.document.write(single);
   win.document.close();
   return true;
@@ -636,7 +639,11 @@ async function sendPrintJob(type, targetDeviceId, html, sizeOptions, browserHTML
     if (data.status === 'printed') {
       stop();
       closeBar();
-      alert(`✅ اتطبع على "${deviceLabel}"${data.printedByName ? ` (${data.printedByName})` : ''}.`);
+      const via = PRINT_ROUTE_TEXT[data.printRoute] || '';
+      alert(
+        `✅ اتطبع على "${deviceLabel}"${data.printedByName ? ` (${data.printedByName})` : ''}.` +
+          (via ? `\n\n${via}` : '')
+      );
     } else if (data.status === 'failed') {
       stop();
       closeBar();
@@ -863,6 +870,7 @@ async function executePrintJob(jobId, job) {
   // ⚠️ الطبعة اللي **اتوقفت بطلب المستخدم** مايصحّش نرجع لها بنافذة
   // المتصفح — ده معناه إن اللي وقفه يرجع يتطبع تاني وكامل.
   if (!printedViaQZ && !outcome.cancelled) {
+    notePrintRoute('browser');
     // ⚠️ الطلب مابقاش بيحمل النسخة المكررة (كانت بتفجّر حجم المستند)،
     // فبنكرّرها هنا — نافذة المتصفح بتتعامل مع مستند واحد بس.
     printHTMLSilently(job.browserHTML || expandCopies(list));
@@ -900,6 +908,9 @@ async function executePrintJob(jobId, job) {
             status: 'printed',
             printedByUid: state.user.uid,
             printedByName: state.profile.name || '',
+            // 🧭 الطبعة خرجت منين — عشان اللي بعت من التليفون يعرف من
+            // غير ما يروح للكمبيوتر يشوف التنبيه.
+            printRoute: lastPrintRoute,
             printedAt: firebase.firestore.FieldValue.serverTimestamp(),
           }
         : {
@@ -1313,6 +1324,38 @@ let lastBatchStats = null;
 // هيدوّر على عطل مش موجود — هو اللي وقفها. ولو اتحسبت "اتطبعت"، هيفتكر
 // إن الـ100 خرجوا وهما 40.
 let lastPrintOutcome = { ok: false, reason: '', done: 0, total: 0, cancelled: false };
+
+// ============================================================
+// 🧭 الطبعة دي خرجت منين؟
+// ============================================================
+// اتطلب بالنص: "تخلي النظام يقولي بعد كل طبعة إنها خرجت من البرنامج
+// ولا من QZ، عشان متبقاش محتاج تفتكر المفاتيح".
+//
+// ⚠️ السبب الحقيقي إن ده محتاج: الملصق بيروح للبرنامج المساعد **بس
+// لو كان صورة**. والملصق كنص (الافتراضي) بيروح لـQZ حتى لو مفتاح
+// البرنامج مفتوح. يعني مفتاحين لازم يبقوا مظبوطين مع بعض، ومن غير
+// ما النظام يقول، مفيش طريقة تعرف بيها غير إنك تفتكر.
+//
+// ⚠️⚠️ التنبيه **قصير ومرة واحدة للطبعة** مش لكل ملصق — طبعة ١٠٠
+// ملصق بتطلّع تنبيه واحد.
+const PRINT_ROUTE_TEXT = {
+  helper: '📦 من البرنامج المساعد',
+  qz: '🖨️ من QZ Tray',
+  browser: '🌐 من نافذة المتصفح',
+};
+
+let lastPrintRoute = '';
+
+function notePrintRoute(route) {
+  // ⚠️ التسجيل بيحصل **دايمًا** حتى لو التنبيه مقفول: الطلب الجاي من
+  // التليفون بيقرا الرقم ده ويكتبه في الطلب، واللي بعته بيشوفه في
+  // رسالة النجاح. المفتاح بيخص التنبيه اللي على الشاشة بس.
+  lastPrintRoute = route || '';
+  const t = PRINT_ROUTE_TEXT[route];
+  if (!t) return;
+  if (typeof getPrintTweak === 'function' && !getPrintTweak('showPrintRoute')) return;
+  showPrintNotice('اتطبعت ' + t, 5000);
+}
 
 function setPrintOutcome(ok, reason, done, total, cancelled) {
   lastPrintOutcome = {
@@ -2198,6 +2241,23 @@ const PRINT_TWEAKS = [
       'الورقة للطابعة مباشرة من غير ما تعدّي على تعريف الويندوز — ' +
       'فمافيش قص ولا تصغير مهما طالت. لو البرنامج مش شغّال، الطباعة ' +
       'بتكمّل بالطريقة القديمة لوحدها من غير أي تأخير.',
+    apply: () => {},
+  },
+  {
+    // ============================================================
+    // 🧭 الطبعة دي خرجت منين — الشرح الكامل عند notePrintRoute
+    // ============================================================
+    // ⚠️ مفتوح افتراضيًا عن قصد: إحنا في نص تجربة البرنامج المساعد،
+    // واللي بيلخبط إن الملصق كنص بيروح لـQZ حتى لو مفتاح البرنامج
+    // مفتوح. لما التجربة تخلص، اقفله ويرجع النظام ساكت زي ما كان.
+    key: 'showPrintRoute',
+    label: '🧭 قوللي كل طبعة خرجت منين',
+    hint:
+      'بعد كل طبعة بيظهر سطر صغير بيقول إنها خرجت من البرنامج المساعد ' +
+      'ولا من QZ Tray ولا من نافذة المتصفح. مفيد وانت بتجرّب المفاتيح، ' +
+      'واقفله لما تخلص. (الطلب الجاي من التليفون بيوصله الطريق في رسالة ' +
+      'النجاح بغض النظر عن المفتاح ده.)',
+    defaultOn: true,
     apply: () => {},
   },
   {
@@ -3807,6 +3867,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
           if (progress) showPrintHint(total);
           endPrintCancelScope();
           setPrintOutcome(true, '', total, total);
+          notePrintRoute('qz');
           return true;
         } catch (errCopies) {
           // ⚠️ مانرجعش false — الطابعة يمكن تكون طبعت جزء. بنكمّل بالطريقة
@@ -3976,6 +4037,7 @@ async function tryPrintViaQZ(type, jobs, sizeOptions, onProgress) {
     if (progress) showPrintHint(pages.length);
     endPrintCancelScope();
     setPrintOutcome(true, '', pages.length, pages.length);
+    notePrintRoute('qz');
     return true;
   } catch (err) {
     endPrintCancelScope();

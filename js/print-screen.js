@@ -905,21 +905,140 @@ function openPrintSettingsDialog(preselectDeviceId) {
 }
 
 // ============================================================
-// ⬇️ تحميل برنامج "مساعد التزويد"
+// ⬇️⬇️ التحميل بيتعمل **بإيدنا** مش برابط عادي
 // ============================================================
-// اتطلب بالنص: "زرار تحميل ل البرنامج المساعد من جوه النظام ... افتح
-// يظهر زرار اضغط عليه يحمل احدث اصدار ... اثبت البرنامج وبعدين اقفل
-// علي حسابه يختفي الزرار".
+// اتبلّغ بالنص: "بجرب احمل البرنامج المساعد بضغط علي الزار مش بيحمل".
 //
-// ⚠️ نافذة مش رابط مباشر عن قصد: الملف ٧ ميجا، والويندوز هيطلّع تحذير
-// "برنامج غير معروف" أول مرة (لأن شهادة التوقيع لسه مااتشترتش). اللي
-// يدوس رابط من غير ما يعرف الاتنين دول هيفتكر إن حاجة باظت.
+// الرابط العادي (`<a download>`) بيسلّم الموضوع للمتصفح ويسيبه — ولو
+// المتصفح رفض أو أخّر أو حط الملف في مكان مش باين، **مافيش أي رسالة
+// خالص**. وده بالظبط اللي حصل: ضغط، ومافيش حاجة.
 //
-// ⚠️⚠️ والملف بيتحمّل من **نفس الموقع** (helper/dist/) مش من مكان
-// تاني: كده اللي بينزل هو بالظبط اللي في المستودع، والـ`download`
-// بيشتغل لأنه نفس المصدر.
+// والمتصفح بيرفض ملفات .exe كتير، خصوصًا على الموبايل.
+//
+// لما بننزّله بنفسنا:
+//   • شريط تقدم بيثبت إن الملف نازل فعلًا وواصل لفين
+//   • ولو فشل، بنقول **ليه** بدل السكوت
+//   • وبنقدر نسأل "احفظه فين" قبل ما نبدأ
 const HELPER_EXE_URL = 'helper/dist/tazweed-helper.exe';
 const HELPER_VERSION_URL = 'helper/dist/VERSION';
+const HELPER_EXE_NAME = 'tazweed-helper.exe';
+
+// ⚠️ التأخير قبل التحرير مقصود: لو حرّرنا الرابط على طول، التحميل
+// اللي لسه بيبدأ بيموت في نص الطريق.
+function saveBlobAsFile(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+const mb = (n) => (n / 1048576).toFixed(1);
+
+async function runHelperDownload(overlay) {
+  const btn = overlay.querySelector('#helper-dl-go');
+  const wrap = overlay.querySelector('#helper-dl-bar-wrap');
+  const bar = overlay.querySelector('#helper-dl-bar');
+  const stateEl = overlay.querySelector('#helper-dl-state');
+  const backup = overlay.querySelector('#helper-dl-backup');
+  const say = (t, cls) => {
+    stateEl.textContent = t;
+    stateEl.style.color = cls === 'bad' ? 'var(--danger, #b02020)' : cls === 'ok' ? 'var(--success, #0a6b2e)' : 'var(--text-secondary)';
+  };
+
+  // ============================================================
+  // ⚠️⚠️ "احفظه فين" **لازم** تتنده قبل أي انتظار تاني
+  // ============================================================
+  // المتصفح بيسمح بفتح نافذة اختيار المكان من **ضغطة المستخدم** بس.
+  // أي `await` قبلها بيضيّع الإذن والنافذة مابتفتحش — فلازم تبقى أول
+  // سطر بيستنى في الدالة دي.
+  //
+  // ⚠️ ومش كل المتصفحات عندها الخاصية دي (فايرفوكس والموبايل مثلًا).
+  // اللي مش عنده بينزّل لمجلد التنزيلات زي أي ملف — وده مش عطل.
+  let handle = null;
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      handle = await window.showSaveFilePicker({
+        suggestedName: HELPER_EXE_NAME,
+        types: [{ description: 'برنامج ويندوز', accept: { 'application/octet-stream': ['.exe'] } }],
+      });
+    } catch (err) {
+      // المستخدم قفل النافذة = **مش خطأ**، بس مانكملش من غير إذنه.
+      if (err && err.name === 'AbortError') return;
+      handle = null;
+    }
+  }
+
+  btn.disabled = true;
+  wrap.hidden = false;
+  bar.style.width = '0%';
+  say('بيتصل...');
+
+  try {
+    const res = await fetch(HELPER_EXE_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error('الملف مش موجود على الموقع (كود ' + res.status + ')');
+
+    const total = Number(res.headers.get('content-length')) || 0;
+    let loaded = 0;
+    const parts = [];
+    const tick = () => {
+      if (total) {
+        bar.style.width = Math.min(100, Math.round((loaded / total) * 100)) + '%';
+        say(`بينزّل... ${mb(loaded)} من ${mb(total)} ميجا`);
+      } else {
+        // ⚠️ من غير الحجم الكلي مافيش نسبة — بنعرض اللي نزل وبس بدل
+        // ما نخترع رقم غلط.
+        bar.style.width = '100%';
+        say(`بينزّل... ${mb(loaded)} ميجا`);
+      }
+    };
+
+    if (res.body && typeof res.body.getReader === 'function') {
+      const reader = res.body.getReader();
+      for (;;) {
+        const step = await reader.read();
+        if (step.done) break;
+        parts.push(step.value);
+        loaded += step.value.length;
+        tick();
+      }
+    } else {
+      // متصفح قديم مافيهوش قراءة على أجزاء → بينزّل كامل من غير شريط
+      say('بينزّل...');
+      const whole = await res.blob();
+      parts.push(whole);
+      loaded = whole.size;
+      tick();
+    }
+
+    const blob = new Blob(parts, { type: 'application/octet-stream' });
+    // ⚠️ ملف ناقص = برنامج مايشتغلش، وأسوأ حاجة إنه ينزل ساكت وهو بايظ.
+    if (total && blob.size !== total) throw new Error('الملف نزل ناقص — جرّب تاني');
+
+    bar.style.width = '100%';
+    if (handle) {
+      const w = await handle.createWritable();
+      await w.write(blob);
+      await w.close();
+      say('✅ اتحفظ في المكان اللي اخترته (' + mb(blob.size) + ' ميجا).', 'ok');
+    } else {
+      saveBlobAsFile(blob, HELPER_EXE_NAME);
+      say('✅ نزل (' + mb(blob.size) + ' ميجا). دوّر عليه في مجلد التنزيلات.', 'ok');
+    }
+  } catch (err) {
+    console.warn('تعذّر تحميل البرنامج المساعد:', err);
+    bar.style.width = '0%';
+    say('❌ ' + ((err && err.message) || 'التحميل ماتمّش'), 'bad');
+    // ⚠️ الرابط المباشر بيظهر **بعد الفشل بس**: هو آخر حل، ولو كان
+    // ظاهر من الأول الناس هتدوس عليه وترجع لنفس المشكلة الصامتة.
+    if (backup) backup.hidden = false;
+  }
+  btn.disabled = false;
+}
 
 function openHelperDownloadDialog() {
   const overlay = document.createElement('div');
@@ -933,9 +1052,18 @@ function openHelperDownloadDialog() {
         يعدّوا على تعريف الويندوز. بيتثبّت على <strong>كمبيوتر الطباعة</strong> بس.
       </div>
 
-      <a class="btn btn-primary" id="helper-dl-link" href="${HELPER_EXE_URL}" download="tazweed-helper.exe"
-         style="display:block; text-align:center; text-decoration:none;">⬇️ نزّل البرنامج</a>
+      <button class="btn btn-primary" id="helper-dl-go" style="width:100%;">⬇️ نزّل البرنامج</button>
       <div id="helper-dl-ver" style="font-size:11px; color:var(--text-muted); text-align:center; margin-top:6px; min-height:15px;"></div>
+
+      <div id="helper-dl-bar-wrap" hidden style="margin-top:8px;">
+        <div style="height:8px; background:var(--surface-muted); border-radius:99px; overflow:hidden;">
+          <div id="helper-dl-bar" style="height:100%; width:0%; background:var(--primary, #2563eb); transition:width .15s linear;"></div>
+        </div>
+      </div>
+      <div id="helper-dl-state" style="font-size:11.5px; text-align:center; margin-top:6px; min-height:16px;
+           color:var(--text-secondary); line-height:1.7;"></div>
+      <a id="helper-dl-backup" hidden class="btn" href="${HELPER_EXE_URL}" download="${HELPER_EXE_NAME}"
+         style="display:block; text-align:center; text-decoration:none; margin-top:6px; font-size:12px;">جرّب الرابط المباشر</a>
 
       <div style="font-size:12px; line-height:1.9; margin-top:12px;">
         <strong>بعد ما ينزل:</strong>
@@ -949,7 +1077,8 @@ function openHelperDownloadDialog() {
 
       <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-top:10px;
                   background:var(--surface-muted); padding:8px; border-radius:8px;">
-        ⚠️ الملف حوالي <strong>٧ ميجا</strong>، فنزّله من الكمبيوتر مش من التليفون.
+        ⚠️ الملف حوالي <strong>٧ ميجا</strong>، ونزّله من <strong>الكمبيوتر</strong>:
+        متصفح الموبايل بيرفض ملفات البرامج كتير، والملف مالوش لازمة على التليفون أصلًا.
         <br>وبعد التثبيت البرنامج <strong>بيحدّث نفسه</strong> من صفحته — فالزرار ده
         مالوش لازمة تاني وتقدر تقفل صلاحيته.
       </div>
@@ -960,8 +1089,13 @@ function openHelperDownloadDialog() {
 
   const close = () => overlay.remove();
   overlay.querySelector('#helper-dl-close').addEventListener('click', close);
+  overlay.querySelector('#helper-dl-go').addEventListener('click', () =>
+    safeAsync(() => runHelperDownload(overlay), 'تحميل البرنامج المساعد')
+  );
+  // ⚠️ القفل بالضغط برّه **مش** وقت التحميل: الضغطة الغلط بتضيّع
+  // ٧ ميجا نزلوا نص الطريق.
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) close();
+    if (e.target === overlay && !overlay.querySelector('#helper-dl-go').disabled) close();
   });
 
   // ⚠️ رقم النسخة **زيادة مش أساس**: لو النداء فشل، النافذة زي ما هي

@@ -358,6 +358,40 @@ const PROFILES = {
   });
   await T2('⭐⭐ والاتنين صفر → الإلغاء عادي', 'branchKeep', cancelReq2, true);
 
+  // ============================================================
+  // 🧭 نتيجة الطبعة — والحقل الجديد printRoute
+  // ============================================================
+  // الجهاز اللي بيطبع بيكتب النتيجة على الطلب، ومعاها **الطريق** اللي
+  // خرجت منه (البرنامج المساعد ولا QZ) عشان اللي بعت من التليفون يشوفه.
+  //
+  // ⚠️⚠️ القاعدة بتقفل على **قايمة حقول محدّدة**. الفحص ده بيتأكد من
+  // الاتنين مع بعض: الحقل الجديد بيعدّي، وأي حقل برّه القايمة **لسه**
+  // بيترفض — وإلا القايمة تبقى بقت مفتوحة على الآخر من غير ما حد ياخد
+  // باله.
+  const mkJob = async (extra) => {
+    seq++;
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await ctx.firestore().collection('printJobs').doc('jr').set({
+        type: 'label', targetDeviceId: 'd1', status: 'pending',
+        requestedByUid: 'plain', html: '<b>x</b>', ...(extra || {}),
+      });
+    });
+  };
+  const finishJob = (fields) => (uid) =>
+    as(uid).collection('printJobs').doc('jr').update({
+      status: 'printed', printedByUid: uid, printedByName: 'الكمبيوتر', ...fields,
+    });
+  const T3 = async (label, uid, op, shouldPass) => {
+    await mkJob();
+    let ok;
+    try { await (shouldPass ? assertSucceeds(op(uid)) : assertFails(op(uid))); ok = true; }
+    catch (e) { ok = false; if (process.env.VERBOSE) console.log('   ↳', label, String(e.message || e).slice(0, 180)); }
+    check(`${label} — ${PROFILES[uid].name}: ${shouldPass ? 'مسموح' : 'ممنوع'}`, ok);
+  };
+  await T3('⭐⭐⭐ نتيجة الطبعة ومعاها الطريق', 'plain', finishJob({ printRoute: 'helper' }), true);
+  await T3('⭐⭐ والنتيجة من غير الطريق لسه شغّالة (نسخة قديمة بتطبع)', 'plain', finishJob({}), true);
+  await T3('⭐⭐⭐⭐ وأي حقل برّه القايمة لسه بيترفض', 'plain', finishJob({ hackedField: 1 }), false);
+
   await env.cleanup();
   console.log('\n✅ نجح (' + pass.length + ')');
   if (fail.length) { console.log('\n❌ فشل (' + fail.length + '):'); fail.forEach((x) => console.log('   ' + x)); }

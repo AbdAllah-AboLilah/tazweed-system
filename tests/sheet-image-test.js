@@ -74,6 +74,10 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     window.getSavedPrinter = () => 'XP-80C';
     const notices = [];
     window.showPrintNotice = (m) => notices.push(m);
+    // ⚠️ تنبيه "الطبعة خرجت منين" مقفول هنا **عن قصد**: الملف ده
+    // بيفحص حاجة تانية خالص، والتنبيه ده بيتحط على كل طبعة ناجحة
+    // فبيلوّث عدّ التنبيهات. مفتاحه متفحوص لوحده في print-route-test.
+    setPrintTweak('showPrintRoute', false);
 
     const setTweak = (on) => { try { localStorage.setItem('tazweed_qz_tweak_sheetImage', on ? '1' : '0'); } catch (e) {} };
     // الطلب زي ما بيوصل بالظبط: نص HTML، من غير أي مقاس
