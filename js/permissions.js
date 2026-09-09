@@ -113,6 +113,21 @@ const PERMISSION_GROUPS = [
         label: 'يشوف تاريخ آخر طبعة لورقة التزويد',
         hint: 'التاريخ بيظهر في شاشة اختيار الورقة وفوق الورقة نفسها',
       },
+      // ============================================================
+      // ⬇️ زرار تحميل البرنامج المساعد
+      // ============================================================
+      // ⚠️ ليه مفتاح لوحده مش مع "إعدادات الطابعة"؟ لأن اللي بينزّل
+      // البرنامج بيقف عند ماكينة الطباعة، ومش لازم يكون معاه صلاحية
+      // يغيّر إعدادات الطابعة أصلًا. وحساب موظف الطباعة مقفول على شاشة
+      // واحدة، فالزرار لازم يوصله **هو** من غير ما نفتحله حاجة تانية.
+      //
+      // ⚠️⚠️ والاستخدام المقصود إنه **مؤقت**: تفتحه، يحمّل ويثبّت،
+      // وتقفله فيختفي. البرنامج بعد كده بيحدّث نفسه من صفحته.
+      {
+        key: 'downloadHelper',
+        label: 'يحمّل برنامج "مساعد التزويد"',
+        hint: 'زرار تحميل في شاشة الطباعة تحت ⚙️ — افتحه للتثبيت وبعدين اقفله',
+      },
     ],
   },
   {
@@ -162,6 +177,7 @@ const ROLE_PRESETS = {
     remoteControl: false,
     // تاريخ آخر طبعة: منشئ النظام بس، ويتفتح لحساب بعينه لو احتجت.
     seeRestockLastPrint: false,
+    downloadHelper: false,
   },
 
   // المشرف بينظّم الشيتات ويطبع، **بس مايلمسش الأرقام** ومايحذفش.
@@ -177,6 +193,7 @@ const ROLE_PRESETS = {
     printScreen: true,
     remotePrint: true,
     seeRestockLastPrint: false,
+    downloadHelper: false,
     viewProducts: true,
     importProducts: false,
     manageUsers: false,
@@ -199,6 +216,7 @@ const ROLE_PRESETS = {
     printScreen: true,
     remotePrint: false,
     seeRestockLastPrint: false,
+    downloadHelper: false,
     viewProducts: true,
     importProducts: false,
     manageUsers: false,
@@ -219,6 +237,7 @@ const ROLE_PRESETS = {
     printScreen: true,
     remotePrint: true,
     seeRestockLastPrint: false,
+    downloadHelper: false,
     viewProducts: false,
     importProducts: false,
     manageUsers: false,
@@ -239,6 +258,7 @@ const ROLE_PRESETS = {
     printScreen: true,
     remotePrint: false,
     seeRestockLastPrint: false,
+    downloadHelper: false,
     viewProducts: true,
     importProducts: false,
     manageUsers: false,
