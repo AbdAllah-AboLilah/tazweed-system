@@ -56,11 +56,19 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.langIsEscpos = !!(first.options && first.options.language === 'ESCPOS');
     // ⚠️ الترويسة بتتشال — QZ بياخد base64 صافي
     out.headerStripped = typeof first.data === 'string' && first.data.indexOf('data:image') === -1;
-    // (٣) تقديم ورق في الآخر، وإلا آخر سطر بيفضل جوّه الماكينة
+    // (٣) تقديم ورق **وقص** في الآخر
+    // ⚠️⚠️ الفحص ده كان بالعكس في أول نسخة: كان بيتأكد إن **مافيش** أمر
+    // قص، والسبب المكتوب وقتها "لو الطابعة مالهاش قصّاصة ممكن تطبع رموز
+    // غريبة". التجربة على ورق حقيقي قالت العكس بالحرف: "الورقة بتطبع
+    // الاخر وتمام بدون تصغير بس **بتقف في الماكينه من غير م تتقض**".
+    // لما بنتخطى التعريف بنتخطى معاه أمر القص اللي كان بيبعته.
     const last = (c0.data || [])[(c0.data || []).length - 1] || {};
-    out.feedsPaper = last.type === 'raw' && last.format === 'command' && /\x1B\x64/.test(String(last.data || ''));
-    // ⚠️ ومفيش أمر قص: لو الطابعة مالهاش قصّاصة الأمر بيطبع رموز غريبة
-    out.noCutCommand = !/\x1D\x56/.test(JSON.stringify(c0.data || []));
+    const tail = String(last.data || '');
+    out.feedsPaper = last.type === 'raw' && last.format === 'command' && /\x1B\x64/.test(tail);
+    out.cutsPaper = /\x1D\x56/.test(tail);
+    // ⚠️ والترتيب مهم: التقديم **قبل** القص، عشان آخر سطر يخرج من تحت
+    // رأس الطباعة قبل ما السكينة تنزل.
+    out.feedBeforeCut = tail.indexOf('\x1B\x64') !== -1 && tail.indexOf('\x1B\x64') < tail.indexOf('\x1D\x56');
 
     // ---------- من غير صورة = مايبعتش ----------
     calls.length = 0;
@@ -135,7 +143,8 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐ واللغة ESCPOS', r.langIsEscpos);
   check('⚠️ وترويسة data: بتتشال', r.headerStripped);
   check('⭐⭐ وبيقدّم الورق في الآخر', r.feedsPaper);
-  check('⚠️ ومفيش أمر قص', r.noCutCommand);
+  check('⭐⭐⭐ وبيقص الورق في الآخر', r.cutsPaper);
+  check('⭐⭐ والتقديم قبل القص', r.feedBeforeCut);
   check('⭐ اتبعت فعلًا', r.rawSent);
 
   check('⚠️ من غير صورة مايبعتش', r.noImageNoSend);
