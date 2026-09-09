@@ -1958,6 +1958,104 @@ function subscribeDeviceSettings() {
   }
 }
 
+
+// ============================================================
+// 🔐 إعداد الماكينة: على جهازي ولا على المحل كله؟
+// ============================================================
+// اتطلب بالنص بعد مراجعة: "لو انا فاتح ل حساب الطباعة ان يعدل في
+// اعدادته ممكن لما اغير في مفتاح يتغير عند الباقي؟".
+//
+// والإجابة كانت **أيوة** — وده كان غلط. أي حساب معاه "إعدادات
+// الطابعة" كان بيكتب في المستند المشترك، فمفتاح واحد يتقلب عند كل
+// أجهزة المحل. وده اللي خلّى فتح الصلاحية لحساب الطباعة عشان يختار
+// طابعته يفتحله معاها التحكم في الأربع أجهزة.
+//
+// القاعدة الجديدة، والصلاحيتين موجودين أصلًا ومعناهم مكتوب بالحرف:
+//
+//   "إعدادات الطابعة"        = يظبط **الماكينة اللي قدامه**
+//   "التحكم عن بُعد"          = يغيّر **ماكينة هو مش شايفها**
+//
+// فاللي معاه التحكم عن بُعد بيكتب في المشترك (كل الأجهزة)، وأي حد
+// تاني بيكتب في استثناء **جهازه هو بس**.
+//
+// ⚠️⚠️ وده شغّال لأن readPrintObject بتقرا المشترك الأول وبعدين
+// استثناء الجهاز فوقه — فاستثناء الجهاز بيكسب من غير ما نلمس أي
+// ترتيب قراءة.
+//
+// ⚠️ القراءة من الاتنين مفتوحة زي ما كانت. اللي اتغيّر **الكتابة** بس.
+function canSetPrintForAllDevices() {
+  return typeof can === 'function' && can(state.profile, 'remoteControl') === true;
+}
+
+
+// بتشيل نفس المفاتيح من النسخة المحلية لاستثناء الجهاز — بالمفتاح
+// الواحد مش بالحزمة، زي savePrintFieldsForAll بالظبط.
+function clearLocalOverrideKeys(patch) {
+  try {
+    const cur = { ...(getDeviceOverrides() || {}) };
+    let touched = false;
+    Object.keys(patch).forEach((k) => {
+      const v = patch[k];
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        if (!cur[k] || typeof cur[k] !== 'object') return;
+        const inner = { ...cur[k] };
+        Object.keys(v).forEach((sub) => {
+          if (sub in inner) { delete inner[sub]; touched = true; }
+        });
+        cur[k] = inner;
+      } else if (k in cur) {
+        delete cur[k];
+        touched = true;
+      }
+    });
+    if (!touched) return;
+    deviceOverrides = cleanPrintFields(cur);
+    localStorage.setItem('tazweed_device_overrides', JSON.stringify(deviceOverrides));
+  } catch (err) {
+    /* التخزين المحلي مقفول — المسح في السحابة فوق لسه شغّال */
+  }
+}
+
+// بتحفظ إعداد ماكينة في المكان الصح حسب صلاحية اللي قاعد.
+// ⚠️ patch لازم تكون من حقول cleanPrintFields (tweaks / align / ...)
+// وإلا استثناء الجهاز بيتشالها في صمت.
+function saveMachineSetting(patch, label) {
+  const deviceId = typeof getDeviceId === 'function' ? getDeviceId() : '';
+
+  if (canSetPrintForAllDevices()) {
+    // ============================================================
+    // ⚠️⚠️ التعميم لازم **يمسح استثناء الجهاز ده** للمفاتيح دي
+    // ============================================================
+    // استثناء الجهاز بيكسب على العام في القراءة. فلو سيبناه، صاحب
+    // المحل يقلب مفتاح "لكل الأجهزة" ويلاقيه **مش شغّال على الجهاز
+    // اللي هو قاعد عليه** — لأن الجهاز ده كان له استثناء قديم في
+    // نفس المفتاح.
+    //
+    // ⚠️ المسح **بالمفتاح الواحد** مش بالحزمة — savePrintFieldsForAll
+    // بتعمل ده بالظبط، فبنستخدمها بدل ما نكتب المنطق تاني.
+    clearLocalOverrideKeys(patch);
+    return fireWrite(savePrintFieldsForAll(patch, deviceId ? [deviceId] : []), label);
+  }
+  if (!deviceId) return null;
+  // ⚠️ بنحدّث النسخة المحلية فورًا كمان: الاشتراك اللايف هو اللي
+  // بيحدّثها عادةً، وهو بياخد لحظة — والمستخدم بيقلب المفتاح ويطبع
+  // على طول. من غير السطر ده الطبعة الأولى بتخرج بالقيمة القديمة.
+  try {
+    const merged = { ...(getDeviceOverrides() || {}) };
+    Object.keys(patch).forEach((k) => {
+      merged[k] =
+        patch[k] && typeof patch[k] === 'object' && !Array.isArray(patch[k])
+          ? { ...(merged[k] || {}), ...patch[k] }
+          : patch[k];
+    });
+    deviceOverrides = cleanPrintFields(merged);
+    localStorage.setItem('tazweed_device_overrides', JSON.stringify(deviceOverrides));
+  } catch (err) {
+    /* التخزين المحلي مقفول — الحفظ في السحابة تحت لسه شغّال */
+  }
+  return fireWrite(savePrintFieldsForDevice(deviceId, patch), label);
+}
+
 // بيحفظ إعدادات **لجهاز واحد** (استثناء).
 async function savePrintFieldsForDevice(deviceId, patch) {
   const clean = cleanPrintFields(patch);
@@ -2467,8 +2565,16 @@ function setPrintTweak(key, on) {
     console.warn('تعذّر حفظ إعداد الطباعة:', err);
   }
   try {
-    const shared = getSharedPrintSettings() || {};
-    fireWrite(saveSharedPrintSettings({ tweaks: { ...(shared.tweaks || {}), [key]: !!on } }), 'إعدادات الطباعة');
+    // ============================================================
+    // ⚠️⚠️ **المفتاح اللي اتغيّر بس** — مش الحزمة كلها
+    // ============================================================
+    // الكتابة بتتعمل بـmerge، والخرايط المتداخلة بتتدمج مفتاح بمفتاح —
+    // فمفيش أي داعي نبعت الحزمة كاملة.
+    //
+    // والأهم: التعميم بيمسح استثناء الجهاز **لنفس المفاتيح اللي في
+    // الطلب**. فلو بعتنا الحزمة كلها، قلب مفتاح واحد لكل الأجهزة كان
+    // هيمسح **كل** استثناءات الجهاز — مش اللي اتغيّر بس.
+    saveMachineSetting({ tweaks: { [key]: !!on } }, 'إعدادات الطباعة');
   } catch (err) {
     console.warn('تعذّر حفظ الإعداد المشترك:', err);
   }
@@ -2664,7 +2770,9 @@ function savePrintAlign(align) {
 
   // ⭐ والأهم: بيتحفظ في السحابة كمان، فكل الأجهزة بتاخده لوحدها.
   try {
-    fireWrite(saveSharedPrintSettings({ align: { x: clampNum(align.x, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM), y: clampNum(align.y, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM), shrink: clampNum(align.shrink, 0, PRINT_SHRINK_LIMIT) } }), 'ضبط مكان الطباعة');
+    // ⚠️ ضبط المكان **بطبيعته** بتاع ماكينة واحدة: كل طابعة بتبدأ من
+    // مكان مختلف بشوية. فنفس القاعدة عليه بالظبط.
+    saveMachineSetting({ align: { x: clampNum(align.x, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM), y: clampNum(align.y, -PRINT_ALIGN_LIMIT_MM, PRINT_ALIGN_LIMIT_MM), shrink: clampNum(align.shrink, 0, PRINT_SHRINK_LIMIT) } }, 'ضبط مكان الطباعة');
   } catch (err) {
     console.warn('تعذّر حفظ الضبط المشترك:', err);
   }
