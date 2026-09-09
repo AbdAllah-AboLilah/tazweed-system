@@ -228,7 +228,10 @@ const PROFILES = {
 
   await T('⭐⭐ طلب تزويد بإيد المستخدم', 'branchKeep', reqManual, true);
   await T('⭐⭐ طلب تزويد بكمية', 'branchKeep', reqManualQty, true);
-  await Tp('⭐ إلغاء طلب التزويد (والدرجة معلّقة فعلًا)', 'branchKeep', cancelReq, true);
+  // ⚠️⚠️ الفحص ده **اتقلب** في v0.78.5: الإلغاء بقى ممنوع في الحالة
+  // اللي resetPending بيعملها بالظبط (فرع صفر + رئيسي فيه 5) — اتطلب
+  // بالنص. الحالة المسموح فيها اتفحصت تحت بكمية في الفرع.
+  await Tp('⛔ إلغاء طلب التزويد والفرع صفر (بقى ممنوع)', 'branchKeep', cancelReq, false);
   await T('⭐⭐ الطلب التلقائي (الكمية نزلت صفر)', 'branchKeep', autoPending, true);
   await Tp('⭐⭐ التزويد من الرئيسي (والدرجة معلّقة فعلًا)', 'mainKeep', fulfill, true);
   await T('⭐ التغيير التلقائي من ناحية الرئيسي', 'mainKeep', autoOut, true);
@@ -317,6 +320,43 @@ const PROFILES = {
     (uid) => as(uid).collection('categories').doc('c1').update({ name: 'اتغيّر' }), false);
   await R('⭐ ومنشئ النظام بيقرا الأسامي', 'owner',
     (uid) => as(uid).collection('users').doc('plain').collection('operators').get(), true);
+
+  // ============================================================
+  // ⛔ إلغاء طلب التزويد — الحالة الممنوعة
+  // ============================================================
+  // ⚠️ إخفاء الزرار من الشاشة مش حماية: من غير القاعدة دي، أي حد معاه
+  // مفتاح تعديل الفرع يقدر يبعت الإلغاء للسحابة مباشرة.
+  const cancelReq2 = (uid) => grade(uid).update({ status: 'normal' });
+  const cancelWithQty = (uid) => grade(uid).update({ status: 'normal', requestedQty: null, manualRequest: null });
+  // والشكل القديم — لازم ياخد نفس الحارس وإلا بيبقى باب خلفي
+  const cancelLegacy = (uid) => grade(uid).update({ status: 'normal', requestedQty: null });
+
+  // الدرجة معلّقة والفرع صفر والرئيسي فيه 5 (ده اللي resetPending بيعمله)
+  await Tp('⛔⛔ إلغاء والفرع صفر والرئيسي فيه كمية — أمين الفرع', 'branchKeep', cancelReq2, false);
+  await Tp('⛔⛔ ونفس الحاجة بالشكل الكامل', 'branchKeep', cancelWithQty, false);
+  await Tp('⛔⛔⛔ والشكل القديم كمان (مش باب خلفي)', 'branchKeep', cancelLegacy, false);
+  await Tp('⛔ ومدير الفرع كمان ممنوع', 'branchMgr', cancelReq2, false);
+  await Tp('⭐⭐ ومنشئ النظام **بس** اللي بيعدّي', 'owner', cancelReq2, true);
+
+  // ⚠️ (تحقّق) والحالة العادية لازم تفضل شغّالة: فيه كمية في الفرع
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection('categories').doc('c1').collection('grades').doc('g1')
+      .set({ number: 1, branchQty: 2, mainQty: 5, status: 'pending', requestedQty: null, manualRequest: true });
+  });
+  const T2 = async (label, uid, op, shouldPass) => {
+    let ok;
+    try { await (shouldPass ? assertSucceeds(op(uid)) : assertFails(op(uid))); ok = true; }
+    catch (e) { ok = false; }
+    check(`${label} — ${PROFILES[uid].name}: ${shouldPass ? 'مسموح' : 'ممنوع'}`, ok);
+  };
+  await T2('⭐⭐⭐ وفيه كمية في الفرع → الإلغاء عادي من غير رجوع لحد', 'branchKeep', cancelReq2, true);
+
+  // والاتنين صفر → مفيش تزويد ممكن، فالإلغاء عادي
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await ctx.firestore().collection('categories').doc('c1').collection('grades').doc('g1')
+      .set({ number: 1, branchQty: 0, mainQty: 0, status: 'pending', requestedQty: null, manualRequest: true });
+  });
+  await T2('⭐⭐ والاتنين صفر → الإلغاء عادي', 'branchKeep', cancelReq2, true);
 
   await env.cleanup();
   console.log('\n✅ نجح (' + pass.length + ')');
