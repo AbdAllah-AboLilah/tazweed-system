@@ -113,6 +113,21 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.restockNoPixel = !calls.some((c) => (c.data || []).some((d) => d.type === 'pixel'));
     out.restockConfigNoSize = calls.length > 0 && calls.every((c) => !c.config || c.config.__opts === null);
 
+    // ============================================================
+    // ⚠️⚠️ "خام" لازم يشتغل **لوحده** من غير مفتاح الصورة
+    // ============================================================
+    // اتبلّغ بالنص: "في امر بيروح ل جهاز الكمبيوتر بيتعمل معاينة على
+    // جهاز الكمبيوتر نفس المشكلة اللي قبل كده". السبب إن "خام" كان
+    // بيحتاج مفتاح الصورة مفتوح معاه — فلو مقفول، الورقة بتروح **نص**،
+    // ولو طلعت أتقل من حد الرسالة بتتفتح نافذة طباعة المتصفح.
+    setPrintTweak('sheetImage', false);
+    setPrintTweak('sheetRaw', true);
+    calls.length = 0;
+    await tryPrintViaQZ('restock', [{ html: '<p>ورقة</p>', copies: 1 }], { pageWidthMm: 80, autoHeight: true });
+    out.rawAloneCalls = calls.filter((c) => (c.data || []).some((d) => d.type === 'raw')).length;
+    out.rawAloneNoPixel = !calls.some((c) => (c.data || []).some((d) => d.type === 'pixel'));
+    setPrintTweak('sheetImage', true);
+
     // ---------- والمفتاح مقفول → الورقة بترجع للمسار العادي ----------
     setPrintTweak('sheetRaw', false);
     calls.length = 0;
@@ -121,6 +136,24 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.offNoRaw = !calls.some((c) => (c.data || []).some((d) => d.type === 'raw'));
 
     out.tweakDefaultOff = getPrintTweak('sheetRaw') === false;
+
+    // ============================================================
+    // ⚠️⚠️ الرجوع لنافذة المتصفح لازم **يتقال** مش يحصل في سكوت
+    // ============================================================
+    // الورقة اللي بتروح نص وتطلع أتقل من حد الرسالة بترجع لنافذة طباعة
+    // المتصفح — وده كان بيحصل **من غير أي كلمة**، فالمستخدم يلاقي نافذة
+    // فاتحة على الكمبيوتر ومش فاهم ليه.
+    setPrintTweak('sheetRaw', false);
+    setPrintTweak('sheetImage', false);
+    const notices = [];
+    const realNotice = window.showPrintNotice;
+    window.showPrintNotice = (m) => { notices.push(String(m)); };
+    // ورقة نص أتقل من الحد
+    const HUGE = '<p>' + 'ورقة طويلة جدًا '.repeat(4000) + '</p>';
+    out.hugeReturned = await tryPrintViaQZ('restock', [{ html: HUGE, copies: 1 }],
+      { pageWidthMm: 80, autoHeight: true });
+    out.hugeNotice = notices.join(' | ');
+    window.showPrintNotice = realNotice;
 
     // ---------- مقاس ورق التعريف بيتقرا ----------
     out.paper = await readPrinterPaper('XP-80C');
@@ -161,8 +194,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐ وإعدادها من غير مقاس', r.restockConfigNoSize);
   check('⭐⭐⭐ والمفتاح مقفول → بترجع لمسار البكسل زي ما كانت', r.offGoesPixel);
   check('⭐⭐ ومفيش أي إرسال خام وهو مقفول', r.offNoRaw);
+  check('⭐⭐⭐ و"خام" بيشتغل لوحده من غير مفتاح الصورة',
+    r.rawAloneCalls === 1, r.rawAloneCalls);
+  check('⭐⭐ ومابيروحش لمسار البكسل (اللي بيفتح نافذة المتصفح)', r.rawAloneNoPixel);
   check('⭐ والمفتاح مقفول افتراضيًا', r.tweakDefaultOff);
 
+  check('⭐⭐ الورقة التقيلة بترجع لنافذة المتصفح (false)', r.hugeReturned === false, r.hugeReturned);
+  check('⭐⭐⭐ **وبتقول ليه** مش بتسكت', /ورقة التزويد/.test(r.hugeNotice), r.hugeNotice.slice(0, 120));
+  check('⭐⭐ والرسالة فيها الحل (مفتاح الصورة)', /كصورة/.test(r.hugeNotice), r.hugeNotice.slice(0, 120));
+  check('⭐ وفيها الحجم والحد بالأرقام', /\d+ كيلو/.test(r.hugeNotice), r.hugeNotice.slice(0, 120));
   check('⭐⭐ مقاس ورق التعريف بيتقرا', r.paper === '80×210مم', r.paper);
   check('⚠️ وطابعة مش موجودة → فاضي', r.paperMissing === '', r.paperMissing);
   check('⭐⭐ ولو الشكل اتغيّر بيرجّع الحقول بدل ما يخمّن',
