@@ -4957,7 +4957,10 @@ async function registerPrintStation() {
   // أجهزة عليها عشرات الطابعات الوهمية (PDF، Fax، OneNote...).
   let printers = [];
   try {
-    printers = (await getAvailableQZPrinters()).slice(0, 40);
+    // ⚠️ من **المصدرين** (المساعد + QZ) عشان اللي بيبص من التليفون
+    // يشوف الطابعات اللي البرنامج المساعد شايفها كمان، مش بتوع QZ بس.
+    const found = await getAvailablePrinters();
+    printers = found.printers.slice(0, 40);
   } catch (err) {
     console.warn('تعذّر قراءة قايمة الطابعات:', err);
   }
@@ -4977,6 +4980,11 @@ async function registerPrintStation() {
         // **تخمين** النسخة طلع غلط، فالرقم ده بيشيل التخمين. وهو مهم
         // فعلًا: أمر المقاس الصريح (size.custom) بيشتغل من 2.2.6 وفوق بس.
         qzVersion: typeof readQZVersion === 'function' ? await readQZVersion() : '',
+        // ⚠️ ونسخة البرنامج المساعد جنبها — اتطلبت بالنص ("عاوز اشوف رقم
+        // اصدار المساعد في الاعدات"). ونفس السبب: إحنا مش شايفين أجهزته،
+        // ومسار الملصق بيحتاج 1.5.0 أو أحدث، فالرقم ده بيقول على طول
+        // أنهي جهاز لسه على نسخة قديمة بدل ما نخمّن.
+        helperVersion: typeof readHelperVersion === 'function' ? await readHelperVersion() : '',
         // ⚠️ مقاس الورق في تعريف الويندوز لطابعة ورقة التزويد. نفس سبب
         // النسخة فوق بالظبط: التفسير الفاضل للقص هو إن الفورم مختلف من
         // جهاز لجهاز، والرقم ده هو اللي هيأكّده أو يقتله. الشرح عند

@@ -93,7 +93,14 @@ const REAL = 'بونيه حجاب — بندانه سوري مفتوح درجة 
   // ده اللي وقع على ورق: "مفتوح درجة 4" اختفت. الفحص بيرسم الملصق ويتأكد
   // إن **كل كلمة** في النص ظاهرة فعلًا مش مقصوصة.
   const p2 = await b.newPage({ deviceScaleFactor: 2 });
-  const html = await p.evaluate(([REAL, SIZE]) => buildTextLabel(REAL, SIZE, 1).jobHTML, [REAL, SIZE]);
+  const html = await p.evaluate(([REAL, SIZE]) => {
+      // ⚠️⚠️ المفتاح متحطوط **صراحةً** من v0.88.0: `htmlLabels` بقى
+      // مقفول افتراضيًا (الملصق بيروح صورة للبرنامج المساعد). الفحص ده
+      // بيختبر **مسار النص** بالذات، فلازم يقوله بدل ما يعتمد على
+      // الافتراضي — الافتراضي الجديد متغطّي في fixed-image-label-test.
+      try { localStorage.setItem('tazweed_qz_tweak_htmlLabels', '1'); } catch (e) {}
+    return buildTextLabel(REAL, SIZE, 1).jobHTML;
+  }, [REAL, SIZE]);
   await p2.setContent(html);
   const drawn = await p2.evaluate(() => {
     const el = document.querySelector('.t');

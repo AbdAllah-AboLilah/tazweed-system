@@ -54,6 +54,16 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
 
   // بيجهّز طلب طباعة فيه n ملصق
   const makeJob = (n) => p.evaluate(async ([n, SIZE]) => {
+    // ⚠️⚠️ v0.88.0: الافتراضي بقى **صورة**، والصورة بتتبعت مرة واحدة
+    // + العدد بدل ما تتكرر — فـ40 ملصق بقوا رسالة أو اتنين بس.
+    // وسيناريو "الطابعة وقفت في النص" تحت بيزوّد الفشل بعد **تاني
+    // رسالة**، فمن غير أكتر من رسالتين مافيش فشل يحصل أصلًا والفحص
+    // بيقيس حاجة مش موجودة (طلع "printed" وهو المفروض "failed").
+    //
+    // الفحص ده عن **الإبلاغ عن الفشل** مش عن الافتراضي، فالطلب
+    // بيتبني على مسار النص صراحةً. وحالتَي "QZ مش شغّال" و"مافيش
+    // طابعة" بيغطّوا الإبلاغ في المسارين.
+    try { localStorage.setItem('tazweed_qz_tweak_htmlLabels', '1'); } catch (e) {}
     const t = await buildItemLabel(
       { itemName: 'Chanvie Leen 58047', barcodeNumber: '62808737', sellingPrice: 495 }, SIZE, n);
     return { type: 'label', sizeOptions: SIZE, jobs: [{ html: t.jobHTML, image: t.image, copies: n }] };
@@ -102,6 +112,8 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
   // ============================================================
   const cases = await p.evaluate(async (job) => {
     const out = {};
+    // ⚠️ الطلب نفسه اتبنى على مسار النص (شوف الشرح عند makeJob).
+    try { localStorage.setItem('tazweed_qz_tweak_htmlLabels', '1'); } catch (e) {}
     const run = async (name, setup) => {
       window.__updates = []; window.__blocking = [];
       setup();
