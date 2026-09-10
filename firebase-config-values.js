@@ -32,4 +32,8 @@ const firebaseConfig = {
 // من غيره الإشعار **وقت ما النظام مقفول** مش هيشتغل — والنظام هيقولك
 // كده بوضوح بدل ما يفضل ساكت. أما الإشعار والنظام مفتوح فشغّال زي ما
 // هو من غير أي مفتاح.
-const FIREBASE_VAPID_KEY = "";
+//
+// ⚠️ ده المفتاح **العام** (public) زي باقي القيم فوق — بيتبعت للمتصفح
+// في كل تسجيل، فوجوده في المستودع عادي. المفتاح الخاص بيفضل عند جوجل
+// ومابيخرجش من Firebase خالص.
+const FIREBASE_VAPID_KEY = "BNE16awQUEWiHWfsZnGP2OHetzyykzsey2ALZTR-fpC1rFC33LLnCVxEu1COIeHr0tX-q2HGhG0gMszBuWOLF0w";
