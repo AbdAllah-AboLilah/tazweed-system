@@ -185,6 +185,7 @@ node tests/tweak-route-test.js
 node tests/fixed-image-label-test.js
 node tests/helper-printers-test.js
 node tests/sheet-multi-test.js
+node tests/helper-probe-test.js
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
