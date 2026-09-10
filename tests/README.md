@@ -181,6 +181,7 @@ node tests/helper-download-test.js
 node tests/print-route-test.js
 node tests/print-scope-test.js
 node tests/push-register-test.js
+node tests/tweak-route-test.js
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js

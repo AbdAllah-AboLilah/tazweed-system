@@ -460,9 +460,9 @@ function updatePrintResults() {
   if (!box) return;
   box.innerHTML = printResultsHTML();
   box.scrollTop = 0;
-  const helperBtn = document.getElementById('print-helper-dl-btn');
-  if (helperBtn) helperBtn.addEventListener('click', () => openHelperDownloadDialog());
-
+  // ⚠️ زرار تحميل المساعد **مش** بيتربط هنا — هو بره صندوق النتايج
+  // أصلًا، وربطه هنا كان معناه إنه مايشتغلش غير بعد ما تكتب في
+  // خانة البحث. مكانه في attachPrintScreenEvents مع باقي زراير الأدوات.
   attachPrintResultEvents();
 }
 
@@ -1151,6 +1151,20 @@ function attachPrintScreenEvents() {
 
   const settingsBtn = document.getElementById('print-settings-btn');
   if (settingsBtn) settingsBtn.addEventListener('click', () => safeAsync(() => openPrinterSettings(), 'فتح إعدادات الطابعة'));
+
+  // ============================================================
+  // ⬇️ تحميل البرنامج المساعد
+  // ============================================================
+  // ⚠️⚠️ كان مربوط جوّه updatePrintResults — والدالة دي مابتشتغلش غير
+  // لما تكتب حرف في خانة البحث. يعني الزرار كان **ميت** أول ما تفتح
+  // الشاشة، والضغطة مكانش ليها أي رد فعل ولا حتى خطأ في الكونسول.
+  // (وكمان كان بياخد مستمع زيادة مع كل حرف تكتبه، فبعد ٥ حروف كانت
+  //  الضغطة الواحدة هتفتح النافذة ٥ مرات.)
+  //
+  // مكانه هنا مع باقي زراير الأدوات، والدالة دي بتشتغل مع **كل** رسم
+  // للشاشة — زي إعدادات الطابعة وحدّث ملف الأصناف بالظبط.
+  const helperBtn = document.getElementById('print-helper-dl-btn');
+  if (helperBtn) helperBtn.addEventListener('click', () => openHelperDownloadDialog());
 
   // ⚙️ بيفتح/يقفل صف الإعدادات. مافيش نافذة ولا شاشة جديدة — الزراير
   // اللي كانت ظاهرة على طول بقت مخبّية لحد ما تطلبها.
