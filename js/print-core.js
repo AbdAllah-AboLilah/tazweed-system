@@ -1792,6 +1792,10 @@ const PRINT_FIELDS = [
   // ⚠️ لازم يكون هنا وإلا `cleanPrintFields` بتشيله، فمستحيل تظبطه من
   // التليفون — اتبلّغ: "مش لاقي حجم الخط في ارسال اعدادات الطابعة".
   { key: 'nameMm', label: 'مقاس اسم الصنف' },
+  // ⚠️ نفس السبب بالظبط: الحقل اللي مش في القايمة دي بيتشال في صمت،
+  // فالخانة في نافذة الإرسال عن بُعد بتبقى موجودة ومالهاش أي أثر.
+  { key: 'codeMm', label: 'مقاس رقم الباركود' },
+  { key: 'priceMm', label: 'مقاس السعر' },
 ];
 
 const PRINT_FIELD_KEYS = PRINT_FIELDS.map((f) => f.key);
@@ -2173,6 +2177,76 @@ async function getAvailableQZPrinters() {
 }
 
 // ============================================================
+// 🖨️ قايمة الطابعات — من البرنامج المساعد **و** من QZ
+// ============================================================
+// ⚠️⚠️ دي كانت الحاجة الوحيدة اللي بتمنع شيل QZ فعلًا: القايمة كانت
+// بتيجي منه لوحده، وأكتر من كده — شاشة الإعدادات كلها كانت بتقف لو
+// QZ مش موجود، فحتى المفاتيح المتقدمة مكانش فيه طريقة توصلها.
+//
+// البرنامج المساعد بيقرا الطابعات من الويندوز مباشرة (EnumPrinters)
+// وبيرجّعها في `/status`. فبقى مصدر تاني كامل.
+//
+// ⚠️ **بندمج مش بنستبدل**: اتطلب بالنص "ممكن اسيب qz احتياطي عشان لو
+// حصل اي مشكلة في المستقببل يبقي حاجه في الخلفيه". فالجهاز اللي عليه
+// الاتنين بيشوف القايمتين مدموجتين من غير تكرار، واللي عليه واحد
+// بيشوف اللي عنده.
+//
+// ⚠️ الترتيب مقصود: المساعد الأول لأنه هو اللي هيطبع فعلًا لما مفتاحه
+// مفتوح، فالأسماء اللي هو شايفها هي اللي تنفع تتحفظ.
+async function getAvailablePrinters() {
+  const out = [];
+  const seen = Object.create(null);
+  const add = (name) => {
+    const n = String(name || '').trim();
+    if (!n || seen[n]) return;
+    seen[n] = true;
+    out.push(n);
+  };
+
+  let fromHelper = 0;
+  try {
+    const st = await helperStatus();
+    if (st && st.app && Array.isArray(st.printers)) {
+      st.printers.forEach((n) => {
+        const before = out.length;
+        add(n);
+        if (out.length > before) fromHelper++;
+      });
+    }
+  } catch (err) {
+    // البرنامج مش شغّال — عادي تمامًا، بنكمّل بـQZ.
+  }
+
+  let fromQZ = 0;
+  try {
+    const list = await getAvailableQZPrinters();
+    if (Array.isArray(list)) {
+      list.forEach((n) => {
+        const before = out.length;
+        add(n);
+        if (out.length > before) fromQZ++;
+      });
+    }
+  } catch (err) {
+    /* نفس الكلام */
+  }
+
+  return { printers: out, fromHelper, fromQZ };
+}
+
+// رقم نسخة البرنامج المساعد على الجهاز ده، أو نص فاضي لو مش شغّال.
+// ⚠️ بترجّع فاضي بدل ما ترمي — الرقم ده معلومة على الشاشة، عمره ما
+// يوقف فتح النافذة (نفس قاعدة readQZVersion بالظبط).
+async function readHelperVersion() {
+  try {
+    const st = await helperStatus();
+    return st && st.app ? String(st.version || '') : '';
+  } catch (err) {
+    return '';
+  }
+}
+
+// ============================================================
 // ⚙️ إعدادات الطباعة المتقدمة — لكل جهاز على حدة
 // ============================================================
 // ليه لكل جهاز مش لكل مستخدم؟ لأن الطابعة متوصلة **بكمبيوتر**، مش بشخص.
@@ -2229,6 +2303,25 @@ const PRINT_TWEAK_GROUPS = [
     title: '🖨️ الطبعة رايحة منين',
     hint: 'دي اللي بتقرّر الورقة والملصق بيوصلوا للطابعة بأي طريق.',
   },
+  // ============================================================
+  // ⚠️⚠️ مجموعة `hidden` — مفاتيح شغّالة بس مش معروضة
+  // ============================================================
+  // اتطلب بالنص: "مع نقطة رقم 7 تنضيف الازرار".
+  //
+  // اللي اتخفى وليه:
+  //   • quarterImage / gradeImage — بقوا **مالهمش لازمة** بعد ما مفتاح
+  //     "ابعت الملصق كنص" اتقفل: الشرط في print-label.js هو
+  //     `!htmlLabels || quarterImage`، يعني قفل مفتاح النص لوحده كفاية
+  //     ويخلي كل الملصقات صور. المفتاحين دول كانوا عشان تجرّب نوع ملصق
+  //     واحد كصورة والباقي يفضل نص — ومرحلة التجربة دي خلصت.
+  //   • sheetRaw — للأجهزة اللي مافيهاش البرنامج المساعد. لو مفتاح
+  //     المساعد مفتوح مالوش لازمة خالص.
+  //
+  // ⚠️⚠️ **اتخفوا مااتشالوش**، وده مقصود: اتطلب بالنص "ممكن اسيب qz
+  // احتياطي عشان لو حصل اي مشكلة في المستقبل يبقي حاجه في الخلفيه
+  // وممكن الرجوع ليها". فالكود بتاعهم شغّال زي ما هو، والجهاز اللي
+  // فاتح واحد منهم دلوقتي بيفضل شغّال زي ما هو — اللي اتغيّر إنه
+  // مابقاش يزاحم في الشاشة. (نفس اللي عملناه مع sheetImage في v0.84.0.)
   {
     key: 'draw',
     title: '🏷️ الملصق: نص ولا صورة',
@@ -2408,6 +2501,11 @@ const PRINT_TWEAKS = [
     // ونفس النوع كان بيتقص عند ~211مم من النظام.
     key: 'sheetHelper',
     group: 'route',
+    // ⭐ مفتوح افتراضيًا من v0.88.0 — اتطلب بالنص: "عاوزك تخلي مفاتيح
+    // المساعد هي الافتراضي ومفتوحه". والتجربة على ورق أثبتت الفرق:
+    // الورقة بتطلع كاملة من المساعد، وبتتقص عند ~211مم من QZ.
+    // ⚠️ الجهاز اللي مافيهوش المساعد بيرجع لـQZ لوحده وبيتقال.
+    defaultOn: true,
     label: '🖨️ ابعت ورقة التزويد للبرنامج المساعد',
     hint:
       'محتاج برنامج "مساعد التزويد" شغّال على جهاز الطباعة. بيبعت ' +
@@ -2442,6 +2540,11 @@ const PRINT_TWEAKS = [
     // تطلع من الماكينة قبل ما يبقى الافتراضي.
     key: 'labelHelper',
     group: 'route',
+    // ⭐ مفتوح افتراضيًا من v0.88.0 — اتطلب بالنص، وبعد ما الملصق
+    // اتطبع من المساعد على ورق حقيقي وطلع سليم.
+    // ⚠️⚠️ ومعاه `htmlLabels` بقى **مقفول** افتراضيًا: المساعد بياخد
+    // صور بس، فمن غير ده المفتاح ده مالوش أي أثر.
+    defaultOn: true,
     label: '🏷️ ابعت الملصقات للبرنامج المساعد',
     hint:
       'محتاج برنامج "مساعد التزويد" ١.٥ أو أحدث شغّال على جهاز الطباعة. ' +
@@ -2455,7 +2558,8 @@ const PRINT_TWEAKS = [
   },
   {
     key: 'sheetRaw',
-    group: 'route',
+    // ⚠️⚠️ اتنقل لـ`hidden` — الشرح الكامل عند PRINT_TWEAK_GROUPS.
+    group: 'hidden',
     label: '🧪 ورقة التزويد خام — من غير البرنامج المساعد',
     hint:
       'للأجهزة اللي مافيهاش البرنامج المساعد. الورقة بتتبعت للطابعة زي ' +
@@ -2490,7 +2594,8 @@ const PRINT_TWEAKS = [
     // اتبنى في **v0.38** — الإصدار اللي اسمه بالحرف "المسمّى المنغمش".
     // يعني الحكم اتاخد على نسخة **مابقتش موجودة**، ويستاهل يتعاد.
     key: 'quarterImage',
-    group: 'draw',
+    // ⚠️⚠️ اتنقل لـ`hidden` — الشرح الكامل عند PRINT_TWEAK_GROUPS.
+    group: 'hidden',
     label: '🧪 "مقسوم ٤" كصورة (تجريبي)',
     hint:
       'بيرسم مقسوم ٤ عندنا كصورة بدقة الطابعة بالظبط بدل ما محرّك الطباعة ' +
@@ -2503,7 +2608,8 @@ const PRINT_TWEAKS = [
     // 🧪 المسمّى كصورة — نفس الكلام بالظبط، بس لملصق الدرجة/المسمّى.
     // ⚠️ ده أهم واحد في التجربة: "المسمّى المنغمش" هو الشكوى الأصلية.
     key: 'gradeImage',
-    group: 'draw',
+    // ⚠️⚠️ اتنقل لـ`hidden` — الشرح الكامل عند PRINT_TWEAK_GROUPS.
+    group: 'hidden',
     label: '🧪 "المسمّى" كصورة (تجريبي)',
     hint:
       'نفس فكرة اللي فوق بس لملصق المسمّى/الدرجة. التصميم زي ما هو — ' +
@@ -2521,9 +2627,19 @@ const PRINT_TWEAKS = [
     // ⚠️ الملصق المقسوم أربعة **لسه بالصورة** — مافيش نسخة HTML منه.
     key: 'htmlLabels',
     group: 'draw',
-    label: '📝 ابعت الملصق كنص (الافتراضي)',
-    hint: 'مجرّب على ورق وطالع حاد. اقفله لو عايز تجرّب طريقة الصورة',
-    defaultOn: true,
+    label: '📝 ابعت الملصق كنص',
+    hint:
+      '⚠️ ده مسار QZ القديم. البرنامج المساعد بياخد **صور** بس، ' +
+      'ففتح المفتاح ده بيرجّع الملصقات لـQZ حتى لو مفتاح المساعد مفتوح. ' +
+      'وسيبه مقفول معناه إن المقاسات الثابتة بتشتغل كمان.',
+    // ⚠️⚠️ بقى **مقفول** افتراضيًا في v0.88.0 (كان مفتوح من v0.36).
+    // السبب: اتطلب بالنص إن مفاتيح المساعد تبقى الافتراضي، والمساعد
+    // بيطبع صور بس — فلو ده فضل مفتوح، مفتاح الملصق للمساعد بيبقى
+    // مفتوح ومايحصلش حاجة. ده بالظبط فخ "المفتاح مفتوح ومالوش أثر"
+    // اللي وقعنا فيه تلات مرات قبل كده.
+    //
+    // ⚠️ الجهاز اللي اختار المفتاح ده بإيده (فتحه أو قفله) **مايتأثرش**:
+    // getPrintTweak بتقرا الاختيار المحفوظ الأول، والافتراضي آخر حاجة.
     apply: () => {},
   },
   {
@@ -3194,6 +3310,73 @@ function getPrintNameMm() {
     return clampNameMm(v);
   } catch (err) {
     return PRINT_NAME_MM_DEFAULT;
+  }
+}
+
+// ============================================================
+// 📏 مقاس رقم الباركود والسعر — خانتين زي خانة الاسم بالظبط
+// ============================================================
+// اتطلبوا بالنص: "لما تثبت الحاجات في الملصق يبقى في بردوا تثبيت
+// لحجم الحرف وفي مفتاح اتحكم في حجمه".
+//
+// ⚠️ الافتراضيات **مش مخترعة**: 2.4 و2.6 هما بالظبط الأرقام اللي
+// اتحطّت في FIXED_CODE_MM و FIXED_PRICE_MM في print-label.js من
+// v0.78.0، وهي مقاسة من اللي النظام بيطلّعه في الحالة الشائعة
+// (الاسم سطر واحد). يعني الخانة وهي على الافتراضي **ماتغيّرش حاجة**
+// عن التثبيت اللي شغّال دلوقتي.
+//
+// ⚠️⚠️ ودرس خانة الاسم متكرر هنا: الرقم اللي بيتحسب من أسماء
+// مخترعة بيطلع غلط على الورق. اللي واقف قدام الماكينة هو اللي
+// يظبطه، فالرقم خانة مش ثابت في الكود.
+const PRINT_CODE_MM_KEY = 'tazweed_print_code_mm';
+const PRINT_CODE_MM_DEFAULT = 2.4;
+const PRINT_PRICE_MM_KEY = 'tazweed_print_price_mm';
+const PRINT_PRICE_MM_DEFAULT = 2.6;
+// نفس حدود الاسم: أقل من 1.2 مايتقراش، وأكبر من 3.0 مش داخل أصلًا.
+const PRINT_SIZE_MM_MIN = 1.2;
+const PRINT_SIZE_MM_MAX = 3.0;
+
+function clampSizeMm(v, dflt) {
+  const n = parseFloat(v);
+  if (!isFinite(n)) return dflt;
+  return Math.max(PRINT_SIZE_MM_MIN, Math.min(PRINT_SIZE_MM_MAX, n));
+}
+
+// ⚠️ نفس ترتيب الأولوية بتاع getPrintNameMm بالحرف: الإعداد الجاي من
+// بعيد بيكسب، وبعده المحفوظ على الجهاز، وبعده الافتراضي.
+function readSizeMm(remoteKey, localKey, dflt) {
+  const remote = readPrintField(remoteKey);
+  if (remote !== undefined && remote !== null && remote !== '') return clampSizeMm(remote, dflt);
+  try {
+    const v = localStorage.getItem(localKey);
+    if (v === null || v === '') return dflt;
+    return clampSizeMm(v, dflt);
+  } catch (err) {
+    return dflt;
+  }
+}
+
+function getPrintCodeMm() {
+  return readSizeMm('codeMm', PRINT_CODE_MM_KEY, PRINT_CODE_MM_DEFAULT);
+}
+
+function setPrintCodeMm(v) {
+  try {
+    localStorage.setItem(PRINT_CODE_MM_KEY, String(clampSizeMm(v, PRINT_CODE_MM_DEFAULT)));
+  } catch (err) {
+    /* لا شيء */
+  }
+}
+
+function getPrintPriceMm() {
+  return readSizeMm('priceMm', PRINT_PRICE_MM_KEY, PRINT_PRICE_MM_DEFAULT);
+}
+
+function setPrintPriceMm(v) {
+  try {
+    localStorage.setItem(PRINT_PRICE_MM_KEY, String(clampSizeMm(v, PRINT_PRICE_MM_DEFAULT)));
+  } catch (err) {
+    /* لا شيء */
   }
 }
 
@@ -4651,6 +4834,29 @@ async function openPrinterSettings() {
               </div>
             </div>`
                 : ''
+            }${
+              // ⚠️ الخانتين دول تحت مفتاح **مقاسات السعر والرقم** بالظبط،
+              // مش تحت مفتاح الاسم — كل خانة جنب المفتاح اللي بيستخدمها.
+              // (نفس قاعدة خانة الاسم فوق: الرقم لوحده مالوش معنى.)
+              t.key === 'fixedLabelSizes'
+                ? `
+            <div style="display:flex; gap:8px; align-items:center; padding:0 0 8px 26px;
+                        border-bottom:1px solid var(--border); flex-wrap:wrap;">
+              <label style="font-size:11px; color:var(--text-secondary);">رقم الباركود</label>
+              <input class="input" type="number" id="pq-codemm" min="1.2" max="3" step="0.1"
+                     style="padding:5px; width:70px;" />
+              <label style="font-size:11px; color:var(--text-secondary);">السعر</label>
+              <input class="input" type="number" id="pq-pricemm" min="1.2" max="3" step="0.1"
+                     style="padding:5px; width:70px;" />
+              <button class="btn" id="pq-sizes-save" style="padding:4px 12px; font-size:11px; min-height:30px;">حفظ</button>
+              <span id="pq-sizes-status" style="font-size:11px; color:var(--text-muted);"></span>
+              <div style="font-size:10px; color:var(--text-muted); line-height:1.6; width:100%;">
+                بالملليمتر. الافتراضي <strong>2.4</strong> للرقم و<strong>2.6</strong> للسعر —
+                ودول بالظبط اللي النظام بيطبعه دلوقتي لما الاسم بياخد سطر واحد،
+                يعني الافتراضي <strong>مايغيّرش حاجة</strong>. كبّرهم وهيقلّ اللي فاضل للاسم.
+              </div>
+            </div>`
+                : ''
             }`
           ).join('')}`
           ).join('')}
@@ -4721,23 +4927,48 @@ async function openPrinterSettings() {
   };
   overlay.querySelector('#qz-settings-close').addEventListener('click', closeSettings);
 
-  const printers = await getAvailableQZPrinters();
+  // ⚠️⚠️ القايمة بقت من **المصدرين**: البرنامج المساعد وQZ.
+  // قبل كده كانت من QZ لوحده، والشاشة كلها كانت بتقف تحت لو مالقاش —
+  // فالجهاز اللي شال QZ مكانش يقدر يوصل حتى للمفاتيح المتقدمة.
+  const found = await getAvailablePrinters();
+  const printers = found.printers;
   if (closed) return;
 
-  if (!isQZAvailable() || printers.length === 0) {
-    statusLine.innerHTML = isQZAvailable()
-      ? 'تعذّر الاتصال بـ QZ Tray. تأكد إنه مشغّل على الجهاز ده.'
-      : 'برنامج QZ Tray مش مثبّت على الجهاز ده. بدونه، الطباعة هتشتغل بالطريقة العادية (نافذة المتصفح) وهتحتاج تختار الطابعة يدويًا كل مرة.';
+  // بيتقروا مرة واحدة وبيتخزّنوا، فمش بيبطّأوا فتح النافذة.
+  const helperVer = await readHelperVersion();
+  const qzVer = await readQZVersion();
+  if (closed) return;
+
+  if (printers.length === 0) {
+    // ⚠️ الرسالة بتقول **الاتنين**، عشان اللي شايفها يعرف ينزّل أنهي
+    // واحد. قبل كده كانت بتتكلم عن QZ بس.
+    statusLine.innerHTML =
+      'مالقيناش ولا طابعة على الجهاز ده — لا من البرنامج المساعد ولا من QZ Tray.' +
+      '<br>نزّل <strong>برنامج المساعد</strong> من شاشة الطباعة (⚙️ ← برنامج المساعد)، ' +
+      'أو شغّل QZ Tray. من غير واحد فيهم الطباعة هتفتح نافذة المتصفح وهتختار الطابعة بإيدك كل مرة.';
     return;
   }
 
   // ⚠️ رقم النسخة جنب حالة الاتصال — أول مكان الواحد بيبص فيه.
-  // بيتقرا مرة واحدة وبيتخزّن، فمش بيبطّأ فتح النافذة.
-  const qzVer = await readQZVersion();
+  // ⚠️⚠️ ونسخة **المساعد** معاه دلوقتي: اتطلبت بالنص ("عاوز اشوف رقم
+  // اصدار المساعد في الاعدات")، والسبب هو نفس سبب نشر نسخة QZ — إحنا
+  // مش شايفين أجهزته، والتشخيص بالتخمين كلّفنا لفّات كتير قبل كده.
   const qzOld = qzVer && !qzVersionAtLeast(qzVer, QZ_CUSTOM_SIZE_MIN);
-  statusLine.textContent =
-    `متصل بـ QZ Tray${qzVer ? ` ${qzVer}` : ''} — ${printers.length} طابعة موجودة` +
-    (qzOld ? ' ⚠️ النسخة أقدم من 2.2.6' : '');
+  const parts = [];
+  if (helperVer) {
+    parts.push(`📦 المساعد ${helperVer}${found.fromHelper ? ` (${found.fromHelper} طابعة)` : ''}`);
+  } else {
+    parts.push('📦 المساعد مش شغّال');
+  }
+  if (qzVer || found.fromQZ) {
+    parts.push(
+      `🖨️ QZ Tray${qzVer ? ` ${qzVer}` : ''}${found.fromQZ ? ` (${found.fromQZ} طابعة)` : ''}` +
+        (qzOld ? ' ⚠️ أقدم من 2.2.6' : '')
+    );
+  } else {
+    parts.push('🖨️ QZ Tray مش شغّال');
+  }
+  statusLine.textContent = parts.join('  •  ') + `  •  ${printers.length} طابعة في القايمة`;
   fields.style.display = 'block';
   saveBtn.style.display = 'inline-block';
 
@@ -4824,6 +5055,30 @@ async function openPrinterSettings() {
       });
     }
   }
+
+  // 📏 خانتين مقاس رقم الباركود والسعر — نفس الطريقة بالظبط، وبره
+  // الـ<label> عن قصد لنفس السبب المكتوب فوق.
+  const pqCodeMm = overlay.querySelector('#pq-codemm');
+  const pqPriceMm = overlay.querySelector('#pq-pricemm');
+  const pqSizesSave = overlay.querySelector('#pq-sizes-save');
+  if (pqCodeMm && pqPriceMm) {
+    pqCodeMm.value = getPrintCodeMm();
+    pqPriceMm.value = getPrintPriceMm();
+    if (pqSizesSave) {
+      pqSizesSave.addEventListener('click', () => {
+        setPrintCodeMm(pqCodeMm.value);
+        setPrintPriceMm(pqPriceMm.value);
+        pqCodeMm.value = getPrintCodeMm();
+        pqPriceMm.value = getPrintPriceMm();
+        const st = overlay.querySelector('#pq-sizes-status');
+        if (st) {
+          st.textContent = `✅ اتحفظ — الرقم ${getPrintCodeMm()}مم والسعر ${getPrintPriceMm()}مم`;
+          setTimeout(() => { st.textContent = ''; }, 3000);
+        }
+      });
+    }
+  }
+
   if (pqBatch && pqLead) {
     pqBatch.value = getPrintBatchSize();
     pqLead.value = getPrintLeadLabels();

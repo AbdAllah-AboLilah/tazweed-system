@@ -52,9 +52,17 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
   check('⭐ ونفس الطريقة (صورة/نص) في الاتنين',
     agree.directImage === agree.cartImage,
     { direct: agree.directImage ? 'صورة' : 'نص', cart: agree.cartImage ? 'صورة' : 'نص' });
-  // والافتراضي لازم يبقى النص — ده اللي بيطبع نضيف على الورق (v0.36.0)
-  check('⭐ والافتراضي نص مش صورة (ده اللي بيطبع نضيف)',
-    agree.directImage === null && /class="t"/.test(agree.directHTML), agree.directHTML.slice(0, 200));
+  // ============================================================
+  // ⚠️⚠️ الافتراضي اتقلب في v0.88.0: بقى **صورة** مش نص
+  // ============================================================
+  // كان النص من v0.36.0 (أنضف على ورق وقتها). بقى الصورة عشان
+  // البرنامج المساعد بياخد صور بس واتطلب إنه يبقى المسار الافتراضي.
+  //
+  // ⚠️ اللي **مااتغيّرش** وهو أهم حاجة في الملف ده: المسارين لازم
+  // يتفقوا. الفحص فوق (صورة/نص في الاتنين) هو الحارس ده، وهو شغّال
+  // في الحالتين — الافتراضي إيه مايهمّوش.
+  check('⭐ والافتراضي صورة مش نص (عشان البرنامج المساعد)',
+    agree.directImage !== null, agree.directHTML.slice(0, 200));
 
   // ============================================================
   // 2) ⭐ المفتاح بيقلب **كل** المسارات مع بعض
@@ -69,8 +77,14 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
     });
     localStorage.setItem('tazweed_qz_tweak_htmlLabels', '0'); // صورة
     const asImage = await snap();
-    localStorage.removeItem('tazweed_qz_tweak_htmlLabels');   // الافتراضي = نص
+    // ⚠️ v0.88.0: الافتراضي بقى **صورة**، فبنقول المفتاح صراحةً هنا
+    // بدل ما نمسحه — الفحص ده عن "المفتاح بيقلب كل المسارات مع بعض"،
+    // مش عن الافتراضي. (الافتراضي متفحوص فوق لوحده.)
+    localStorage.setItem('tazweed_qz_tweak_htmlLabels', '1'); // نص
     const asText = await snap();
+    // ⚠️ بنرجّع الافتراضي قبل ما نخرج: الفحص اللي بعده بيقيس **الافتراضي**،
+    // ولو سبنا المفتاح متحطوط هيقيس اللي إحنا حطّيناه مش اللي بيشحن.
+    localStorage.removeItem('tazweed_qz_tweak_htmlLabels');
     return { asImage, asText };
   }, SIZE);
 
@@ -104,8 +118,10 @@ const SIZE = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
     const q = await buildCartItemLabel({ product: prod, qty: 1, mode: 'quarter' }, SIZE);
     return { isImage: !!q.image, isText: /class="cut"/.test(q.html) };
   }, SIZE);
-  check('⭐ "مقسوم ٤" بقى نص زي الكل — مفيش ملصق بيتبعت صورة افتراضيًا',
-    !quarter.isImage && quarter.isText, quarter);
+  // ⚠️ v0.88.0: كله بقى **صورة** افتراضيًا. اللي بيتفحص هنا إن
+  // "مقسوم ٤" بياخد **نفس** طريق باقي الملصقات — مش إنه نص.
+  check('⭐ "مقسوم ٤" بياخد نفس طريق باقي الملصقات (صورة افتراضيًا)',
+    quarter.isImage && !quarter.isText, quarter);
 
   // ============================================================
   // 5) ⭐ مفيش مسار بيبني ملصق نصّي بنفسه

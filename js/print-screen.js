@@ -109,6 +109,19 @@ function stationCardHTML(st) {
         <div><span>طابعات متعرّفة عليه</span><b>${escapeHTML(printers.length || 0)}</b></div>
         <div><span>نسخة النظام</span><b>${escapeHTML(st.appVersion || '—')}</b></div>
         ${
+          // ⚠️⚠️ نسخة البرنامج المساعد — اتطلبت بالنص، ومكانها **فوق**
+          // نسخة QZ عن قصد: هو اللي بيطبع فعلًا دلوقتي، وQZ بقى احتياطي.
+          // ومسار الملصق محتاج 1.5.0 أو أحدث، فبنعلّم على الأقدم عشان
+          // تبان من نظرة زي QZ بالظبط.
+          (() => {
+            const v = st.helperVersion || '';
+            const old = v && typeof qzVersionAtLeast === 'function' && !qzVersionAtLeast(v, [1, 5, 0]);
+            return `<div><span>نسخة البرنامج المساعد</span><b>${
+              escapeHTML(v || '— مش شغّال')
+            }${old ? ' ⚠️ أقدم من 1.5.0' : ''}</b></div>`;
+          })()
+        }
+        ${
           // ⚠️ نسخة QZ Tray — بتفرق فعلًا: أمر المقاس الصريح لورقة التزويد
           // بيشتغل من 2.2.6 وفوق بس، واللي تحتها بتتجاهله وتاخد الطول
           // فالتعريف بيقص الورقة. بنعلّم على القديمة عشان تبان من نظرة.
@@ -642,10 +655,19 @@ function openPrintSettingsDialog(preselectDeviceId) {
           <label style="font-size:11px;">مقاس اسم الصنف</label>
           <input class="input" type="number" id="ps-namemm" min="1.2" max="3" step="0.1" inputmode="decimal" style="padding:6px;" />
         </div>
+        <div class="field" style="width:125px; margin-bottom:0;">
+          <label style="font-size:11px;">مقاس رقم الباركود</label>
+          <input class="input" type="number" id="ps-codemm" min="1.2" max="3" step="0.1" inputmode="decimal" style="padding:6px;" />
+        </div>
+        <div class="field" style="width:125px; margin-bottom:0;">
+          <label style="font-size:11px;">مقاس السعر</label>
+          <input class="input" type="number" id="ps-pricemm" min="1.2" max="3" step="0.1" inputmode="decimal" style="padding:6px;" />
+        </div>
       </div>
       <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin:-6px 0 10px;">
-        📏 مقاس اسم الصنف بيشتغل مع مفتاح <strong>"اسم الصنف بمقاس ثابت"</strong> تحت.
-        سيبه فاضي = ماتغيّرش حاجة على الجهاز.
+        📏 التلات مقاسات دي بتشتغل مع مفاتيح <strong>"اسم الصنف بمقاس ثابت"</strong>
+        و<strong>"ثبّت مقاس السعر ورقم الباركود"</strong> تحت.
+        سيبها فاضية = ماتغيّرش حاجة على الجهاز.
       </div>
 
       <div style="font-size:12px; font-weight:500; margin-bottom:5px;">🎯 المعايرة</div>
@@ -668,17 +690,42 @@ function openPrintSettingsDialog(preselectDeviceId) {
 
       <div style="font-size:12px; font-weight:500; margin:10px 0 5px;">🧪 المفاتيح المتقدمة</div>
       <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">سيبها "زي ما هي" عشان ما تتغيّرش.</div>
-      ${PRINT_TWEAKS.map(
-        (t) => `
+      <div style="font-size:10px; color:var(--text-muted); line-height:1.9; margin-bottom:8px;
+                  background:var(--surface-muted); padding:8px; border-radius:8px;">
+        <strong>الشارة بتقول المفتاح بيخص مين:</strong>
+        <br>${printTweakBadgeHTML('sheetHelper')} بيغيّر الطريق للبرنامج المساعد.
+        <br>${printTweakBadgeHTML('noScale')} بيخص QZ بس — بيتجاهل لما الطبعة تروح للمساعد.
+        <br>${printTweakBadgeHTML('lightQR')} بيغيّر شكل الملصق نفسه مش الطريق.
+      </div>
+      ${
+        // ⚠️⚠️ نفس تقسيمة الشاشة المحلية بالظبط — اتطلب بالنص: "الاعدادات
+        // كلها اشوفها من التليفون عادي ويبقي ليها مكان فيه". قايمة مسطّحة
+        // من ١٥ مفتاح ورا بعض مش "مكان"، دي نفس اللخبطة اللي شكيت منها
+        // في الشاشة المحلية قبل ما نقسّمها في v0.84.0.
+        //
+        // ⚠️ ومجموعة `hidden` **بتظهر هنا** برضه، تحت عنوان بيقول إنها
+        // مخبّية في الجهاز نفسه. دي طريقة الوصول الوحيدة لمفاتيح الرجوع
+        // لـQZ لو حصلت مشكلة — واللي اتطلب بالنص إنها تفضل موجودة.
+        [...PRINT_TWEAK_GROUPS, { key: 'hidden', title: '🗄️ مفاتيح مخبّية في الجهاز', hint: 'مالهاش لازمة في الوضع العادي — موجودة هنا للرجوع لـQZ لو حصلت مشكلة.' }]
+          .map((g) => {
+            const list = PRINT_TWEAKS.filter((t) => t.group === g.key);
+            if (!list.length) return '';
+            return `
+        <div style="font-size:11.5px; font-weight:600; margin:12px 0 2px; padding-top:6px;
+                    border-top:2px solid var(--border);">${escapeHTML(g.title)}</div>
+        <div style="font-size:10px; color:var(--text-muted); line-height:1.6; margin-bottom:4px;">${escapeHTML(g.hint)}</div>
+        ${list.map((t) => `
         <div style="display:flex; gap:8px; align-items:center; padding:5px 0; border-bottom:1px solid var(--border);">
-          <span style="flex:1; min-width:0; font-size:12px;">${escapeHTML(t.label)}</span>
+          <span style="flex:1; min-width:0; font-size:12px;">${escapeHTML(t.label)}${printTweakBadgeHTML(t.key)}</span>
           <select class="input" style="width:110px; padding:4px 6px; font-size:12px;" data-ps-tweak="${escapeHTML(t.key)}">
             <option value="">زي ما هي</option>
             <option value="1">مفتوح</option>
             <option value="0">مقفول</option>
           </select>
-        </div>`
-      ).join('')}
+        </div>`).join('')}`;
+          })
+          .join('')
+      }
 
       <div id="ps-warn" style="font-size:11.5px; line-height:1.7; margin:10px 0; display:none;"></div>
       <div id="ps-status" style="font-size:12px; min-height:16px; margin-bottom:8px;"></div>
@@ -728,6 +775,8 @@ function openPrintSettingsDialog(preselectDeviceId) {
         lead: has(sh.lead) ? sh.lead : PRINT_LEAD_DEFAULT,
         pace: has(sh.pace) ? sh.pace : PRINT_PACE_MS_PER_LABEL,
         nameMm: has(sh.nameMm) ? sh.nameMm : PRINT_NAME_MM_DEFAULT,
+        codeMm: has(sh.codeMm) ? sh.codeMm : PRINT_CODE_MM_DEFAULT,
+        priceMm: has(sh.priceMm) ? sh.priceMm : PRINT_PRICE_MM_DEFAULT,
         x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
         tweaks: sh.tweaks || {},
         fromDefault,
@@ -743,6 +792,8 @@ function openPrintSettingsDialog(preselectDeviceId) {
       lead: ps.lead ?? PRINT_LEAD_DEFAULT,
       pace: ps.pace ?? PRINT_PACE_MS_PER_LABEL,
       nameMm: ps.nameMm ?? PRINT_NAME_MM_DEFAULT,
+      codeMm: ps.codeMm ?? PRINT_CODE_MM_DEFAULT,
+      priceMm: ps.priceMm ?? PRINT_PRICE_MM_DEFAULT,
       x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
       tweaks: ps.tweaks || {},
     };
@@ -777,6 +828,8 @@ function openPrintSettingsDialog(preselectDeviceId) {
       lead: num('ps-lead'),
       pace: num('ps-pace'),
       nameMm: num('ps-namemm'),
+      codeMm: num('ps-codemm'),
+      priceMm: num('ps-pricemm'),
       align: Object.keys(align).length ? align : undefined,
       tweaks: Object.keys(tweaks).length ? tweaks : undefined,
       labelPrinter: pick('ps-label-printer'),
@@ -799,6 +852,8 @@ function openPrintSettingsDialog(preselectDeviceId) {
     ph('ps-lead', cur.lead);
     ph('ps-pace', cur.pace);
     ph('ps-namemm', cur.nameMm);
+    ph('ps-codemm', cur.codeMm);
+    ph('ps-pricemm', cur.priceMm);
     ph('ps-x', cur.x);
     ph('ps-y', cur.y);
     ph('ps-shrink', cur.shrink);

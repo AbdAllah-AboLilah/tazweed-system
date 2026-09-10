@@ -552,17 +552,127 @@ function renderLabelPNG(cat, sizeOptions) {
       if (!chosen || fit.size > chosen.size) chosen = { ...fit, maxLines, byHeight };
     }
 
-    const nameLines = chosen.lines.length;
+    let nameLines = chosen.lines.length;
+    let nameLineList = chosen.lines;
     const byHeight = contentH / ((nameLines + otherLines) * LINE);
     // ⭐ المقاسات بأعداد صحيحة من نقط الطابعة.
     // السبب: المقاس الكسري بيخلّي عمود الحرف يقع بين نقطتين، فمرة بيطلع
     // نقطة ومرة نقطتين — وده اللي بيدّي إحساس إن الخط "مش مظبوط".
-    const nameSize = Math.max(6, Math.round(Math.min(chosen.size, byHeight, capPx)));
-    const codeSize = Math.max(6, Math.round(Math.min(byHeight, nameSize * 0.9)));
-    const priceSize = Math.max(6, Math.round(Math.min(byHeight, nameSize * 1.15)));
-    const oldPriceSize = Math.max(5, Math.round(priceSize * 0.8));
+    let nameSize = Math.max(6, Math.round(Math.min(chosen.size, byHeight, capPx)));
+    let codeSize = Math.max(6, Math.round(Math.min(byHeight, nameSize * 0.9)));
+    let priceSize = Math.max(6, Math.round(Math.min(byHeight, nameSize * 1.15)));
 
-    const lineH = contentH / (nameLines + otherLines);
+    // ============================================================
+    // 📏 مقاسات وأماكن ثابتة — تحت نفس مفاتيح مسار النص
+    // ============================================================
+    // ⚠️⚠️ العطل اللي بيتحل هنا، اتبلّغ بالنص: "عاوز بردوا اعرف اوبشن
+    // تثبيت الاسم بيشتغل ازاي لان لحد دلوقتي مش شغال".
+    //
+    // والسبب إن كود المقاسات الثابتة كان في مسار **النص** بس
+    // (buildLabelHTML). أول ما مفتاح "ابعت الملصق كنص" اتقفل،
+    // الملصقات راحت لمسار الصورة — والمسار ده مكانش فيه ولا إشارة
+    // واحدة للمفاتيح دي. عدّيناها: النص بيذكرهم 8 مرات، والصورة صفر.
+    //
+    // --- المشكلة اللي المسار ده فيه، أوضح من مسار النص ---
+    // التلاتة مربوطين في رقم واحد:
+    //     codeSize  = nameSize × 0.9
+    //     priceSize = nameSize × 1.15
+    //     lineH     = contentH / (سطور الاسم + الباقي)
+    // يعني اسم طويل → nameSize بينزل → **الرقم والسعر بينزلوا معاه**،
+    // و**أماكن السطور بتتحرك** كمان. فكل ملصق شكله غير التاني.
+    //
+    // --- الحل: شرايح محجوزة ---
+    // الرقم والسعر بياخدوا مقاسهم من الخانة (ثابت مهما كان الاسم)،
+    // وشريحة كل واحد فيهم بتتحسب من مقاسه هو — مش من عدد سطور الاسم.
+    // والاسم بياخد الباقي، بمقاسه الثابت من خانته.
+    //
+    // ⚠️ الشرط `fixedNameSize || fixedLabelSizes` نفس مسار النص
+    // بالحرف — مفتاح الاسم بيشغّل التثبيت كله، عشان اللي يفتحه لوحده
+    // يشوف أثر (الدرس ده اتاخد في v0.78.3).
+    const fixedOn =
+      typeof getPrintTweak === 'function' &&
+      (getPrintTweak('fixedNameSize') || getPrintTweak('fixedLabelSizes'));
+
+    let lineH = contentH / (nameLines + otherLines);
+    let nameBandH = lineH * nameLines;
+    let codeBandH = lineH;
+    let priceBandH = lineH;
+
+    if (fixedOn) {
+      const mm = (v) => Math.max(6, Math.round(mmToDots(v)));
+      const wantCode = mm(typeof getPrintCodeMm === 'function' ? getPrintCodeMm() : 2.4);
+      const wantPrice = mm(typeof getPrintPriceMm === 'function' ? getPrintPriceMm() : 2.6);
+      const wantName = mm(typeof getPrintNameMm === 'function' ? getPrintNameMm() : 1.9);
+
+      // ============================================================
+      // ⚠️⚠️ EPS مش تجميل — من غيرها التثبيت مابيشتغلش خالص
+      // ============================================================
+      // fitCanvasFont بتعمل بحث ثنائي بين 3 والسقف، و**عمرها ما
+      // بتوصل للسقف نفسه**: كل لفة بتقرّب من تحت بس. فلو الاسم داخل
+      // بالظبط عند المقاس المطلوب، الدالة بترجّع رقم أقل منه بشعرة —
+      // ومقارنة `>= المطلوب` بتفشل، والتثبيت مايشتغلش أبدًا.
+      //
+      // الفرق ده حوالي جزء من مليون من النقطة (المدى ÷ 2^22)، يعني
+      // مالوش أي وجود على الورق. وEPS = جزء من مية من النقطة: أكبر
+      // من بقايا البحث بكتير، وأصغر من أي فرق تشوفه بعينك.
+      const EPS = 0.01;
+      // ⚠️ `Math.min` مش زيادة: لو النص أعرض من العمود، التصغير إجباري
+      // وإلا بيتقص على الورق. نفس الحارس اللي في مسار النص بالظبط.
+      //
+      // ⚠️⚠️ و`Math.round` لازمة: المقاس الكسري بيخلّي عمود الحرف يقع
+      // بين نقطتين فيطلع مرة نقطة ومرة نقطتين — وده بالظبط الإحساس
+      // بالنغمشة. باقي المقاسات في الدالة دي مدوّرة، فلو سبنا دول
+      // كسريين نبقى كسرنا القاعدة في المسار اللي المفروض بيوحّد.
+      const codeFit = fitCanvasFont(ctx, code, textW, 1, LABEL_WEIGHT, FAMILY, wantCode).size;
+      codeSize = Math.max(6, Math.round(Math.min(wantCode, codeFit + EPS)));
+      priceSize = showPrice ? wantPrice : 0;
+
+      // الشرايح بتتحسب من مقاس كل واحد، مش من عدد سطور الاسم.
+      codeBandH = Math.round(codeSize * LINE);
+      priceBandH = showPrice ? Math.round(priceSize * LINE) : 0;
+      nameBandH = contentH - codeBandH - priceBandH;
+
+      // أقل عدد سطور الاسم يدخل فيه **عند المقاس الثابت** — العرض
+      // والارتفاع مع بعض.
+      //
+      // ⚠️⚠️ الشرطين لازم يبقوا مع بعض: أول نسخة في مسار النص كانت
+      // بتشوف العرض بس، فاسم طويل "دخل" في 3 سطور بالعرض والمساحة
+      // الرأسية مابتسمحش — فنزل لأوحش رقم في الجدول كله.
+      let picked = 0;
+      for (let n = 1; n <= 3; n++) {
+        const widthOK =
+          fitCanvasFont(ctx, name, textW, n, LABEL_WEIGHT, FAMILY, wantName).size >= wantName - EPS;
+        const heightOK = nameBandH / (n * LINE) >= wantName - EPS;
+        if (widthOK && heightOK) { picked = n; break; }
+      }
+
+      if (picked) {
+        nameSize = wantName;
+        const fit = fitCanvasFont(ctx, name, textW, picked, LABEL_WEIGHT, FAMILY, wantName);
+        nameLineList = fit.lines;
+        nameLines = fit.lines.length;
+      } else {
+        // ⚠️⚠️ الاسم مايدخلش عند المقاس المطلوب حتى في 3 سطور →
+        // بنرجع للطريقة العادية: نجرّب التقسيمات ونختار اللي بتطلّع
+        // أكبر خط. **مانقصّرش الاسم ومانقصّش حاجة** — متفقين على ده.
+        //
+        // وتثبيت السطور على 3 هنا كان بيطلّع أصغر خط ممكن، وده العكس
+        // بالظبط (اتمسك في مسار النص قبل كده).
+        let pick = null;
+        for (let n = 1; n <= 3; n++) {
+          const cap = Math.min(capPx, nameBandH / (n * LINE));
+          const fit = fitCanvasFont(ctx, name, textW, n, LABEL_WEIGHT, FAMILY, cap);
+          const size = Math.min(fit.size, cap);
+          if (!pick || size > pick.size) pick = { size, lines: fit.lines };
+        }
+        nameSize = Math.max(6, Math.round(pick.size));
+        nameLineList = pick.lines;
+        nameLines = pick.lines.length;
+      }
+      lineH = nameLines > 0 ? nameBandH / nameLines : nameBandH;
+    }
+
+    const oldPriceSize = Math.max(5, Math.round(priceSize * 0.8));
     let y = top + topOffset;
 
     ctx.fillStyle = '#000000';
@@ -578,10 +688,14 @@ function renderLabelPNG(cat, sizeOptions) {
     // بنطبع على 203 نقطة/بوصة. الطريقة الاحترافية إن **الطابعة ترسم النص
     // بخطها الداخلي** (أوامر TSPL) بدل ما نبعتلها صورة — شوف
     // buildTSPLFontSample تحت.
-    y += drawLines(ctx, chosen.lines, nameSize, LABEL_WEIGHT, FAMILY, textCx, y, lineH);
+    // ⚠️ `nameLineList` مش `chosen.lines`: التثبيت ممكن يكون أعاد
+    // تقسيم الاسم على عدد سطور تاني عند المقاس المطلوب.
+    y += drawLines(ctx, nameLineList, nameSize, LABEL_WEIGHT, FAMILY, textCx, y, lineH);
 
-    drawLines(ctx, [code], codeSize, LABEL_WEIGHT, FAMILY, textCx, y, lineH);
-    y += lineH;
+    // ⚠️ الرقم والسعر بياخدوا **شريحتهم** هما، مش سطر من تقسيمة الاسم.
+    // ده اللي بيخلي مكانهم ثابت مهما كان الاسم سطر ولا تلاتة.
+    drawLines(ctx, [code], codeSize, LABEL_WEIGHT, FAMILY, textCx, y, codeBandH);
+    y += codeBandH;
 
     if (showPrice) {
       const sell = `${cat.sellingPrice} L.E`;
@@ -599,7 +713,7 @@ function renderLabelPNG(cat, sizeOptions) {
       const sellW = ctx.measureText(sell).width;
       const totalW = origW + (orig ? gap : 0) + sellW;
       let x = textCx - totalW / 2;
-      const cy = y + lineH / 2;
+      const cy = y + priceBandH / 2;
 
       if (orig) {
         ctx.font = `normal ${oldPriceSize}px ${FAMILY}`;

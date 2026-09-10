@@ -23,6 +23,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
   // ---------- 1) الكود ----------
   const qr = await p.evaluate(async () => {
+    // ⚠️⚠️ v0.88.0: `htmlLabels` بقى مقفول افتراضيًا (الملصق بيروح
+    // **صورة** للبرنامج المساعد). الفحص ده بيقرا **علامات في الـHTML**
+    // بتاعة مسار النص، فبيقول المفتاح صراحةً بدل ما يعتمد على
+    // الافتراضي. الافتراضي الجديد متغطّي في print-unify و quarter-label.
+    try { localStorage.setItem('tazweed_qz_tweak_htmlLabels', '1'); } catch (e) {}
     const opts = { pageWidthMm: 38, pageHeightMm: 25, halves: 2 };
     const withCode = { itemName: 'خمار اسدال بكم', barcodeNumber: '28144', sellingPrice: 90 };
     const noCode = { itemName: 'خمار اسدال بكم', barcodeNumber: '', sellingPrice: 90 };

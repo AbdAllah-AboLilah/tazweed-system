@@ -165,6 +165,11 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
   // ---------- 4) طباعة مسمّى ----------
   const custom = await p.evaluate(async () => {
+    // ⚠️⚠️ v0.88.0: `htmlLabels` بقى مقفول افتراضيًا (الملصق بيروح
+    // **صورة** للبرنامج المساعد). الفحص ده بيقرا **علامات في الـHTML**
+    // بتاعة مسار النص، فبيقول المفتاح صراحةً بدل ما يعتمد على
+    // الافتراضي. الافتراضي الجديد متغطّي في print-unify و quarter-label.
+    try { localStorage.setItem('tazweed_qz_tweak_htmlLabels', '1'); } catch (e) {}
     window.__jobs = [];
     document.getElementById('tool-print-btn').click();
     document.getElementById('print-custom-btn').click();

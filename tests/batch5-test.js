@@ -717,6 +717,14 @@ function qrClearance(dataUrl) {
     const seen = [];
     const orig = window.showPrintProgress;
     window.showPrintProgress = (t) => { seen.push(t); return orig(t); };
+    // ⚠️⚠️ v0.88.0: الافتراضي بقى **صورة**، وصورة الملصق أصغر من
+    // الـHTML بتاعه — فـ100 ملصق بقوا 5 رسايل بدل 10+. الرقم اللي
+    // تحت (>= 10) اتقاس على **مسار النص**، فبنقول المفتاح صراحةً
+    // عشان الفحص يفضل يقيس نفس الحاجة اللي اتكتب عشانها.
+    //
+    // ⚠️ والحارس الحقيقي (كل رسالة تحت حد الـ48 كيلو) شغّال في
+    // المسارين — وهو اللي العطل الأصلي كان فيه.
+    try { localStorage.setItem('tazweed_qz_tweak_htmlLabels', '1'); } catch (e) {}
     for (const mode of ['normal', 'quarter']) {
       msgs.length = 0;
       state.printCart = [{ key: 'a', product: prod, qty: 100, mode }];
