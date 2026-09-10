@@ -2558,6 +2558,64 @@ const PRINT_TWEAKS = [
   },
 ];
 
+// ============================================================
+// 🧭 كل مفتاح بيخص مين — البرنامج المساعد ولا QZ Tray
+// ============================================================
+// اتطلب بالنص: "اكتب اسم الاعداد بيخص مين المساعد ولا qz".
+//
+// السبب إن ده لازم: المفاتيح مقسّمة مجموعات خلاص، بس المجموعة
+// مابتقولش إن مفتاح زي "أبيض وأسود صريح" **بيتجاهل تمامًا** لما
+// الطبعة تروح للمساعد — المساعد مابيعديش على تعريف الويندوز أصلًا.
+// فاللي بيظبط مفتاح QZ وهو شغّال على المساعد بيستنى فرق مش هييجي.
+//
+//   helper = بيغيّر الطريق للبرنامج المساعد
+//   qz     = بيخص QZ بس، ومالوش أي أثر لما الطبعة تروح للمساعد
+//   both   = بيغيّر شكل الملصق نفسه مش الطريق، فبيشتغل في الحالتين
+//
+// ⚠️ فيه فحص بيتأكد إن **كل** مفتاح في PRINT_TWEAKS له سطر هنا،
+// عشان أي مفتاح جديد مايتضافش من غير ما يتقال بيخص مين.
+const PRINT_TWEAK_ROUTE = {
+  sheetHelper: 'helper',
+  labelHelper: 'helper',
+
+  sheetRaw: 'qz',
+  sheetImage: 'qz',
+  htmlLabels: 'qz',
+  noScale: 'qz',
+  blackwhite: 'qz',
+  sharp: 'qz',
+  rasterize: 'qz',
+  fastCopies: 'qz',
+
+  quarterImage: 'both',
+  gradeImage: 'both',
+  fixedNameSize: 'both',
+  fixedLabelSizes: 'both',
+  lightQR: 'both',
+  tightQuarter: 'both',
+  showPrintRoute: 'both',
+};
+
+// ⚠️ الألوان كلها من متغيّرات الثيم — اللون المكتوب بالإيد بيبوظ
+// الوضع الليلي (فحص appearance-test بيمسك ده).
+const PRINT_TWEAK_ROUTE_BADGE = {
+  helper: { text: '📦 المساعد', bg: 'var(--surface-muted)', fg: 'var(--ok)' },
+  qz: { text: '🖨️ QZ Tray', bg: 'var(--warning-bg)', fg: 'var(--warning-text)' },
+  both: { text: 'الاتنين', bg: 'var(--surface-muted)', fg: 'var(--text-muted)' },
+};
+
+// شارة صغيرة جنب اسم المفتاح. بترجّع نص فاضي لو المفتاح مش في
+// القايمة — الشارة زيادة مفيدة، عمرها ما توقف عرض المفتاح نفسه.
+function printTweakBadgeHTML(key) {
+  const badge = PRINT_TWEAK_ROUTE_BADGE[PRINT_TWEAK_ROUTE[key]];
+  if (!badge) return '';
+  return (
+    `<span style="display:inline-block; font-size:9px; font-weight:600; padding:1px 6px;` +
+    ` border-radius:999px; margin-inline-start:6px; white-space:nowrap;` +
+    ` background:${badge.bg}; color:${badge.fg};">${escapeHTML(badge.text)}</span>`
+  );
+}
+
 const PRINT_TWEAK_PREFIX = 'tazweed_qz_tweak_';
 
 function getPrintTweak(key) {
@@ -4548,6 +4606,15 @@ async function openPrinterSettings() {
             <strong>واحد بس</strong> وجرّب. وهي كمان
             <strong>☁️ بتتحفظ لكل الأجهزة</strong>.
           </div>
+          <div style="font-size:10px; color:var(--text-muted); line-height:1.9; margin-bottom:10px;
+                      background:var(--surface-muted); padding:8px; border-radius:8px;">
+            <strong>الشارة جنب كل مفتاح بتقول بيخص مين:</strong>
+            <br>${printTweakBadgeHTML('sheetHelper')} بيغيّر الطريق للبرنامج المساعد.
+            <br>${printTweakBadgeHTML('noScale')} بيخص QZ بس —
+            <strong>بيتجاهل تمامًا</strong> لما الطبعة تروح للمساعد.
+            <br>${printTweakBadgeHTML('lightQR')} بيغيّر شكل الملصق نفسه مش الطريق،
+            فبيشتغل في الحالتين.
+          </div>
           ${PRINT_TWEAK_GROUPS.map(
             (g) => `
             <div style="font-size:12px; font-weight:600; margin:14px 0 2px; padding-top:8px;
@@ -4561,7 +4628,7 @@ async function openPrinterSettings() {
               <input type="checkbox" data-tweak="${escapeHTML(t.key)}" ${getPrintTweak(t.key) ? 'checked' : ''}
                      style="margin-top:2px; flex:0 0 auto;" />
               <span>
-                <span style="display:block;">${escapeHTML(t.label)}</span>
+                <span style="display:block;">${escapeHTML(t.label)}${printTweakBadgeHTML(t.key)}</span>
                 <span style="display:block; font-size:10px; color:var(--text-muted); line-height:1.6;">${escapeHTML(t.hint)}</span>
               </span>
             </label>${

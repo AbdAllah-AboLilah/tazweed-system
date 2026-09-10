@@ -158,6 +158,46 @@ check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا �
 
     document.getElementById('helper-dl-close').click();
     out.closedDialog = !document.getElementById('helper-dl-link');
+
+    // ============================================================
+    // ⭐⭐⭐⭐⭐ الزرار نفسه — مش النافذة
+    // ============================================================
+    // اتبلّغ بالنص: "بردوا مفيش لينك لما بضغط علي برنامج السماعد
+    // والزرار مش بيعمل حاجه ولا بيدي اي رد فعل".
+    //
+    // والسبب إن المستمع كان مربوط جوّه updatePrintResults — الدالة
+    // اللي بتشتغل **بس** لما تكتب حرف في خانة البحث. فأول ما تفتح
+    // الشاشة وتدوس، مافيش أي مستمع خالص.
+    //
+    // ⚠️⚠️ وكل الفحوص اللي فاتت عدّت وهو بايظ، لأنها كانت بتنده على
+    // openHelperDownloadDialog() **مباشرة** بدل ما تدوس الزرار. الفحص
+    // ده بيرسم الشاشة الحقيقية ويدوس، من غير ما يكتب أي حاجة في البحث.
+    document.body.innerHTML = '<div id="app"></div>';
+    state.profile = { id: 'me', role: 'owner' };
+    state.printSearch = '';
+    document.getElementById('app').innerHTML = printWorkHTML();
+    attachPrintScreenEvents();
+
+    const realDialog = window.openHelperDownloadDialog;
+    let opens = 0;
+    window.openHelperDownloadDialog = () => { opens++; };
+
+    const btn = document.getElementById('print-helper-dl-btn');
+    out.btnExists = !!btn;
+    if (btn) btn.click();
+    out.opensNoTyping = opens;
+
+    // ⚠️ وكمان: المستمع مايتكررش. الربط القديم كان بيضيف مستمع مع
+    // **كل حرف** تكتبه، فبعد شوية كانت الضغطة الواحدة تفتح النافذة
+    // كذا مرة. بنقلّد الكتابة بنداء updatePrintResults كام مرة.
+    opens = 0;
+    if (typeof updatePrintResults === 'function') {
+      updatePrintResults(); updatePrintResults(); updatePrintResults();
+    }
+    if (btn) btn.click();
+    out.opensAfterTyping = opens;
+
+    window.openHelperDownloadDialog = realDialog;
     window.fetch = realFetch;
     return out;
   });
@@ -193,6 +233,25 @@ check(`⭐⭐ نسخة الـSW (${swVer}) مش أقدم من 0.81.0 (وإلا �
   check('⭐⭐ ومن الكمبيوتر بيدي رد فعل كمان',
     !!r.pcNotice && /التحميل بدأ/.test(r.pcNotice.m), r.pcNotice);
   check('⭐ والنافذة بتتقفل', r.closedDialog === true);
+
+  check('⭐⭐⭐⭐⭐ الزرار موجود في الشاشة المرسومة', r.btnExists === true, r.btnExists);
+  check('⭐⭐⭐⭐⭐ والضغطة بتفتح النافذة **من غير ما تكتب في البحث الأول**',
+    r.opensNoTyping === 1, r.opensNoTyping);
+  check('⭐⭐⭐⭐ والمستمع مايتكررش بعد تحديث النتايج (ضغطة = نافذة واحدة)',
+    r.opensAfterTyping === 1, r.opensAfterTyping);
+
+  // ⚠️ حارس على مكان الربط نفسه، مش على النتيجة بس: لو حد رجّعه
+  // لـupdatePrintResults تاني، الفحص ده بيمسكها وبيقول ليه.
+  const scr = fs.readFileSync(path.join(root, 'js/print-screen.js'), 'utf8');
+  const inResults = scr.slice(
+    scr.indexOf('function updatePrintResults'),
+    scr.indexOf('function attachPrintDeviceEvents')
+  );
+  check('⭐⭐⭐⭐ ومربوط بره updatePrintResults (الدالة اللي بتشتغل مع الكتابة بس)',
+    inResults.indexOf("getElementById('print-helper-dl-btn')") === -1);
+  const inScreen = scr.slice(scr.indexOf('function attachPrintScreenEvents'));
+  check('⭐⭐⭐⭐ ومربوط جوّه attachPrintScreenEvents مع باقي زراير الأدوات',
+    inScreen.indexOf("getElementById('print-helper-dl-btn')") !== -1);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();
