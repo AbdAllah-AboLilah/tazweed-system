@@ -229,6 +229,59 @@ async function printSheetViaHelper(html) {
   }
 }
 
+// ============================================================
+// 📄 أكتر من ورقة في الطلب الواحد
+// ============================================================
+// ⚠️⚠️ العطل اللي بيتحل، اتبلّغ بالنص: "في حساب موظف عادي بيبعت امر
+// طباعة ورقة التزويد بيجي معاينه علي جهاز الكمبيوتر ... ولكن من هاتف
+// ثاني من حساب اخر حساب مشرف بيبعت امر الطباعة الورقة بتخرج من غير
+// المعاينه".
+//
+// السبب: الشرط على الجهاز المستقبِل كان `list.length === 1`، فأي طلب
+// فيه أكتر من ورقة **مايوصلش للبرنامج المساعد خالص** — يروح لـQZ،
+// ولو فشل يفتح نافذة المتصفح (اللي بتقص الورقة).
+//
+// اتقاس: ورقة واحدة → المساعد اتنده مرة، صفر نافذة متصفح.
+//        تلات ورقات → المساعد **صفر**، ونافذة متصفح واحدة.
+//
+// وليه الفرق بين الحسابين: الورقة بتتقسّم أوتوماتيك لما حجمها يعدّي
+// RESTOCK_SAFE_BYTES، وحجمها بيختلف من حساب لحساب (سطر "آخر مرة
+// اتطبعت" بيبان لبعض الحسابات، والفئات المسموح بيها بتختلف). فحساب
+// ورقته بتتقسّم وحساب لأ — ونفس الجهاز بيتصرف تصرفين.
+//
+// ⚠️⚠️ القاعدة اللي بتحكم الدالة دي: **أول ما ورقة تخرج من الماكينة،
+// ممنوع الرجوع لنافذة المتصفح** — الرجوع معناه إن الورق اللي طلع
+// يتطبع تاني. نفس قاعدة الملصقات في printLabelsViaHelper بالظبط.
+async function printSheetsViaHelper(list, onProgress) {
+  if (typeof getPrintTweak !== 'function' || !getPrintTweak('sheetHelper')) return false;
+  if (!Array.isArray(list) || !list.length) return false;
+  // كل ورقة لازم يكون معاها HTML، وإلا مانبدأش أصلًا.
+  if (!list.every((j) => j && typeof j.html === 'string' && j.html)) return false;
+
+  let done = 0;
+  for (let i = 0; i < list.length; i++) {
+    const ok = await printSheetViaHelper(list[i].html);
+    if (!ok) {
+      // ⚠️ الفشل **قبل** أول ورقة = رجوع نضيف لـQZ. مافيش ورق اتحرق.
+      if (done === 0) return false;
+      // ⚠️⚠️ الفشل **بعد** ما ورق خرج = ممنوع الرجوع. بنقول اللي حصل
+      // بالأرقام عشان اللي واقف عند الماكينة يعرف يكمّل بإيده.
+      helperFail(
+        `اتطبعت ${done} ورقة من ${list.length}، والورقة رقم ${i + 1} وقفت. ` +
+          'الباقي مااتطبعش — اطبعه لوحده، ومتعيدش الطبعة كلها.',
+        true
+      );
+      return true;
+    }
+    done++;
+    if (typeof onProgress === 'function') onProgress(done, list.length);
+  }
+  if (list.length > 1) {
+    setPrintOutcome(true, `اتطبعت ${list.length} ورقة من البرنامج المساعد.`);
+  }
+  return true;
+}
+
 // بتكتب السبب في مكانين: تنبيه على الشاشة، و**نتيجة الطبعة** — عشان
 // اللي بعت من التليفون يشوف السبب في حالة الطلب بدل "فشلت" الغامضة.
 function helperFail(reason, loud) {
@@ -426,7 +479,13 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, s
   // هيوصل له أصلًا (tryPrintViaQZ بتقف على ensureQZConnected).
   //
   // ⚠️ وورقة التزويد بس: الملصق سايب زي ما هو، اتطلب كده بالنص.
-  if (type === 'restock' && (await printSheetViaHelper(html))) return true;
+  //
+  // ⚠️⚠️ `normalizePrintJobs` مش زيادة: ورقة التزويد المقسّمة بتوصل
+  // هنا **مصفوفة** مش نص (bundle.jobs)، والنسخة القديمة كانت بتبعت
+  // المصفوفة لـrenderSheetImage اللي بتاخد نص — فبترجّع false والطبعة
+  // تروح لـQZ وبعدها لنافذة المتصفح المقصوصة. نفس العطل اللي كان في
+  // المسار الجاي من بعيد بالظبط.
+  if (type === 'restock' && (await printSheetsViaHelper(normalizePrintJobs(html)))) return true;
   // ⚠️ نفس المكان بالظبط ولنفس السبب: البرنامج **بديل** لـQZ مش إضافة
   // عليه. والشرط `type === 'label'` صريح مش `!== 'restock'` — الاتنين
   // دول كل الأنواع الموجودة، بس الصريح مايتكسرش لو اتضاف نوع تالت.
@@ -846,15 +905,12 @@ async function executePrintJob(jobId, job) {
     //
     // ⚠️ والقراءة من `list[0].html` مش من الطلب: الطلب الجاي من بعيد
     // فيه الـHTML بعد ما اتوحّد، وده اللي renderSheetImage بتاخده.
-    if (
-      job.type === 'restock' &&
-      list.length === 1 &&
-      list[0] &&
-      typeof list[0].html === 'string' &&
-      (await printSheetViaHelper(list[0].html))
-    ) {
+    // ⚠️ `printSheetsViaHelper` بتاخد **أي عدد** ورقات. الشرط القديم
+    // كان `list.length === 1` وده كان بيقفل الباب على أي ورقة مقسّمة
+    // (الشرح الكامل عند الدالة نفسها).
+    if (job.type === 'restock' && (await printSheetsViaHelper(list, onProgress))) {
       printedViaQZ = true; // اتطبعت فعلًا — مانرجعش لنافذة المتصفح
-      onProgress(1, 1);
+      onProgress(list.length, list.length);
     } else if (
       job.type === 'label' &&
       (await printLabelsViaHelper(job.type, list, job.sizeOptions, onProgress))
