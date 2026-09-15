@@ -4911,6 +4911,87 @@ function getDeviceId() {
   }
 }
 
+// ============================================================
+// 🆔 معرّف الماكينة من البرنامج المساعد
+// ============================================================
+// العطل اللي بيتحل، اتطلب بالنص: "انا شغال علي جهاز كمبيوتر ب حساب
+// معين في متصفح ضيف مثلا هيحسب النظام ان ده جهاز ويحطه في الاجهزة ولو
+// فتحت من متصفح خاص النظام بيطلب بردوا ان اعمل اعدادات الطابعة كده
+// جهاز واحد واخد انه اتنين جهاز".
+//
+// السبب: المعرّف فوق رقم عشوائي في ذاكرة المتصفح. وذاكرة كل بروفايل
+// منفصلة، فنفس الكمبيوتر بيتحسب كذا جهاز وكل واحد عايز إعداداته.
+//
+// والبرنامج المساعد شغّال على الماكينة نفسها، فهو الوحيد اللي يقدر
+// يدّي رقم ثابت للكمبيوتر مهما اتغيّر المتصفح.
+//
+// ⚠️⚠️ الترحيل هو أخطر جزء هنا. تغيير المعرّف معناه إن إعدادات الجهاز
+// المحفوظة في السحابة (deviceSettings) بقت على مفتاح تاني — يعني
+// **ضايعة**. فبننقلها، وبنشيل كارت الجهاز القديم عشان مايفضلش شبح في
+// قايمة الأجهزة.
+//
+// ⚠️ والمتصفح اللي البرنامج مش شغّال عنده بيفضل زي ما هو بالظبط: رقمه
+// العشوائي ما اتلمسش. مافيش أي تغيير على الأجهزة اللي من غير البرنامج.
+async function adoptMachineId() {
+  let st = null;
+  try {
+    if (typeof helperStatus !== 'function') return;
+    st = await helperStatus();
+  } catch (err) {
+    return; // البرنامج مش شغّال — عادي تمامًا
+  }
+  if (!st || !st.app) return;
+
+  // 🏷️ الاسم المكتوب في البرنامج بيكسب: هو المكان الوحيد اللي بيدّي
+  // اسم واحد لكل المتصفحات على الماكينة. (اتطلب بالنص.)
+  if (st.deviceName && typeof saveDeviceName === 'function') {
+    try {
+      if (getDeviceName() !== st.deviceName) saveDeviceName(st.deviceName);
+    } catch (err) {
+      /* تجاهل */
+    }
+  }
+
+  const machineId = String(st.machineId || '');
+  if (!machineId) return;
+
+  let oldId = '';
+  try {
+    oldId = localStorage.getItem(DEVICE_ID_KEY) || '';
+  } catch (err) {
+    return;
+  }
+  if (oldId === machineId) return;
+
+  try {
+    localStorage.setItem(DEVICE_ID_KEY, machineId);
+  } catch (err) {
+    return;
+  }
+  if (!oldId) return; // جهاز جديد خالص — مافيش حاجة تترحّل
+
+  // ---- ترحيل إعدادات الجهاز ----
+  try {
+    if (typeof db === 'undefined' || !db) return;
+    const oldRef = db.collection(DEVICE_SETTINGS).doc(oldId);
+    const newRef = db.collection(DEVICE_SETTINGS).doc(machineId);
+    const [oldSnap, newSnap] = await Promise.all([oldRef.get(), newRef.get()]);
+    // ⚠️ مابنكتبش فوق إعداد موجود: لو متصفح تاني على نفس الماكينة سبقنا
+    // وكتب إعداداته، بتاعه هو الصح — إحنا اللي بنلحق بيه.
+    if (oldSnap.exists && !newSnap.exists) {
+      await newRef.set(oldSnap.data(), { merge: true });
+    }
+    if (oldSnap.exists) await oldRef.delete().catch(() => {});
+    // وكارت الجهاز القديم بيتشال عشان مايفضلش شبح في قايمة الأجهزة
+    await db.collection('printStations').doc(oldId).delete().catch(() => {});
+    console.log('اتنقل معرّف الجهاز للبرنامج المساعد:', oldId, '→', machineId);
+  } catch (err) {
+    // ⚠️ الترحيل فشل = الإعدادات القديمة سايبة مكانها والجديد فاضي.
+    // مش ممتاز، بس **مش خسارة**: الإعدادات بتتظبط من الشاشة في ثانية.
+    console.warn('تعذّر ترحيل إعدادات الجهاز:', err);
+  }
+}
+
 function getDeviceName() {
   try {
     return localStorage.getItem(DEVICE_NAME_KEY) || '';
@@ -6225,6 +6306,18 @@ function init() {
       if (sessionStarted) return;
       sessionStarted = true;
 
+      // ============================================================
+      // ⚠️⚠️ معرّف الماكينة **قبل** أي اشتراك
+      // ============================================================
+      // subscribePrintJobs و startStationHeartbeat الاتنين بيستخدموا
+      // getDeviceId(). لو اشتركوا بالرقم العشوائي القديم وبعدين
+      // المعرّف اتغيّر، الجهاز هيسمع على طلبات مالهاش لازمة ويسجّل
+      // نفسه كارتين. فالتبني لازم يخلص الأول.
+      //
+      // ⚠️ ومابيأخّرش الدخول أكتر من مهلة الفحص (1.2 ثانية)، والجهاز
+      // اللي مافيهوش البرنامج بيعدّي على طول من غير أي انتظار زيادة.
+      adoptMachineId().catch(() => {}).then(() => {
+
       // موظف الطباعة مايحتاجش اشتراكات المخزن (فئات/نواقص/سجل) — شاشته
       // بتقرا الأصناف بس. لكنه محتاج أجهزة الطباعة عشان يقدر يبعت للكاشير.
       if (isPrintOperator(state.profile)) {
@@ -6255,6 +6348,8 @@ function init() {
       subscribeAllDeviceSettings();
       subscribePrintJobs();
       startStationHeartbeat();
+
+      });
     });
   });
 }

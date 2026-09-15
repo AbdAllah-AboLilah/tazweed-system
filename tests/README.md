@@ -189,6 +189,7 @@ node tests/helper-probe-test.js
 node tests/sheet-hidden-test.js
 node tests/last-print-test.js
 node tests/stale-job-test.js
+node tests/machine-id-test.js
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
