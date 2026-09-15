@@ -194,6 +194,7 @@ node tests/job-claim-test.js
 node tests/sheet-autoprint-test.js
 node tests/open-fixes-test.js
 node tests/log-paging-test.js
+node tests/label-pad-test.js
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
