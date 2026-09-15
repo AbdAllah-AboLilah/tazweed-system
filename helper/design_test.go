@@ -388,3 +388,160 @@ func TestQRLibMatchesSystem(t *testing.T) {
 		t.Fatal("اللي متحفور في البرنامج مش هو اللي في الملف")
 	}
 }
+
+// ============================================================
+// ⭐⭐⭐⭐⭐ مقسوم ٤ = عمودين، مش حالة خاصة
+// ============================================================
+// اتطلب بالنص: "بالنسبة مقسوم ٤ ايه اللي ممكن نعمله فيه وهل هيبقي
+// ليه حاجه ل تصميمه هو".
+func TestQuarterIsJustTwoColumns(t *testing.T) {
+	d := defaultQuarterDesign()
+	if err := validateDesign(&d); err != nil {
+		t.Fatalf("مقسوم ٤ الافتراضي مرفوض: %v", err)
+	}
+	if d.Cols != 2 || d.Halves != 2 {
+		t.Fatalf("شكل غير متوقّع: %d صف × %d عمود", d.Halves, d.Cols)
+	}
+	if got := d.cellWidthMm(); got != 19 {
+		t.Fatalf("عرض اللاصقة %v — المفروض 19", got)
+	}
+	if got := d.cellHeightMm(); got != 12.5 {
+		t.Fatalf("طول اللاصقة %v — المفروض 12.5", got)
+	}
+}
+
+// ⚠️ والتصميم القديم (من قبل الأعمدة) لازم يفضل صالح وبعمود واحد.
+func TestDesignWithoutColsIsOneColumn(t *testing.T) {
+	d := defaultDesign()
+	d.Cols = 0
+	if err := validateDesign(&d); err != nil {
+		t.Fatalf("تصميم من غير أعمدة اترفض: %v", err)
+	}
+	if got := d.cellWidthMm(); got != 38 {
+		t.Fatalf("عرض اللاصقة %v — المفروض 38", got)
+	}
+}
+
+// ============================================================
+// ⭐⭐⭐⭐⭐ خط القص الرأسي — نفس خطورة الأفقي
+// ============================================================
+// ⚠️⚠️ العنصر اللي بيعدّي نص الورقة في مقسوم ٤ بيتقص نصين. والحد
+// لازم يبقى على **عرض اللاصقة** مش عرض الورقة، وإلا الفحص بيعدّي
+// على تصميم بيطلّع نص اسم على كل لاصقة.
+func TestRejectsElementCrossingTheVerticalCut(t *testing.T) {
+	d := defaultQuarterDesign()
+	d.Elements[1].W = 25 // 7.6 + 25 = 32.6 — عدّى اللاصقة (19مم) بكتير
+	if err := validateDesign(&d); err == nil {
+		t.Fatal("عنصر بيعدّي خط القص الرأسي وعدّى")
+	}
+	// ⚠️ ونفس العرض ده **مقبول** في تصميم بعمود واحد — الفرق في
+	// الشكل مش في الرقم.
+	one := defaultDesign()
+	one.Elements[1].X = 2.0
+	one.Elements[1].W = 25
+	if err := validateDesign(&one); err != nil {
+		t.Fatalf("نفس العرض اترفض في تصميم بعمود واحد: %v", err)
+	}
+}
+
+// ============================================================
+// ⭐⭐⭐⭐⭐ الأدوار — البرنامج عمره ما يرجّع "مافيش تصميم"
+// ============================================================
+func TestDesignForRoleAlwaysAnswers(t *testing.T) {
+	for _, role := range []string{roleNormal, roleQuarter, roleNoPrice} {
+		d := designForRole(role)
+		if d.Name == "" || len(d.Elements) == 0 || d.WidthMm <= 0 {
+			t.Fatalf("%s: رجع تصميم فاضي %+v", role, d)
+		}
+	}
+	// ⚠️ ومقسوم ٤ لازم يرجع **بعمودين** من غير ما حد يختار حاجة —
+	// وإلا أول طبعة مقسوم ٤ هتطلع ملصق عادي والمستخدم مش هيفهم.
+	if q := designForRole(roleQuarter); q.Cols < 2 {
+		t.Fatalf("دور مقسوم ٤ رجع بعمود واحد: %+v", q)
+	}
+}
+
+// ⚠️⚠️ و"من غير سعر" بيرجع **لنفس تصميم العادي** لما مافيش تصميم
+// مخصوص. ده اللي بيخلّي الإجابة على السؤال اللي اتسأل بالنص = "آه،
+// هيتنفّذ نفس التصميم والسعر بيختفي" من غير ما المستخدم يعمل حاجة.
+func TestNoPriceFallsBackToNormal(t *testing.T) {
+	a := designForRole(roleNoPrice)
+	b := designForRole(roleNormal)
+	if a.Name != b.Name {
+		t.Fatalf("من غير سعر رجع %q والعادي %q", a.Name, b.Name)
+	}
+}
+
+// ⚠️ ونوع مش معروف (نظام أجدد من البرنامج) بيرجّع العادي مش خطأ:
+// الملصق لازم يطلع.
+func TestUnknownRoleFallsBack(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleDesignFor(rec, httptest.NewRequest(http.MethodGet, "/design/for?role=حاجة-جديدة", nil))
+	var out struct {
+		Role      string      `json:"role"`
+		HidePrice bool        `json:"hidePrice"`
+		Design    labelDesign `json:"design"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("رد مش مفهوم: %v", err)
+	}
+	if out.Role != roleNormal || len(out.Design.Elements) == 0 {
+		t.Fatalf("مارجعش للعادي: %+v", out)
+	}
+	if out.HidePrice {
+		t.Fatal("خبّى السعر في دور عادي")
+	}
+}
+
+// ⚠️⚠️ والعقد مع النظام: الدور ده بيقول "خبّي السعر" ولا لأ. لو
+// السطر ده اتكسر، الطبعة من غير سعر هتطلع بالسعر — والمستخدم قافله
+// عن قصد.
+func TestNoPriceRoleSaysHidePrice(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleDesignFor(rec, httptest.NewRequest(http.MethodGet, "/design/for?role=noPrice", nil))
+	var out struct {
+		HidePrice bool `json:"hidePrice"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if !out.HidePrice {
+		t.Fatal("دور «من غير سعر» مابيقولش يخبّي السعر")
+	}
+}
+
+// ⚠️ واختيار تصميم مش موجود بيترفض — بدل ما يتخزّن اسم بايظ ويرجع
+// كل طبعة للافتراضي في سكوت.
+func TestSetRoleRejectsUnknownDesign(t *testing.T) {
+	if err := setDesignRole(roleQuarter, "تصميم مخترع"); err == nil {
+		t.Fatal("اسم تصميم مش موجود اتقبل")
+	}
+	if err := setDesignRole("نوع مخترع", ""); err == nil {
+		t.Fatal("نوع ملصق مش معروف اتقبل")
+	}
+}
+
+// ⭐⭐ والقايمة لازم تورّي الافتراضيين **دايمًا**، وإلا اللي بيفتح
+// أول مرة بيلاقي حقل "مقسوم ٤" فاضي ومفيش حاجة يختارها.
+func TestDesignListAlwaysOffersBothDefaults(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleDesignAll(rec, httptest.NewRequest(http.MethodGet, "/design/all", nil))
+	var out struct {
+		Designs []labelDesign     `json:"designs"`
+		Roles   map[string]string `json:"roles"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+
+	names := map[string]bool{}
+	for _, d := range out.Designs {
+		names[d.Name] = true
+	}
+	for _, want := range []string{defaultDesign().Name, defaultQuarterDesign().Name} {
+		if !names[want] {
+			t.Fatalf("القايمة مافيهاش %q: %v", want, names)
+		}
+	}
+	for _, role := range []string{roleNormal, roleQuarter, roleNoPrice} {
+		if out.Roles[role] == "" {
+			t.Fatalf("الدور %s مالوش تصميم فعلي", role)
+		}
+	}
+}
