@@ -190,7 +190,10 @@ node tests/sheet-hidden-test.js
 node tests/last-print-test.js
 node tests/stale-job-test.js
 node tests/machine-id-test.js
+<<<<<<< HEAD
 node tests/job-claim-test.js
+=======
+>>>>>>> origin/claude/system-overview-u9kytd
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
