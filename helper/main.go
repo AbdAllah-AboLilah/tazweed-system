@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.5.0"
+	version = "1.6.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -126,6 +126,13 @@ type statusReply struct {
 	LabelGapMm     float64 `json:"labelGapMm"`
 	LabelDirection int     `json:"labelDirection"`
 	LabelFlip      bool    `json:"labelFlip"`
+	// 🆔 معرّف الماكينة — الشرح الكامل عند MachineID في settings.go.
+	// باختصار: النظام بياخد منه رقم ثابت للكمبيوتر بدل الرقم العشوائي
+	// اللي كل متصفح بيولّده لنفسه، فالجهاز يتحسب **مرة واحدة**.
+	MachineID string `json:"machineId"`
+	// 🏷️ اسم الجهاز المكتوب في البرنامج — النظام بياخده كاسم افتراضي
+	// للماكينة، فالاسم بيبقى واحد على كل المتصفحات.
+	DeviceName string `json:"deviceName"`
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +145,8 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 	gapMm, direction, flip := labelOptions()
 	writeJSON(w, http.StatusOK, statusReply{
 		App: "tazweed-helper", Version: version, OS: osName(), Printers: printers,
+		MachineID:      machineID(),
+		DeviceName:     cur.DeviceName,
 		RestockPrinter: cur.RestockPrinter, LabelPrinter: cur.LabelPrinter,
 		Autostart:      autostartEnabled(),
 		LabelGapMm:     gapMm,
@@ -333,6 +342,16 @@ func newServer() *http.ServeMux {
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "الطلب مش مفهوم"})
 			return
+		}
+		// ============================================================
+		// ⚠️⚠️ معرّف الماكينة **مايتمسحش** من الصفحة
+		// ============================================================
+		// الحفظ هنا بيستبدل الملف كله بالكائن اللي جاي. والصفحة
+		// مابتبعتش المعرّف (ولا المفروض تبعته)، فمن غير السطر ده كل
+		// دوسة "حفظ" كانت هتمسحه — والكمبيوتر ياخد هوية جديدة، وده
+		// بالظبط العطل اللي المعرّف ده اتعمل عشانه.
+		if in.MachineID == "" {
+			in.MachineID = machineID()
 		}
 		if err := saveSettings(in); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

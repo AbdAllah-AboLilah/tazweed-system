@@ -40,6 +40,11 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:14px;font-weight:400">
    <input type="checkbox" id="flip" style="width:auto;margin:0"> اقلب ألوان الملصق (افتحه لو طلع أسود بالكامل)
  </label>
+ <label style="margin-top:14px">اسم الجهاز (زي ما هيظهر في النظام)</label>
+ <input id="devname" type="text" maxlength="40" placeholder="مثلاً: كمبيوتر الكاشير">
+ <div style="font-size:12px;color:#6b7280;margin-top:-6px;margin-bottom:6px">
+   الاسم ده بيمشي على كل المتصفحات اللي على الكمبيوتر ده — فالجهاز بيتحسب مرة واحدة في النظام بدل ما كل متصفح يبقى جهاز لوحده.
+ </div>
  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:14px;font-weight:400">
    <input type="checkbox" id="auto" style="width:auto;margin:0"> يشتغل لوحده مع الويندوز (في الخلفية، من غير ما يفتح الصفحة)
  </label>
@@ -64,6 +69,7 @@ fetch('/status').then(r=>r.json()).then(s=>{
   sel.innerHTML=opts; lsel.innerHTML=opts;
   if(s.restockPrinter) sel.value=s.restockPrinter;
   if(s.labelPrinter) lsel.value=s.labelPrinter;
+  if(s.deviceName) document.getElementById('devname').value=s.deviceName;
   document.getElementById('auto').checked=!!s.autostart;
   document.getElementById('gap').value=(s.labelGapMm!==undefined?s.labelGapMm:2);
   document.getElementById('dir').value=String(s.labelDirection!==undefined?s.labelDirection:1);
@@ -89,6 +95,7 @@ document.getElementById('save').onclick=async()=>{
   try{
     const r=await (await fetch('/settings',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({restockPrinter:sel.value,labelPrinter:lsel.value,
+        deviceName:document.getElementById('devname').value.trim(),
         labelGapMm:+document.getElementById('gap').value,
         labelDirection:+document.getElementById('dir').value,
         labelFlip:document.getElementById('flip').checked})})).json();
