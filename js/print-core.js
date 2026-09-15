@@ -809,6 +809,44 @@ const handledPrintJobIds = new Set();
 
 let unsubPrintJobs = null;
 
+// ============================================================
+// ⚠️⚠️ الطلب القديم مايتطبعش — بيتقفل
+// ============================================================
+// العطل اللي بيتحل: "جيه معاينة عملت الغاء الورقة اتطبعت عادي" — مع إن
+// كارت الجهاز بيقول إن الطبعة اللي اتبعتت **نجحت من البرنامج المساعد**.
+// يعني النافذة دي مش من الطلب الجديد أصلًا.
+//
+// السبب: الاستماع كان بياخد **كل** طلب حالته pending للجهاز ده، من غير
+// أي حد للعمر. والحماية الوحيدة من التكرار (handledPrintJobIds) عايشة
+// في ذاكرة الصفحة — بتتفضّى مع كل فتح للتطبيق.
+//
+// فكل طلب اتعلّق زمان ومكتبش نتيجة (وفيه كتير منهم: عطل النافذة المخفية
+// كان بيعلّق الطلب للأبد قبل v0.89.0) بيفضل pending في السحابة **للأبد**،
+// وبيتنفّذ من الأول كل مرة التطبيق يقفل ويفتح.
+//
+// وده بيفسّر اللي اتشاف بالظبط: الطبعة الجديدة بتخرج من المساعد نضيفة،
+// وفي نفس اللحظة طلب قديم بيتنفّذ ويفتح نافذة طباعة الويندوز.
+//
+// ⚠️ الحد 10 دقايق مش رقم عشوائي: الطلب السليم بيتنفّذ في ثواني. والـ10
+// دقايق بتسيب مساحة للحالة المعقولة الوحيدة — الكمبيوتر كان مقفول أو
+// مشغول والطلب استنى شوية. أي حاجة أقدم من كده مش طلب، دي بقايا.
+const PRINT_JOB_MAX_AGE_MS = 10 * 60 * 1000;
+
+// بترجّع عمر الطلب بالملّي، أو -1 لو معرفناش.
+// ⚠️ التاريخ بيتكتب بساعة السيرفر، وبيوصل null للحظة في أول لقطة محلية.
+// واللي معرفناش عمره **بنطبعه** — أحسن من إننا نضيّع طلب حقيقي.
+function printJobAgeMs(data) {
+  const ts = data && data.createdAt;
+  if (!ts) return -1;
+  try {
+    const ms = typeof ts.toMillis === 'function' ? ts.toMillis() : Number(ts);
+    if (!isFinite(ms) || ms <= 0) return -1;
+    return Date.now() - ms;
+  } catch (err) {
+    return -1;
+  }
+}
+
 function subscribePrintJobs() {
   const deviceId = getDeviceId();
   if (!deviceId) return;
@@ -822,6 +860,31 @@ function subscribePrintJobs() {
         snap.docs.forEach((doc) => {
           if (handledPrintJobIds.has(doc.id)) return;
           handledPrintJobIds.add(doc.id);
+
+          const age = printJobAgeMs(doc.data());
+          if (age > PRINT_JOB_MAX_AGE_MS) {
+            // ⚠️ بنقفله بدل ما نسيبه: لو سبناه pending هيرجع يطلع تاني
+            // في كل فتح للتطبيق، وهيفضل يطبع ورق للأبد.
+            //
+            // ⚠️ والانتقال ده (pending → failed) مسموح في القواعد خلاص،
+            // فمافيش أي تعديل في firestore.rules.
+            const mins = Math.round(age / 60000);
+            console.warn('طلب طباعة قديم اتقفل من غير ما يتطبع:', doc.id, mins + ' دقيقة');
+            db.collection('printJobs')
+              .doc(doc.id)
+              .update({
+                status: 'failed',
+                failReason:
+                  `الطلب قديم (بقاله ${mins} دقيقة) فما اتطبعش. ` +
+                  'ده بيحصل لو الجهاز كان مقفول وقت الإرسال — ابعته تاني.',
+                printedByUid: state.user ? state.user.uid : '',
+                printedByName: (state.profile && state.profile.name) || '',
+                printedAt: firebase.firestore.FieldValue.serverTimestamp(),
+              })
+              .catch(() => {});
+            return;
+          }
+
           executePrintJob(doc.id, doc.data());
         });
       },
