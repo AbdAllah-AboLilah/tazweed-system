@@ -196,6 +196,8 @@ node tests/open-fixes-test.js
 node tests/log-paging-test.js
 node tests/label-pad-test.js
 node tests/station-online-test.js
+node tests/designer-test.js
+node tests/label-font-test.js
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js

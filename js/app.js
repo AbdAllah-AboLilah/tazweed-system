@@ -5267,6 +5267,9 @@ async function registerPrintStation() {
           pace: getPrintPaceMs(),
           batch: getPrintBatchSize(),
           lead: getPrintLeadLabels(),
+          // 🔤 خط الملصق — عشان نافذة "إرسال إعدادات الطابعة" تعرف
+          // الجهاز ده شغّال بأنهي خط فعلًا، مش تخمّن.
+          labelFont: typeof getLabelFontId === 'function' ? getLabelFontId() : '',
         },
         lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
         updatedByUid: state.user.uid,

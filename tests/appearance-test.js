@@ -26,12 +26,46 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     (liveCode.match(/.*fonts\.(googleapis|gstatic)\.com.*/) || [])[0]);
   check('⭐⭐ الخط محفوظ جوّه المشروع', /url\('\.\/fonts\/plex-ar-/.test(css), null);
 
-  const fontFiles = fs.readdirSync(__dirname + '/../fonts').filter((f) => f.endsWith('.woff2'));
-  const fontKB = fontFiles.reduce((s, f) => s + fs.statSync(__dirname + '/../fonts/' + f).size, 0) / 1024;
-  check('⭐ وزنين بس (٤ ملفات) مش تلاتة', fontFiles.length === 4, fontFiles);
+  // ⚠️⚠️ المجلد ده بقى فيه حاجتين مختلفتين تمامًا:
+  //   • plex-ar-*  → خط **الشاشة**، بيتحمّل مع كل فتحة للنظام
+  //   • الباقي     → خطوط **الملصق**، مابتتحمّلش إلا لو حد اختارها
+  // فالسقف اللي تحت لازم يبقى على الأول بس — لو قِسنا المجلد كله،
+  // كنا هنمنع إضافة خط ملصق جديد بحجة "الشاشة تقلت"، وده غلط.
+  const allFonts = fs.readdirSync(__dirname + '/../fonts').filter((f) => f.endsWith('.woff2'));
+  const kbOf = (f) => fs.statSync(__dirname + '/../fonts/' + f).size / 1024;
+  const fontFiles = allFonts.filter((f) => f.startsWith('plex-ar-'));
+  const fontKB = fontFiles.reduce((s, f) => s + kbOf(f), 0);
+  check('⭐ خط الشاشة وزنين بس (٤ ملفات) مش تلاتة', fontFiles.length === 4, fontFiles);
   // ⚠️ السقف ده مقصود. التلات أوزان كانت 143 كيلو — والفرق بين 600
   // و700 مش باين على الشاشة، فمش مستاهل نص الحجم.
-  check('⭐⭐ حجم الخط كله تحت ١١٠ كيلو', fontKB < 110, Math.round(fontKB) + 'KB');
+  check('⭐⭐ حجم خط الشاشة كله تحت ١١٠ كيلو', fontKB < 110, Math.round(fontKB) + 'KB');
+
+  // ============================================================
+  // ⭐⭐ خطوط الملصق: اللي بيتحمّل هو **خط واحد**، مش المجلد
+  // ============================================================
+  // ⚠️ الرقم اللي يهم مش مجموع المجلد — ده اللي على السيرفر ومحدش
+  // بيدفع تمنه. اللي بيتحمّل فعلًا هو ملفات الخط **المختار** بس
+  // (عربي + لاتيني × وزنين). فالسقف على الأتقل فيهم.
+  const labelFams = {};
+  allFonts
+    .filter((f) => !f.startsWith('plex-ar-'))
+    .forEach((f) => {
+      const fam = f.split('-')[0];
+      labelFams[fam] = (labelFams[fam] || 0) + kbOf(f);
+    });
+  const heaviest = Object.keys(labelFams).sort((a, b) => labelFams[b] - labelFams[a])[0];
+  check(
+    '⭐⭐ أتقل خط ملصق تحت ١١٠ كيلو (ده اللي بيتحمّل فعلًا)',
+    heaviest !== undefined && labelFams[heaviest] < 110,
+    Object.keys(labelFams).map((k) => k + ': ' + Math.round(labelFams[k]) + 'KB')
+  );
+  // ⚠️ وكل خط لازم يبقى كامل: عربي ولاتيني × وزنين = ٤ ملفات. ناقص
+  // ملف لاتيني معناه إن **الأرقام** (الباركود والسعر) هتترسم بخط
+  // الجهاز — يعني ملصق بخطين، والمستخدم مش هيفهم ليه.
+  const incomplete = Object.keys(labelFams).filter(
+    (fam) => allFonts.filter((f) => f.startsWith(fam + '-')).length !== 4
+  );
+  check('⭐⭐⭐ كل خط ملصق كامل (عربي ولاتيني × وزنين)', incomplete.length === 0, incomplete);
 
   // ⚠️⚠️ أهم فحص في الملف. من غير القاعدة دي، ملفات الخط بتتسأل عن
   // الشبكة في **كل فتحة** — نداءين زيادة على تليفون بيشتغل ببيانات.

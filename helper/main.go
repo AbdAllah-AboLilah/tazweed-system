@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.8.0"
+	version = "1.9.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -344,6 +344,13 @@ func newServer() *http.ServeMux {
 	mux.HandleFunc("/designer", guard(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(designerPage))
+	}))
+	// ⚠️ مولّد الـQR بيتقدّم من هنا مش من الإنترنت: المصمّم لازم يشتغل
+	// والمحل من غير نت — ده سبب وجود البرنامج المساعد أصلًا.
+	mux.HandleFunc("/qrcode.js", guard(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write([]byte(qrcodeLibJS))
 	}))
 	mux.HandleFunc("/settings", guard(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

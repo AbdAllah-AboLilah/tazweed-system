@@ -10,3 +10,8 @@
 *-debug.log
 firebase-debug.log
 firestore-debug.log
+
+# ⚠️ نسخة لينكس من البرنامج المساعد — بتتعمل لوحدها وقت `go build`
+# وماحدش بيستعملها (اللي بيتوزّع هو helper/dist/tazweed-helper.exe).
+# من غير السطر ده، كل مرة نبني فيها بيتضاف ٩ ميجا للمستودع على الفاضي.
+helper/tazweed-helper
