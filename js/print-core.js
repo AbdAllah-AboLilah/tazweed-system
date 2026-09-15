@@ -847,7 +847,6 @@ function printJobAgeMs(data) {
   }
 }
 
-<<<<<<< HEAD
 // ============================================================
 // 🔒 حجز الطلب من البرنامج المساعد
 // ============================================================
@@ -898,8 +897,6 @@ async function claimPrintJob(jobId) {
   }
 }
 
-=======
->>>>>>> origin/claude/system-overview-u9kytd
 function subscribePrintJobs() {
   const deviceId = getDeviceId();
   if (!deviceId) return;
@@ -938,7 +935,6 @@ function subscribePrintJobs() {
             return;
           }
 
-<<<<<<< HEAD
           // ⚠️ الحجز **قبل** التنفيذ: لو نافذة تانية على نفس الكمبيوتر
           // سبقتنا، بنسيب الطلب لها بدل ما نطبعه مرة تانية.
           claimPrintJob(doc.id).then((mine) => {
@@ -948,9 +944,6 @@ function subscribePrintJobs() {
             }
             executePrintJob(doc.id, doc.data());
           });
-=======
-          executePrintJob(doc.id, doc.data());
->>>>>>> origin/claude/system-overview-u9kytd
         });
       },
       (err) => console.warn('تعذّر استقبال طلبات الطباعة:', err)

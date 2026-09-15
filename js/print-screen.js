@@ -186,6 +186,27 @@ function stationCardHTML(st) {
         <button class="btn" data-dev-frame="${escapeHTML(st.id)}" ${online ? '' : 'disabled'}>🖨️ اطبع الإطار</button>
         <button class="btn" data-dev-fonts="${escapeHTML(st.id)}" ${online ? '' : 'disabled'}>🧪 عيّنة الخطوط</button>
         <button class="btn" data-dev-reload="${escapeHTML(st.id)}" ${online ? '' : 'disabled'}>🔄 حدّثه</button>
+        ${
+          // ============================================================
+          // 🗑️ شيل الجهاز من القايمة
+          // ============================================================
+          // ⚠️ العطل اللي بيحله، اتبلّغ بالنص: "دلوقتي شاشة الاجهزة فيها
+          // بعض الاجهزة مكرره قبل م نحدث المساعد عشان الجهاز ياخد اسم
+          // واحد ايه الحل بتاع النقطة دي".
+          //
+          // توحيد رقم الماكينة (v0.91.0) بيشيل الكارت القديم **لما
+          // المتصفح ده يتفتح تاني** — فالبروفايل اللي محدش هيفتحه تاني
+          // بيسيب كارت شبح في القايمة للأبد.
+          //
+          // ⚠️⚠️ ومقفول على الجهاز **المقفول** بس: الجهاز الشغّال بيرجّع
+          // يسجّل نفسه مع أول نبضة، فالمسح هيبان إنه مانفعش. وأخطر من
+          // كده: لو حد مسح جهاز شغّال بالغلط، الطبعات اللي في السكة
+          // ليه تضيع.
+          online
+            ? ''
+            : `<button class="btn" data-dev-remove="${escapeHTML(st.id)}"
+                 style="color:var(--danger-text)">🗑️ شيله من القايمة</button>`
+        }
       </div>
     </div>`;
 }
@@ -542,6 +563,23 @@ function attachPrintDeviceEvents() {
       7000
     );
   };
+
+  // 🗑️ شيل جهاز مقفول من القايمة — الشرح عند الزرار نفسه
+  document.querySelectorAll('[data-dev-remove]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-dev-remove');
+      const st = (state.printStations || []).find((x) => x.id === id);
+      const name = (st && st.deviceName) || 'الجهاز ده';
+      // ⚠️ تأكيد: المسح مش خطير بس مربك لو حصل بالغلط.
+      if (!confirm(`تشيل "${name}" من قايمة الأجهزة؟\n\nلو الجهاز ده اتفتح تاني، هيسجّل نفسه من جديد.`)) return;
+      safeAsync(async () => {
+        await db.collection('printStations').doc(id).delete();
+        // ⚠️ وإعداداته كمان: لو سبناها، الجهاز اللي هيرجع بنفس الرقم
+        // هياخد إعدادات جهاز اتشال — وده أوحش من إنه يبدأ نضيف.
+        await db.collection(DEVICE_SETTINGS).doc(id).delete().catch(() => {});
+      }, 'شيل الجهاز');
+    });
+  });
 
   document.querySelectorAll('[data-dev-reload]').forEach((btn) => {
     btn.addEventListener('click', () =>
