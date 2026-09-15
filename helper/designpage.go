@@ -31,6 +31,11 @@ var qrcodeLibJS string
 const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>مصمّم الملصق — مساعد التزويد</title>
+<!-- ⚠️ الخطوط بتتقدّم من البرنامج نفسه (شوف helper/fonts.go) مش من
+     النت: المصمّم لازم يشتغل والمحل من غير نت. وحط كل القواعد هنا
+     مابيكلّفش حاجة — المتصفح مابينزّلش ملف خط إلا لما يلاقي كلام
+     معروض بيه فعلًا. -->
+<link rel="stylesheet" href="/fonts.css">
 <style>
  :root{--ink:#1c2024;--line:#d9dce1;--bg:#f4f5f7;--card:#fff;--sage:#2f6b46;--warn:#b02020;--mut:#6b7280}
  *{box-sizing:border-box}
@@ -88,6 +93,25 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
    <div style="width:92px"><label>الطول (مم)</label><input id="dh" type="number" step="0.5" min="5" max="200"></div>
    <div style="width:110px"><label>ملصقات في الورقة</label><select id="dhalves"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
   </div>
+  <!-- ============================================================
+       🔤 خط الملصق
+       ============================================================
+       اتطلب بالنص: "انا كنت عاوزك تضيف تغير الخط في نظام تصميم
+       الملصق في البرنامج المساعد مش النظام بحيث بردوا اقدر اشوف
+       تغير الخط هياثر ازاي".
+
+       ⚠️⚠️ وهو **إعداد في التصميم** مش إعداد في الصفحة: بيتحفظ مع
+       التصميم ويروح للنظام معاه. غير كده كنت هتظبط الشكل على خط
+       وتطبع بخط تاني.
+
+       ⚠️ والمعاينة تحت بتستنى الخط ينزل فعلًا قبل ما تقيس — الخط
+       بيغيّر عرض الكلام، يعني بيغيّر التصغير، يعني بيغيّر المقاس
+       اللي هيطلع على الورق. ده **بيت القصيد** من الخانة دي. -->
+  <div class="row" style="margin-top:12px">
+   <div style="flex:1;min-width:180px"><label>🔤 خط الملصق</label><select id="dfont"></select></div>
+  </div>
+  <div class="scale" id="dfont-hint" style="margin-top:6px"></div>
+  <div class="scale" style="margin-top:4px">⚠️ المقاس اللي هيطلع بيختلف من اسم لاسم — <b>جرّب بأسماءك انت</b> من خانات التجربة تحت المعاينة.</div>
  </div>
 
  <div class="card">
@@ -129,7 +153,11 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
     <button class="ghost" id="s-nodisc">من غير خصم</button>
     <button id="s-print">&#128424; اطبع تجربة</button>
    </div>
-   <div class="scale" style="margin-top:8px">&#128424; «اطبع تجربة» بتفتح نافذة طباعة المتصفح بمقاس الملصق بالظبط — اختار طابعة الملصقات واطبع واحد وبُص عليه قبل ما تحفظ.</div>
+   <div class="scale" style="margin-top:8px">&#128424; «اطبع تجربة» بتطبع <b>ملصق واحد على طول</b> على طابعة الملصق المتظبطة في الصفحة الرئيسية — من غير نافذة طباعة ومن غير اختيار ماكينة.</div>
+   <div id="sent-wrap" hidden style="margin-top:10px">
+    <div class="scale" style="margin-bottom:4px">ده اللي اتبعت للطابعة بالظبط:</div>
+    <img id="sent-img" style="display:block;background:#fff;border:1px solid var(--line);border-radius:6px;image-rendering:pixelated;max-width:100%">
+   </div>
   </div>
  </div>
 
@@ -159,6 +187,36 @@ var SAMPLE = {
 };
 var KIND_AR = {qr:'رمز QR', name:'اسم الصنف', code:'رقم الباركود', price:'السعر', oldPrice:'السعر القديم'};
 var d = null, sel = 'name', designs = [], shrunk = [];
+
+// ============================================================
+// 🔤 الخط — بيتقرا من البرنامج، والمعاينة بتستناه ينزل
+// ============================================================
+// ⚠️⚠️ المتصفح **مابيطلبش** الخط عشان انت كتبت اسمه في CSS — بيطلبه
+// أول ما يلاقي كلام معروض بيه. ولو قِسنا قبل ما ينزل، بنقيس بخط
+// الجهاز ونكتب النتيجة كأنها بتاعة الخط الجديد.
+//
+// يعني التصغير اللي المعاينة بتعرضه هيبقى غلط — وهو بالظبط الحاجة
+// اللي الخانة دي اتعملت عشان تشوفها. فـensureFont بتستنى الأول.
+var FONTS = [], FALLBACK = 'Arial, Helvetica, Tahoma, sans-serif';
+
+function fontById(id){
+  for (var i=0;i<FONTS.length;i++) if (FONTS[i].id === (id||'system')) return FONTS[i];
+  return null;
+}
+function fontStack(){
+  var f = fontById(d && d.font);
+  return (f && f.family) ? "'"+f.family+"', "+FALLBACK : FALLBACK;
+}
+function ensureFont(cb){
+  var f = fontById(d && d.font);
+  if (!f || !f.family || !document.fonts || !document.fonts.load){ cb(); return; }
+  var bold = (f.weights && f.weights[1]) || 700;
+  var probe = 'اختبار 0123';
+  Promise.all([
+    document.fonts.load("400 40px '"+f.family+"'", probe),
+    document.fonts.load(bold+" 40px '"+f.family+"'", probe)
+  ]).then(cb, cb);
+}
 
 function $(id){ return document.getElementById(id); }
 
@@ -254,7 +312,7 @@ function draw(){
         s.style.fontSize = (e.fontMm*K)+'px';
         s.style.fontWeight = (e.weight==='bold'?'700':'400');
         s.style.textAlign = (e.align==='right'?'right':e.align==='left'?'left':'center');
-        s.style.fontFamily = 'Arial, Helvetica, Tahoma, sans-serif';
+        s.style.fontFamily = fontStack();
         if (e.kind==='oldPrice') s.style.textDecoration='line-through';
         if (e.lines>1){ s.style.whiteSpace='normal'; } else { s.style.whiteSpace='nowrap'; }
         s.style.direction = (e.kind==='name' ? 'rtl' : 'ltr');
@@ -364,15 +422,30 @@ function fields(){
   // ⚠️ تحذير فوري قبل الحفظ: الخط أكبر من الصندوق هو أشهر غلطة،
   // والمستخدم بيفتكر إن الطابعة بايظة مش إن الرقم غلط.
   var h='';
-  // ⚠️⚠️ الرسالة بتقول **الأرقام والتلات حلول**. القديمة كانت
-  // "كبّر الطول أو صغّر الخط" وساكتة عن **عدد السطور** — وهو غالبًا
-  // السبب الحقيقي، فاللي بيقراها كان بيفضل يلف من غير ما يعرف.
+  // ============================================================
+  // ⚠️⚠️ الرسالة دي بقت **معلومة** مش خطأ — اقرا قبل ما ترجّعها
+  // ============================================================
+  // اتبلّغ بالنص: "نزل عادي بس لما جيت احفظ التصميم قالي ان الحجم
+  // لازم يكبر بالرغم من في المعاينة قدامي طلعت عادي وانا كنت راضي".
+  //
+  // والسبب إن المعاينة **بتصغّر** زي الملصق الحقيقي، فاللي على الشاشة
+  // كان مظبوط فعلًا — والتحذير كان بيقول عكس اللي عينه شايفاه.
+  //
+  // دلوقتي: التصغير = معلومة (الخط هيطلع كام)، والتحذير الأحمر
+  // للحالتين اللي بيضيع فيهم كلام بجد.
+  var MIN_READABLE = 1.2; // نفس minReadableMm في design.go
   var need = (e.lines||1)*e.fontMm*1.2;
-  if(sel!=='qr' && need > e.h+0.05){
-    h='⚠️ الخط أكبر من الصندوق: '+(e.lines||1)+' سطور × '+e.fontMm.toFixed(1)+'مم = '
-      +need.toFixed(1)+'مم، والصندوق '+e.h.toFixed(1)+'مم.'
-      +' الحل: قلّل السطور، أو كبّر «الطول» لـ'+(Math.ceil(need*10)/10).toFixed(1)+'مم،'
-      +' أو صغّر «حجم الخط» لـ'+(Math.floor(e.h/((e.lines||1)*1.2)*10)/10).toFixed(1)+'مم.';
+  var fit  = e.h/((e.lines||1)*1.2);
+  if(sel!=='qr' && fit < MIN_READABLE){
+    h='⚠️ المساحة صغيرة أوي: '+(e.lines||1)+' سطور في '+e.h.toFixed(1)+'مم معناها خط '
+      +fit.toFixed(2)+'مم، وده أصغر من إنه يتقرا ('+MIN_READABLE+'مم).'
+      +' قلّل السطور أو كبّر «الطول» لـ'+(Math.ceil((e.lines||1)*1.2*MIN_READABLE*10)/10).toFixed(1)+'مم على الأقل.';
+  } else if(sel!=='qr' && need > e.h+0.05 && e.overflow==='ellipsis'){
+    h='⚠️ الكلام هيتقص: الخط أكبر من الصندوق و«لو مايدخلش» على «اقصه بنقط».'
+      +' خليها «صغّره» وهيدخل بمقاس '+fit.toFixed(2)+'مم.';
+  } else if(sel!=='qr' && need > e.h+0.05){
+    h='ℹ️ الخط المطلوب ('+e.fontMm.toFixed(1)+'مم × '+(e.lines||1)+' سطور) أكبر من الصندوق،'
+      +' فهيتصغّر لحد '+fit.toFixed(2)+'مم — وده اللي هيطبع فعلًا. لو ده مناسبك، احفظ عادي.';
   }
   else if(e.y+e.h > cellH()-0.7)
     h='⚠️ العنصر قريب أوي من تحت — التحريف ممكن ياكل منه.';
@@ -384,6 +457,18 @@ function fields(){
 function render(){ tabs(); fields(); draw(); }
 
 function load(){
+  // ⚠️ الخطوط الأول: use() بتحتاج القايمة عشان تعرف الخط المحفوظ
+  // اسمه إيه وتنزّله. ولو القايمة فشلت، الصفحة بتفضل شغّالة بخط
+  // الجهاز بدل ما تقف.
+  fetch('/fonts.json').then(function(r){return r.json();}).then(function(j){
+    FONTS = j.fonts || [];
+    var sf=$('dfont'); sf.innerHTML='';
+    FONTS.forEach(function(f){
+      var o=document.createElement('option'); o.value=f.id; o.textContent=f.label; sf.appendChild(o);
+    });
+  }).catch(function(){ FONTS=[]; }).then(loadDesigns);
+}
+function loadDesigns(){
   fetch('/design/all').then(function(r){return r.json();}).then(function(j){
     designs = j.designs || [];
     var p=$('pick'); p.innerHTML='';
@@ -396,10 +481,26 @@ function use(name){
   if(!d && designs.length) d=JSON.parse(JSON.stringify(designs[0]));
   if(!d) return;
   $('dname').value=d.name; $('dw').value=d.widthMm; $('dh').value=d.heightMm; $('dhalves').value=String(d.halves||1);
-  sel='name'; render();
+  if (!d.font) d.font='system';
+  $('dfont').value=d.font;
+  fontHint();
+  sel='name';
+  // ⚠️ مش render() على طول: لازم الخط ينزل الأول وإلا القياس هيطلع
+  // بخط الجهاز والتصغير اللي هيتعرض هيبقى غلط.
+  ensureFont(render);
+}
+
+function fontHint(){
+  var f = fontById(d && d.font);
+  $('dfont-hint').textContent = f ? f.hint : '';
 }
 
 $('pick').onchange=function(){ use($('pick').value); };
+$('dfont').onchange=function(){
+  d.font=$('dfont').value;
+  fontHint();
+  ensureFont(draw);
+};
 $('dname').oninput=function(){ d.name=$('dname').value; };
 ['dw','dh','dhalves'].forEach(function(id){
   $(id).onchange=function(){
@@ -487,55 +588,152 @@ function sampleFor(kind){
   return '';
 }
 
-function printHTML(){
-  var ch = cellH(), n = d.halves||1, out = [];
+// ============================================================
+// 🖨️ اطبع تجربة — بيروح للطابعة **على طول**
+// ============================================================
+// ⚠️⚠️⚠️ النسخة الأولى كانت بتفتح نافذة طباعة المتصفح
+// (window.print). واتبلّغ بالنص إنها بايظة:
+//
+//   "بيفتح معاينة المتصفح واختر ماكينه الطباعة وده بيخلي لما اطبع
+//    بيطلع ورق فاضي من الماكينه والملصق بيظهر حتي من الجنب ويطلع ٣
+//    ورقات كده ورا بعض مش زي لما في الشاشة الرئيسية بتاع المساعد لما
+//    اطبع تجربة ملصق بيطبع علي طول ومظبوط"
+//
+// والسبب واضح: نافذة طباعة المتصفح بتحط هوامشها هي وبتعمل تحجيم
+// لصفحة A4، والطابعة الحرارية مالهاش دعوة بده خالص — فالملصق بيتزحلق
+// على الجنب والورق بيخرج فاضي.
+//
+// الطريقة الصح هي اللي الصفحة الرئيسية بتاعة البرنامج بتعملها من
+// الأول: **ارسم الملصق على كانفاس بمقاس نقط الطابعة، وابعته صورة
+// على /label**. البرنامج بيحوّلها لأوامر TSPL ويبعتها للطابعة —
+// مافيش نافذة ولا هوامش ولا A4.
+//
+// ⚠️ والرسم بيحصل في المتصفح مش في البرنامج: ده نفس السبب المكتوب
+// في design.go — تشكيل الحروف العربية واتجاه الأرقام جوّه الكلام
+// حاجة المتصفح بيعملها ببلاش.
+var DPMM = 203/25.4; // نفس دقة الطابعة في النظام
+
+// بتقسّم النص على سطور بعرض معيّن — محاكاة لطريقة المتصفح:
+// بيقسّم عند المسافات، ولو كلمة لوحدها أطول من السطر بيكسرها جوّه.
+function wrapCanvas(x, txt, maxW, maxLines){
+  var words = String(txt).split(/\s+/).filter(Boolean), lines = [], cur = '';
+  for (var i=0;i<words.length;i++){
+    var t = cur ? cur+' '+words[i] : words[i];
+    if (x.measureText(t).width <= maxW || !cur){ cur = t; continue; }
+    lines.push(cur); cur = words[i];
+    if (lines.length >= maxLines) break;
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  return lines;
+}
+
+// بترسم عنصر نص في صندوقه، وبتصغّر لحد ما يدخل — نفس قاعدة المعاينة.
+function drawFit(x, txt, X, Y, W, H, e){
+  txt = String(txt || '');
+  if (!txt) return;
+  var maxLines = e.lines||1;
+  var size = e.fontMm*DPMM;
+  var weight = (e.weight==='bold' ? 'bold ' : '');
+  var lines = [];
+  for (var g=0; g<90; g++){
+    x.font = weight + size.toFixed(2) + 'px ' + fontStack();
+    lines = wrapCanvas(x, txt, W, maxLines);
+    var tooWide = false;
+    for (var i=0;i<lines.length;i++) if (x.measureText(lines[i]).width > W) tooWide = true;
+    var fits = !tooWide && lines.length*size*1.2 <= H;
+    if (fits || e.overflow==='ellipsis') break;
+    size -= Math.max(0.5, size*0.04);
+    if (size <= 4) break;
+  }
+  var lh = size*1.2;
+  var top = Y + (H - lines.length*lh)/2 + lh/2;
+  x.textBaseline = 'middle';
+  x.textAlign = (e.align==='right' ? 'right' : e.align==='left' ? 'left' : 'center');
+  var ax = e.align==='right' ? X+W : e.align==='left' ? X : X+W/2;
+  for (var j=0;j<lines.length;j++){
+    var yy = top + j*lh;
+    x.fillText(lines[j], ax, yy);
+    // ⚠️ السعر القديم مشطوب — والخط بيترسم بالإيد، الكانفاس مافيهوش
+    // text-decoration.
+    if (e.kind==='oldPrice'){
+      var w = x.measureText(lines[j]).width;
+      var sx = e.align==='right' ? ax-w : e.align==='left' ? ax : ax-w/2;
+      x.fillRect(sx, yy - size*0.03, w, Math.max(1, size*0.07));
+    }
+  }
+}
+
+// بترسم الملصق كله وبترجّع وعد بـ PNG (base64 من غير الترويسة).
+function renderLabelPNG(){
+  var W = Math.round(d.widthMm*DPMM), H = Math.round(d.heightMm*DPMM);
+  var c = document.createElement('canvas'); c.width=W; c.height=H;
+  var x = c.getContext('2d');
+  x.fillStyle='#fff'; x.fillRect(0,0,W,H);
+  x.fillStyle='#000';
+
+  var ch = cellH(), n = d.halves||1, waits = [];
   for (var h=0; h<n; h++){
     for (var i=0;i<d.elements.length;i++){
       var e = d.elements[i];
       if (e.kind==='oldPrice' && e.show==='ifDiscount' && !SAMPLE.oldPrice) continue;
-      var pos = 'position:absolute;overflow:hidden;left:'+e.x+'mm;top:'+((h*ch)+e.y)+'mm;'
-              + 'width:'+e.w+'mm;height:'+e.h+'mm;';
+      var X = e.x*DPMM, Y = (h*ch + e.y)*DPMM, Wb = e.w*DPMM, Hb = e.h*DPMM;
       if (e.kind==='qr'){
         var u = qrURL(SAMPLE.code);
-        out.push('<div style="'+pos+'">' + (u
-          ? '<img src="'+u+'" style="width:100%;height:100%;display:block;image-rendering:pixelated">'
-          : '') + '</div>');
+        if (u) waits.push((function(u,X,Y,Wb,Hb){
+          return new Promise(function(res){
+            var im = new Image();
+            im.onload = function(){
+              // ⚠️ مربّع: الـQR لو اتمطّ بيبوظ ومافيش قارئ هيقراه.
+              var side = Math.min(Wb, Hb);
+              x.imageSmoothingEnabled = false;
+              x.drawImage(im, X + (Wb-side)/2, Y + (Hb-side)/2, side, side);
+              res();
+            };
+            im.onerror = function(){ res(); };
+            im.src = u;
+          });
+        })(u,X,Y,Wb,Hb));
         continue;
       }
-      var txt = String(sampleFor(e.kind) || '')
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      var st = 'display:flex;align-items:center;line-height:1.2;'
-             + 'font-family:Arial,Helvetica,Tahoma,sans-serif;'
-             + 'font-size:'+e.fontMm+'mm;'
-             + 'font-weight:'+(e.weight==='bold'?'700':'400')+';'
-             + 'text-align:'+(e.align==='right'?'right':e.align==='left'?'left':'center')+';'
-             + 'direction:'+(e.kind==='name'?'rtl':'ltr')+';'
-             + (e.kind==='oldPrice'?'text-decoration:line-through;':'')
-             + (e.lines>1?'white-space:normal;':'white-space:nowrap;');
-      out.push('<div class="fit" style="'+pos+st+'"><span style="display:block;width:100%">'+txt+'</span></div>');
+      drawFit(x, sampleFor(e.kind), X, Y, Wb, Hb, e);
     }
   }
-  // ⚠️ التصغير بيتعمل **بعد** ما الصفحة ترسم، بنفس اللوب اللي في
-  // المعاينة بالحرف — عشان اللي بيطلع على الورق يبقى هو هو.
-  var fit = 'var bs=document.querySelectorAll(".fit");'
-    + 'for(var i=0;i<bs.length;i++){var b=bs[i],sp=b.firstChild;'
-    + 'var f=parseFloat(getComputedStyle(sp.parentNode).fontSize),g=0;'
-    + 'while((sp.scrollHeight>b.clientHeight+1||sp.scrollWidth>b.clientWidth+1)&&f>2&&g++<60)'
-    + '{f-=Math.max(0.5,f*0.04);b.style.fontSize=f+"px";}}'
-    + 'setTimeout(function(){window.print();},80);';
-
-  return '<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">'
-    + '<title>تجربة طباعة</title><style>'
-    + '@page{size:'+d.widthMm+'mm '+d.heightMm+'mm;margin:0}'
-    + '*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
-    + 'body{width:'+d.widthMm+'mm;height:'+d.heightMm+'mm;position:relative;background:#fff;color:#000}'
-    + '</style><body>' + out.join('') + '<script>' + fit + '<\/script></body></html>';
+  return Promise.all(waits).then(function(){
+    return { png: c.toDataURL('image/png').split(',')[1], w: W, h: H, url: c.toDataURL('image/png') };
+  });
 }
 
 $('s-print').onclick = function(){
-  var w = window.open('', '_blank', 'width=420,height=360');
-  if (!w){ say('المتصفح منع النافذة — اسمح للنوافذ المنبثقة وجرّب تاني.', true); return; }
-  w.document.open(); w.document.write(printHTML()); w.document.close();
+  var btn = $('s-print');
+  btn.disabled = true;
+  say('بيرسم الملصق ويبعته للطابعة...');
+  // ⚠️ الخط لازم ينزل قبل الرسم: الكانفاس مابيطلبش الخط، ولو رسمنا
+  // قبل ما ينزل الملصق هيتطبع بخط الجهاز والمعاينة بخط تاني.
+  ensureFont(function(){
+    renderLabelPNG().then(function(out){
+      // ⚠️ بنوري الصورة اللي اتبعتت فعلًا. المعاينة فوق HTML،
+      // ودي الصورة اللي راحت للطابعة بالحرف — فلو اختلفوا، تشوف
+      // بعينك من غير ما تستنى الورق.
+      $('sent-wrap').hidden = false;
+      $('sent-img').src = out.url;
+      $('sent-img').style.width = (out.w/DPMM*px()/1) + 'px';
+      return fetch('/label', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          widthMm: d.widthMm, heightMm: d.heightMm,
+          name: 'تجربة تصميم — ' + d.name,
+          labels: [{ png: out.png, copies: 1 }]
+        })
+      });
+    }).then(function(r){ return r.json(); }).then(function(j){
+      btn.disabled = false;
+      if (j.ok) say('✅ اتبعت ملصق واحد للطابعة (' + j.width + '×' + j.height + ' نقطة). شوف الورق.');
+      else say('⚠️ ' + (j.error || 'مش عارف') + ' — اتأكد إن طابعة الملصق متظبطة في الصفحة الرئيسية.', true);
+    }).catch(function(e){
+      btn.disabled = false;
+      say('مش قادر أطبع: ' + e, true);
+    });
+  });
 };
 
 window.addEventListener('resize', function(){ if(d) draw(); });
