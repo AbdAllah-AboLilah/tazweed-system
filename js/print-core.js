@@ -164,9 +164,25 @@ let helperCacheAt = 0;
 // واحد في العمر، ومهلته 1.2 ثانية.
 const HELPER_MISS_TTL_MS = 20000;
 
+// ============================================================
+// ⚠⚠ والنجاح كمان ليه مدة — مش للجلسة كلها
+// ============================================================
+// العطل اللي بيتحل، اتبلّغ بالنص:
+//   "انا حدثت البرنامج المساعد قعدت اعمل ري فريش لحد م
+//    الاصدار الجديد بان في الاعدادات"
+//
+// السبب: النتيجة الناجحة كانت بتتخزّن **للأبد**، وجوّاها رقم
+// النسخة. ونبضة الجهاز (كل 45 ثانية) بتقرا من نفس المخزون،
+// فكانت بتنشر الرقم القديم طول الوقت — ومافيش حل غير الريفريش.
+//
+// ⚠️ والتكلفة على السرعة صفر تقريبًا: النداء رايح لـ127.0.0.1
+// (نفس الجهاز، مابيعدّيش على النت خالص) وبيرد في ملي ثواني،
+// وبيحصل **مرة كل دقيقة على الأكتر** — مش مع كل ملصق.
+const HELPER_HIT_TTL_MS = 60000;
+
 async function helperStatus() {
-  // النجاح: متخزّن للجلسة.
-  if (helperCache) return helperCache;
+  // النجاح: متخزّن دقيقة، وبعدها بنسأل تاني عشان النسخة تتحدّث.
+  if (helperCache && Date.now() - helperCacheAt < HELPER_HIT_TTL_MS) return helperCache;
   // الفشل: متخزّن 20 ثانية بس، وبعدها بنسأل تاني.
   if (helperCache === false && Date.now() - helperCacheAt < HELPER_MISS_TTL_MS) return false;
   try {
@@ -5211,11 +5227,13 @@ async function openPrinterSettings() {
   if (printers.length === 0) {
     // ⚠️ الرسالة بتقول **الاتنين**، عشان اللي شايفها يعرف ينزّل أنهي
     // واحد. قبل كده كانت بتتكلم عن QZ بس.
-    statusLine.innerHTML =
-      'مالقيناش ولا طابعة على الجهاز ده — لا من البرنامج المساعد ولا من QZ Tray.' +
-      '<br>نزّل <strong>برنامج المساعد</strong> من شاشة الطباعة (⚙️ ← برنامج المساعد)، ' +
-      'أو شغّل QZ Tray. من غير واحد فيهم الطباعة هتفتح نافذة المتصفح وهتختار الطابعة بإيدك كل مرة.';
-    return;
+    // ⚠⚠ مابنخرجش من هنا — وده عطل اتبلّغ بالنص:
+    //   "دلوقتي لو برنامج qz مش شغال إعدادات الطابعة علي الجهاز مش هتفتح"
+    //
+    // النافذة فيها **13 مفتاح واسم الجهاز**، وولا واحد فيهم محتاج
+    // طابعة عشان يتظبط. والخروج هنا كان بيخفيهم كلهم، فالجهاز
+    // اللي شال QZ ولسه مانزّلش المساعد ماكانش يقدر يسمّي نفسه
+    // ولا يفتح مفتاح — وهو بالذات اللي محتاج يفتح مفاتيح المساعد.
   }
 
   // ⚠️ رقم النسخة جنب حالة الاتصال — أول مكان الواحد بيبص فيه.
@@ -5238,14 +5256,37 @@ async function openPrinterSettings() {
     parts.push('🖨️ QZ Tray مش شغّال');
   }
   statusLine.textContent = parts.join('  •  ') + `  •  ${printers.length} طابعة في القايمة`;
+
+  // ⚠️ الإرشاد بيتكتب **بعد** سطر الحالة، مش قبله: السطر اللي فوق
+  // بيكتب textContent فبيمسح أي حاجة اتكتبت قبله.
+  if (printers.length === 0) {
+    const tip = document.createElement('div');
+    tip.style.cssText = 'margin-top:8px; line-height:1.8;';
+    tip.innerHTML =
+      'مالقيناش ولا طابعة على الجهاز ده. نزّل <strong>برنامج المساعد</strong> ' +
+      'من شاشة الطباعة (⚙️ ← برنامج المساعد)، أو شغّل QZ Tray.' +
+      '<br>✅ وباقي الإعدادات تحت <strong>شغّالة عادي</strong> — اسم الجهاز وكل المفاتيح.';
+    statusLine.appendChild(tip);
+  }
+
   fields.style.display = 'block';
   saveBtn.style.display = 'inline-block';
 
-  [labelSelect, restockSelect].forEach((select) => {
-    select.innerHTML = `<option value="">— اختار طابعة —</option>` + printers.map((p) => `<option value="${escapeHTML(p)}">${escapeHTML(p)}</option>`).join('');
+  // ⚠⚠ الطابعة المحفوظة بتتحط في القايمة حتى لو مش في الموجود دلوقتي.
+  //
+  // من غير كده بيحصل **فقد بيانات**: القايمة مافيهاش الاسم المحفوظ
+  // ← الخانة بتقع على "— اختار طابعة —" ← تدوس حفظ ← الاسم المحفوظ
+  // **اتمسح**. وده بالذات بيحصل لما QZ والمساعد يبقوا مقفولين —
+  // يعني أسوأ وقت ممكن.
+  const savedLabel = getSavedPrinter('label');
+  const savedRestock = getSavedPrinter('restock');
+  [[labelSelect, savedLabel], [restockSelect, savedRestock]].forEach(([select, saved]) => {
+    const list = printers.slice();
+    if (saved && list.indexOf(saved) === -1) list.push(saved);
+    select.innerHTML = `<option value="">— اختار طابعة —</option>` + list.map((p) => `<option value="${escapeHTML(p)}">${escapeHTML(p)}${printers.indexOf(p) === -1 ? ' (مش ظاهرة دلوقتي)' : ''}</option>`).join('');
   });
-  labelSelect.value = getSavedPrinter('label');
-  restockSelect.value = getSavedPrinter('restock');
+  labelSelect.value = savedLabel;
+  restockSelect.value = savedRestock;
   deviceNameInput.value = getDeviceName();
 
   // ---- المفاتيح المتقدمة: بتتحفظ فورًا على الجهاز ----

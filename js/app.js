@@ -128,6 +128,7 @@ async function promptAppInstall() {
 let sessionStarted = false;
 // الاسترجاع بيحصل مرة واحدة لكل دخول — مش مع كل تحديث لمستند الحساب.
 let workStateRestored = false;
+let resumeApplied = false;
 
 let unsubProfile = null;
 let unsubCategories = null;
@@ -543,6 +544,34 @@ function renderFromData() {
   }
   dataRenderPending = false;
   render();
+}
+
+// ============================================================
+// ⭐⭐ الأصناف خلصت تحميل — مانهدّش الشاشة على إيد اللي بيكتب
+// ============================================================
+// ⚠⚠ العطل اللي بيتحل، اتبلّغ بالنص:
+//   "لما بفتح شاشة الطباعة ل اول مرة وبكتوب لاقي الموشر اختفي
+//    ولازم اضغط علي خانة الكتاب تاني واكمل كتابه"
+//
+// السبب: `loadProducts().then(render)` كانت بتنده على render
+// **مباشرة**، و render بيعمل root.innerHTML = ... يعني بيهدّ الشاشة
+// كلها ويبنيها من الأول — بما فيها خانة البحث اللي صباعك واقف فيها.
+//
+// وبيحصل **أول مرة بس** لأن الأصناف بتتحمّل مرة واحدة.
+//
+// ⚠️ والحارس اللي بيمنع ده (renderFromData) كان **موجود ومتفحوص**
+// فوق خالص، والسطر ده كان بيعدّي من جنبه.
+//
+// ⚠⚠ ومش كفاية نأجّل الرسم وخلاص: لو أجّلناه وهو بيكتب، قايمة
+// النتايج هتفضل بتقول "جارٍ تحميل الأصناف..." لحد ما يسيب الخانة —
+// وده أوحش. فبنحدّث **قايمة النتايج لوحدها** في مكانها
+// (updatePrintResults مابتلمسش خانة البحث خالص)، ونسيب الرسم
+// الكامل للحارس.
+function afterProductsLoaded() {
+  if (state.screen === 'print' && typeof updatePrintResults === 'function') {
+    try { updatePrintResults(); } catch (err) { console.warn('تعذّر تحديث النتايج:', err); }
+  }
+  renderFromData();
 }
 
 // أول ما يسيب الخانة، بننفّذ اللي اتأجّل.
@@ -985,7 +1014,7 @@ function openScreen(screen) {
 
   // الأصناف بتتحمّل أول ما تحتاجها بس — مش مع كل تسجيل دخول.
   if (screen === 'products' || screen === 'print') {
-    if (!productsCache) loadProducts().then(render).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
+    if (!productsCache) loadProducts().then(afterProductsLoaded).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
   }
   if (screen === 'users') subscribeUsers();
   // أرقام الحركة بتتقرا **مرة** أول ما الشاشة تتفتح — مافيش اشتراك دايم
@@ -6263,10 +6292,28 @@ function init() {
         }
       }
 
+      // ============================================================
+      // ⭐⭐ التحديث قفل الصفحة → نرجّعه لنفس الشاشة
+      // ============================================================
+      // ⚠️ مرة واحدة بس (workStateRestored)، وقبل فرع موظف الطباعة
+      // عشان هو **مايقدرش يخرج من شاشته** ولازم يتغلّب على أي
+      // استئناف.
+      if (!resumeApplied) {
+        resumeApplied = true;
+        const back = typeof takeResumeScreen === 'function' ? takeResumeScreen() : '';
+        if (back) {
+          state.screen = back;
+          if (back === 'users') subscribeUsers();
+          if (back === 'products' || back === 'print') {
+            if (!productsCache) loadProducts().then(afterProductsLoaded).catch(() => {});
+          }
+        }
+      }
+
       // موظف الطباعة بيفتح على شاشته على طول ومايقدرش يخرج منها.
       if (isPrintOperator(state.profile)) {
         state.screen = 'print';
-        if (!productsCache) loadProducts().then(render).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
+        if (!productsCache) loadProducts().then(afterProductsLoaded).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
       }
 
       state.view = 'dashboard';

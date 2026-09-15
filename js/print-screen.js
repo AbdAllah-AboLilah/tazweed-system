@@ -718,23 +718,43 @@ function openPrintSettingsDialog(preselectDeviceId) {
           <label style="font-size:11px;">الإيقاع (مث)</label>
           <input class="input" type="number" id="ps-pace" min="0" max="3000" inputmode="numeric" style="padding:6px;" />
         </div>
+      </div>
+
+      <!-- ============================================================
+           ⭐⭐ حجم الخط في مجموعة لوحده
+           ============================================================
+           ⚠⚠ اتبلّغ بالنص: "في ارسال الاعدادات من التليفون مفيش
+           خيار حجم الخط ولا بتاع الاسم ولا السعر ولا الباركود".
+
+           والتلاتة كانوا **موجودين وظاهرين** — بس تحت عنوان "📦 الدفعات"،
+           وده عنوان مالوش أي علاقة بالمقاسات. فالمشكلة مكانتش إنهم
+           ناقصين — كانت إنه مش لاقيهم.
+
+           ⚠️ والعنوان فيه كلمة "حجم الخط" بالذات، لأنها هي اللي
+           اتدوّر عليها — مش "مقاس".
+
+           ⚠⚠ ولا id واحد اتغيّر (ps-namemm / ps-codemm / ps-pricemm)،
+           فالقراية والحفظ زي ما هم بالحرف. اللي اتغيّر المكان والعنوان بس. -->
+      <div style="font-size:12px; font-weight:500; margin-bottom:5px;">📏 حجم الخط في الملصق (مم)</div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
         <div class="field" style="width:125px; margin-bottom:0;">
-          <label style="font-size:11px;">مقاس اسم الصنف</label>
+          <label style="font-size:11px;">حجم خط اسم الصنف</label>
           <input class="input" type="number" id="ps-namemm" min="1.2" max="3" step="0.1" inputmode="decimal" style="padding:6px;" />
         </div>
         <div class="field" style="width:125px; margin-bottom:0;">
-          <label style="font-size:11px;">مقاس رقم الباركود</label>
+          <label style="font-size:11px;">حجم خط رقم الباركود</label>
           <input class="input" type="number" id="ps-codemm" min="1.2" max="3" step="0.1" inputmode="decimal" style="padding:6px;" />
         </div>
         <div class="field" style="width:125px; margin-bottom:0;">
-          <label style="font-size:11px;">مقاس السعر</label>
+          <label style="font-size:11px;">حجم خط السعر</label>
           <input class="input" type="number" id="ps-pricemm" min="1.2" max="3" step="0.1" inputmode="decimal" style="padding:6px;" />
         </div>
       </div>
-      <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin:-6px 0 10px;">
-        📏 التلات مقاسات دي بتشتغل مع مفاتيح <strong>"اسم الصنف بمقاس ثابت"</strong>
-        و<strong>"ثبّت مقاس السعر ورقم الباركود"</strong> تحت.
-        سيبها فاضية = ماتغيّرش حاجة على الجهاز.
+      <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin:0 0 10px;">
+        📏 التلاتة دول بيشتغلوا مع مفتاح <strong>"اسم الصنف بمقاس ثابت"</strong>
+        و<strong>"ثبّت مقاس السعر ورقم الباركود"</strong> — والمفتاحين تحت في
+        مجموعة <strong>📏 مقاسات الملصق وشكله</strong>.
+        <br>سيبها فاضية = ماتغيرش حاجة على الجهاز.
       </div>
 
       <div style="font-size:12px; font-weight:500; margin-bottom:5px;">🎯 المعايرة</div>
