@@ -72,12 +72,42 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       }
       if (half - prevEnd > 0) gaps.push(+((half - prevEnd) / DPMM).toFixed(2));
 
+      // ============================================================
+      // ⚠⚠ الحدود الأربعة لكل ملصق لوحده
+      // ============================================================
+      // اتطلب بالنص: "عاوزك تتاكد من حد الامان اللي من الجنب
+      // ومن فوق ومن تحت ومن النص".
+      //
+      // ⚠️ خط القص نفسه حبر، فبنستثني الصفوف اللي في النص بالظبط.
+      const scan = (y0, y1) => {
+        let t = -1, bt = -1, l = -1, rr = -1;
+        for (let y = y0; y < y1 && t === -1; y++) for (let x = 0; x < c.width; x++) if (dark(x, y)) { t = y; break; }
+        for (let y = y1 - 1; y >= y0 && bt === -1; y--) for (let x = 0; x < c.width; x++) if (dark(x, y)) { bt = y; break; }
+        for (let x = 0; x < c.width && l === -1; x++) for (let y = y0; y < y1; y++) if (dark(x, y)) { l = x; break; }
+        for (let x = c.width - 1; x >= 0 && rr === -1; x--) for (let y = y0; y < y1; y++) if (dark(x, y)) { rr = x; break; }
+        return { t, bt, l, rr };
+      };
+      const up = scan(0, half - 3);
+      const dn = scan(half + 3, c.height);
+      const q = (v) => +(v / DPMM).toFixed(2);
+      const edges = {
+        // حرف الورق — التحريف بيبان هنا أكتر حاجة
+        paperTop: q(up.t),
+        paperBottom: q(c.height - 1 - dn.bt),
+        // خط القص في نص الورقة — أخطر حد (حسّاس الماكينة)
+        cutTop: q(half - up.bt),
+        cutBottom: q(dn.t - half),
+        // الجنب — اللي اتطلب صراحةً إنه مايتلمسش
+        left: q(Math.min(up.l, dn.l)),
+        right: q(c.width - 1 - Math.max(up.rr, dn.rr)),
+      };
+
       // ⚠️ الهامش الجانبي: أول عمود فيه حبر — لازم مايتحركش
       let leftInk = -1;
       for (let x = 0; x < c.width && leftInk === -1; x++) {
         for (let y = 0; y < half; y++) if (dark(x, y)) { leftInk = x; break; }
       }
-      return { ink, gaps, topGap: gaps[0], bottomGap: gaps[gaps.length - 1], leftMm: +(leftInk / DPMM).toFixed(2) };
+      return { ink, gaps, topGap: gaps[0], bottomGap: gaps[gaps.length - 1], leftMm: +(leftInk / DPMM).toFixed(2), edges };
     };
 
     setT('htmlLabels', 0); setT('fixedNameSize', 1); setT('fixedLabelSizes', 1); setT('lightQR', 1);
@@ -153,8 +183,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   // ============================================================
   check('⭐⭐⭐⭐ الفراغ اللي فوق قلّ',
     r.onLong.topGap < r.offLong.topGap, { قبل: r.offLong.topGap, بعد: r.onLong.topGap });
-  check('⭐⭐⭐ واللي تحت كمان',
-    r.onLong.bottomGap < r.offLong.bottomGap, { قبل: r.offLong.bottomGap, بعد: r.onLong.bottomGap });
+  // ⚠⚠ واللي **تحت** مابيتلمسش — وده مقصود مش نسيان.
+  // في الملصق الفوقاني، "تحت" = **خط القص**، وهو أخطر حد
+  // في الملصق. أول نسخة من المفتاح كانت بتاخد منه كمان (0.6→0.35)
+  // والقياس ورّى إن الحد بينزل لـ**0.63مم** — أقل من اللي النظام
+  // شغّال بيه دلوقتي (0.75). فاترجّعت، والتمن 0.12مم من السطر
+  // التاني بس.
+  check('⭐⭐⭐⭐⭐ واللي تحت (ناحية خط القص) **مااتلمسش** — مقصود',
+    r.onLong.bottomGap === r.offLong.bottomGap,
+    { قبل: r.offLong.bottomGap, بعد: r.onLong.bottomGap });
 
   // ⚠️ بس مش لدرجة إن الكلام يلزق في الحرف — التحريف بيبان فيه.
   check('⭐⭐⭐⭐ وفضل فيه هامش محترم فوق (مش لازق في الحرف)',
@@ -176,6 +213,36 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐⭐⭐ والقصير: كل مقاسات الحروف زي ما هي بالظبط',
     JSON.stringify(r.offShort.ink) === JSON.stringify(r.onShort.ink),
     { قبل: r.offShort.ink, بعد: r.onShort.ink });
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ حدود الأمان — الأربعة بالمليمتر
+  // ============================================================
+  // اتطلب بالنص: "عاوزك تتاكد من حد الامان اللي من الجنب
+  // ومن فوق ومن تحت ومن النص".
+  const E = r.onLong.edges, E0 = r.offLong.edges;
+
+  // ⚠⚠ أخطر حد: خط القص. الماكينة بتحسّ الفراغ بين اللاصقات
+  // بحسّاس، وفيه فرق بين ماكينة وماكينة — وده اللي اتحذّر منه.
+  //
+  // القاعدة: المفتاح **مايقرّبش** أي حاجة من خط القص أكتر مما
+  // هي قريبة وهو مقفول.
+  check('⭐⭐⭐⭐⭐ خط القص: المفتاح ماقرّبش حاجة أكتر من دلوقتي',
+    E.cutBottom >= E0.cutBottom && E.cutTop >= Math.min(E0.cutTop, E0.cutBottom),
+    { مقفول: { فوقاني: E0.cutTop, تحتاني: E0.cutBottom },
+      مفتوح: { فوقاني: E.cutTop, تحتاني: E.cutBottom } });
+
+  check('⭐⭐⭐⭐⭐ وولا حد عند خط القص أقل من 0.7مم',
+    E.cutTop >= 0.7 && E.cutBottom >= 0.7, { فوقاني: E.cutTop, تحتاني: E.cutBottom });
+
+  // حرف الورق — منه بناخد، بس بسقف
+  check('⭐⭐⭐⭐ حرف الورق فوق وتحت ≥ 1مم',
+    E.paperTop >= 1.0 && E.paperBottom >= 1.0, { فوق: E.paperTop, تحت: E.paperBottom });
+
+  // الجنب — مابيتلمسش خالص
+  check('⭐⭐⭐⭐⭐ الجنب الشمال **بالملي** زي ما هو',
+    E.left === E0.left, { مقفول: E0.left, مفتوح: E.left });
+  check('⭐⭐⭐⭐ والجنبين ≥ 1.5مم (التحريف مايخفيش حاجة)',
+    E.left >= 1.5 && E.right >= 1.5, { شمال: E.left, يمين: E.right });
 
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
