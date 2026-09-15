@@ -1985,6 +1985,16 @@ function hookQZClosed() {
   }
 }
 
+// ⚠⚠ مافيش "ذاكرة فشل" لـQZ زي اللي في البرنامج المساعد — وده مقصود.
+//
+// جرّبتها فعلًا (عشان نافذة الإعدادات تفتح في 3 ثواني بدل 6)،
+// وفحصين وقعوا: batch5 و qz-version-show. والفحوص كانت محقّة —
+// الذاكرة دي مابتقفش عند نافذة الإعدادات، بتقعد على **الطباعة** كمان:
+// QZ يفشل مرة → عشرين ثانية كل طبعة تروح لنافذة المتصفح حتى لو QZ
+// رجع في الثانية اللي بعديها.
+//
+// فالمهلة لوحدها كافية: النافذة بتفتح في ~6 ثواني بدل نص دقيقة،
+// والطباعة مابتتأذيش خالص.
 async function ensureQZConnected() {
   if (!isQZAvailable()) return false;
   hookQZClosed();
@@ -2010,14 +2020,23 @@ async function ensureQZConnected() {
   }
   if (!attempt || typeof attempt.then !== 'function') return false;
 
-  qzConnecting = attempt
-    .then(() => {
-      qzConnected = true;
-      return true;
-    })
-    .catch((err) => {
+  // ⚠⚠ مهلة على الاتصال نفسه — دي أصل العطل اللي اتبلّغ:
+  //   "هو مش عاوز يفتح بالمساعد بردوه" — ومعاها صورة النافذة
+//   واقفة على "جارِ البحث عن QZ Tray...".
+  //
+  // qz.websocket.connect() مالوش مهلة جوّاه: لو ماحدش رد، الوعد
+  // عمره ما بيرجع وكل اللي مستنيه بيتعلّق معاه — ومنهم
+  // نافذة الإعدادات بالكامل.
+  qzConnecting = Promise.race([
+    attempt.then(() => true).catch((err) => {
       console.warn('تعذّر الاتصال بـ QZ Tray (على الأغلب مش مثبّت على الجهاز ده):', err);
       return false;
+    }),
+    new Promise((resolve) => setTimeout(() => resolve(false), QZ_LIST_TIMEOUT_MS)),
+  ])
+    .then((ok) => {
+      qzConnected = !!ok;
+      return !!ok;
     })
     .finally(() => {
       qzConnecting = null;
@@ -2450,6 +2469,9 @@ async function clearDeviceOverrides(deviceId) {
   await db.collection(DEVICE_SETTINGS).doc(deviceId).delete();
 }
 
+// مهلة انتظار QZ وهو بيطلع قايمة الطابعات — الشرح عند استعمالها.
+const QZ_LIST_TIMEOUT_MS = 3000;
+
 async function getAvailableQZPrinters() {
   const ok = await ensureQZConnected();
   if (!ok) return [];
@@ -2504,7 +2526,28 @@ async function getAvailablePrinters() {
 
   let fromQZ = 0;
   try {
-    const list = await getAvailableQZPrinters();
+    // ============================================================
+    // ⚠⚠ مهلة على QZ — من غيرها النافذة بتقف للأبد
+    // ============================================================
+    // العطل اللي بيتحل، اتبلّغ بالنص ومعاه صورة النافذة واقفة
+    // على "جارِ البحث عن QZ Tray...":
+    //     "هو مش عاوز يفتح بالمساعد بردوه"
+    //
+    // السبب: qz.websocket.connect() **مالوش مهلة**. لو QZ مش مثبّت
+    // أو مش راضي يرد، الوعد عمره ما بيرجع — والـawait ده بيقفل
+    // النافذة كلها.
+    //
+    // ⚠⚠ وأوحش حاجة: ده بيحصل **حتى والبرنامج المساعد شغّال**
+    // وراجع الطابعات خلاص فوق — لأن السطر ده بعده. فالمساعد
+    // بيجهّز كل حاجة وQZ بيضيّعها.
+    //
+    // ⚠️ 3 ثواني كتير جدًا على اتصال محلي (127.0.0.1): QZ المثبّت
+    // بيرد في أقل من ثانية. والمهلة دي **لقايمة الطابعات بس** —
+    // مابتلمسش الطباعة نفسها.
+    const list = await Promise.race([
+      getAvailableQZPrinters(),
+      new Promise((resolve) => setTimeout(() => resolve(null), QZ_LIST_TIMEOUT_MS)),
+    ]);
     if (Array.isArray(list)) {
       list.forEach((n) => {
         const before = out.length;
@@ -4203,7 +4246,16 @@ function qzVersionAtLeast(ver, min) {
 async function readQZVersion() {
   try {
     if (typeof qz !== 'undefined' && qz.api && typeof qz.api.getVersion === 'function') {
-      const v = await qz.api.getVersion();
+      // ⚠⚠ مهلة هنا كمان — ودي نقطة تعليق **تانية** غير قايمة
+      // الطابعات. اتمسكت وإحنا بنصنع العطل: حطّينا مهلة على
+      // القايمة لوحدها والنافذة **فضلت واقفة** — لأن السطر ده
+      // بيستنى QZ بردو ومالوش مهلة.
+      //
+      // ورقم النسخة معلومة على الشاشة بس — مايصحّش يوقّف النافذة.
+      const v = await Promise.race([
+        qz.api.getVersion(),
+        new Promise((resolve) => setTimeout(() => resolve(''), QZ_LIST_TIMEOUT_MS)),
+      ]);
       return String(v || '');
     }
   } catch (err) {
