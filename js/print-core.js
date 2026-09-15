@@ -313,6 +313,54 @@ async function printSheetsViaHelper(list, onProgress) {
   return true;
 }
 
+// ============================================================
+// 🩺 سجل آخر طبعة — على كارت الجهاز نفسه
+// ============================================================
+// ⚠️⚠️ ليه ده موجود، والسبب أهم من الكود:
+//
+// الطباعة عن بُعد معناها إن **محدش واقف قدام الكمبيوتر**. وكل رسايل
+// النظام عن الطباعة (الطريق، السبب، التحذير) بتتكتب على شاشة الكمبيوتر
+// دي بالظبط. يعني المعلومة اللي محتاجينها بتظهر في المكان الوحيد اللي
+// محدش بيبص فيه، وبتختفي بعد ثواني.
+//
+// وده كلّفنا لفّات كتير في تشخيص عطل "الورقة بتطلع بمعاينة": كل مرة
+// نخمّن سبب، نصلّحه، ويطلع مش هو — لأننا شايفين النتيجة (ورقة بمعاينة)
+// ومش شايفين اللي حصل جوّه الجهاز.
+//
+// دلوقتي كل طبعة بتتسجّل في كارت الجهاز، والكارت بيتشاف من التليفون.
+//
+// ⚠️ التكلفة: كتابة واحدة صغيرة بعد كل طبعة على نفس المستند اللي
+// النبضة بتكتب فيه أصلًا. مافيش استماع ولا استعلام جديد.
+// ⚠️ وبتفشل في صمت عن قصد: ده تشخيص، عمره ما يوقف طبعة.
+function recordLastPrint(info) {
+  try {
+    const deviceId = typeof getDeviceId === 'function' ? getDeviceId() : '';
+    if (!deviceId || typeof db === 'undefined' || !db) return;
+    db.collection('printStations')
+      .doc(deviceId)
+      .set(
+        {
+          updatedByUid: state.user ? state.user.uid : '',
+          lastPrint: {
+            at: Date.now(),
+            type: String(info.type || ''),
+            route: String(info.route || ''),
+            ok: info.ok === true,
+            // ⚠️ السبب أهم حقل هنا — هو اللي بيفرّق بين "المساعد مش
+            // شغّال" و"الطابعة مش مظبوطة" و"الرسم فشل".
+            reason: String(info.reason || '').slice(0, 300),
+            from: String(info.from || ''),
+            papers: Number(info.papers) || 0,
+          },
+        },
+        { merge: true }
+      )
+      .catch(() => {});
+  } catch (err) {
+    /* تشخيص — مايوقفش طبعة */
+  }
+}
+
 // بتكتب السبب في مكانين: تنبيه على الشاشة، و**نتيجة الطبعة** — عشان
 // اللي بعت من التليفون يشوف السبب في حالة الطلب بدل "فشلت" الغامضة.
 function helperFail(reason, loud) {
@@ -516,7 +564,10 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, s
   // المصفوفة لـrenderSheetImage اللي بتاخد نص — فبترجّع false والطبعة
   // تروح لـQZ وبعدها لنافذة المتصفح المقصوصة. نفس العطل اللي كان في
   // المسار الجاي من بعيد بالظبط.
-  if (type === 'restock' && (await printSheetsViaHelper(normalizePrintJobs(html)))) return true;
+  if (type === 'restock' && (await printSheetsViaHelper(normalizePrintJobs(html)))) {
+    recordLastPrint({ type, route: lastPrintRoute, ok: true, reason: '', from: 'من الجهاز', papers: normalizePrintJobs(html).length });
+    return true;
+  }
   // ⚠️ نفس المكان بالظبط ولنفس السبب: البرنامج **بديل** لـQZ مش إضافة
   // عليه. والشرط `type === 'label'` صريح مش `!== 'restock'` — الاتنين
   // دول كل الأنواع الموجودة، بس الصريح مايتكسرش لو اتضاف نوع تالت.
@@ -983,6 +1034,16 @@ async function executePrintJob(jobId, job) {
   // ⭐ وفيه حالة تالتة: **اتوقفت**. لو كتبناها "فشلت"، اللي على الموبايل
   // هيدوّر على عطل مش موجود — هو اللي وقفها بإيده.
   const ok = printedViaQZ && outcome.ok;
+  // ⚠️ بنسجّل **قبل** الكتابة على الطلب: لو الكتابة دي اترفضت (سبقنا
+  // جهاز تاني مثلًا)، السجل بيفضل موجود وبيقول اللي حصل فعلًا.
+  recordLastPrint({
+    type: job.type,
+    route: lastPrintRoute,
+    ok,
+    reason: outcome.reason || '',
+    from: 'عن بُعد',
+    papers: list.length,
+  });
   ref
     .update(
       outcome.cancelled
