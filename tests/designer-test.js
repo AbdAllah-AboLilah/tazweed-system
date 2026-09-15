@@ -37,8 +37,42 @@ function designerPage() {
 }
 
 // نفس التصميم الافتراضي اللي في helper/design.go (38×25 بملصقين).
+// ⚠️ قايمة الخطوط اللي البرنامج بيقدّمها على /fonts.json. الفحص اللي
+// بيتأكد إنها مطابقة للنظام في Go (TestFontListMatchesSystem) — هنا
+// بنحاكيها عشان الصفحة تشتغل زي ما بتشتغل على الماكينة.
+const FONTS = [
+  { id: 'system', label: 'خط الجهاز (الافتراضي)', hint: 'زي ما هو دلوقتي بالظبط.', family: '', weights: null },
+  { id: 'plex', label: 'Plex Arabic — نفس خط الشاشة', hint: 'أضيق خط في القايمة.', family: 'Plex Arabic', weights: [400, 600] },
+  { id: 'cairo', label: 'Cairo — كايرو', hint: 'حديث وواضح.', family: 'TZ Cairo', weights: [400, 700] },
+  { id: 'tajawal', label: 'Tajawal — تجوال', hint: 'أضيق شوية.', family: 'TZ Tajawal', weights: [400, 700] },
+  { id: 'almarai', label: 'Almarai — المراعي', hint: 'تخين.', family: 'TZ Almarai', weights: [400, 700] },
+];
+
+const ARABIC_RANGE =
+  'U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, ' +
+  'U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, ' +
+  'U+FE70-FE74, U+FE76-FEFC';
+
+// ⚠️ بنبني نفس الـCSS اللي fontFaceCSS() في Go بتطلّعه — بس الروابط
+// بتروح لمجلد fonts/ الحقيقي في المستودع، فالخط بينزل فعلًا
+// والقياس بيبقى حقيقي مش محاكاة.
+const SLUG = { plex: 'plex-ar', cairo: 'cairo', tajawal: 'tajawal', almarai: 'almarai' };
+function fontsCSS() {
+  let out = '';
+  for (const f of FONTS) {
+    if (!f.family) continue;
+    for (const w of f.weights) {
+      out += `@font-face{font-family:'${f.family}';font-style:normal;font-weight:${w};font-display:block;` +
+        `src:url('/fonts/${SLUG[f.id]}-arabic-${w}.woff2') format('woff2');unicode-range:${ARABIC_RANGE}}\n`;
+      out += `@font-face{font-family:'${f.family}';font-style:normal;font-weight:${w};font-display:block;` +
+        `src:url('/fonts/${SLUG[f.id]}-latin-${w}.woff2') format('woff2')}\n`;
+    }
+  }
+  return out;
+}
+
 const DESIGN = {
-  name: 'الافتراضي', widthMm: 38, heightMm: 25, halves: 2,
+  name: 'الافتراضي', widthMm: 38, heightMm: 25, halves: 2, font: 'system',
   elements: [
     { kind: 'qr', x: 2.0, y: 1.5, w: 9.5, h: 9.5 },
     { kind: 'name', x: 12.5, y: 1.2, w: 23.5, h: 4.6, fontMm: 1.9, lines: 2, align: 'center', weight: 'normal', overflow: 'shrink', show: 'always' },
@@ -60,10 +94,22 @@ const DESIGN = {
   // البرنامج بيقدّم الاتنين دول من 127.0.0.1 — بنقلّدهم هنا.
   await p.route('**/qrcode.js', (r) => r.fulfill({ contentType: 'application/javascript; charset=utf-8', body: qrLib }));
   await p.route('**/design/all', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ designs: [DESIGN], active: DESIGN.name }) }));
+  await p.route('**/fonts.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify({ fonts: FONTS }) }));
+  await p.route('**/fonts.css', (r) => r.fulfill({ contentType: 'text/css; charset=utf-8', body: fontsCSS() }));
+  // ⚠️ ملفات الخط نفسها **مابتتقلّدش**: بتروح لمجلد fonts/ الحقيقي
+  // على السيرفر، فالخط بينزل فعلًا والتصغير اللي بنقيسه حقيقي.
 
-  await p.goto('http://localhost:8899/tests/harness.html');
-  await p.setContent(html);
-  await p.waitForFunction(() => typeof window.draw === 'function' && window.d);
+  // ⚠️⚠️ الصفحة بتتقدّم على **عنوان لوحدها** مش بـsetContent فوق
+  // صفحة الفحوص. السبب اتمسك بالتجربة: setContent بتبدّل المحتوى بس
+  // والمتغيّرات العامة بتاعة الصفحة القديمة بتفضل موجودة — و
+  // js/appearance.js عنده متغيّر اسمه FONTS كمان، فالصفحة كانت
+  // بتقع على "Identifier 'FONTS' has already been declared" وتموت
+  // من غير ما يبان سبب واضح.
+  //
+  // وكده الفحص بيشبه الحقيقة أكتر: البرنامج بيقدّمها على /designer.
+  await p.route('**/designer', (r) => r.fulfill({ contentType: 'text/html; charset=utf-8', body: html }));
+  await p.goto('http://localhost:8899/designer');
+  await p.waitForFunction(() => typeof window.draw === 'function' && window.d && window.FONTS && window.FONTS.length);
 
   // مقاس الاسم المرسوم فعلًا، بالملليمتر
   const nameMm = () => p.evaluate(() => {
@@ -154,35 +200,168 @@ const DESIGN = {
   check('⭐⭐⭐ ورقم أطول = رمز مختلف (يعني بيتولّد من الرقم فعلًا)', !qr.same, qr);
 
   // ============================================================
-  // ⭐⭐⭐⭐ رسالة "الخط أكبر من الصندوق" بتقول الأرقام والتلات حلول
+  // ⭐⭐⭐⭐⭐ الحالة اللي اتبلّغت: ٣ سطور لازم تعدّي
   // ============================================================
-  // ⚠️⚠️ اتبلّغ بالنص: "مش عاوز يتحفظ ليه ايه المفروض يتحفظ" — وهو
-  // كان حاطط ٣ سطور × ١.٩مم في صندوق ٦مم. الرسالة القديمة كانت
-  // ساكتة عن **عدد السطور**، وهو السبب الحقيقي.
-  const msg = await p.evaluate(() => {
+  // ⚠️⚠️ اتبلّغ بالنص: "جربت اخلي الاسم ينزل في ٣ سطور نزل عادي بس
+  // لما جيت احفظ التصميم قالي ان الحجم لازم يكبر بالرغم من في
+  // المعاينة قدامي طلعت عادي وانا كنت راضي".
+  //
+  // وكان معاه حق: المعاينة بتصغّر زي الملصق الحقيقي، فاللي كان
+  // على الشاشة مظبوط فعلًا. الرسالة بقت **معلومة** بتقول الخط
+  // هيطلع كام، مش تحذير بيمنع الحفظ.
+  const info = await p.evaluate(() => {
     const e = el('name');
-    e.lines = 3; e.fontMm = 1.9; e.h = 6;
+    e.lines = 3; e.fontMm = 1.9; e.h = 6; e.overflow = 'shrink';
     render();
     return document.getElementById('hint').textContent;
   });
-  check('⭐⭐⭐ الرسالة بتقول الحساب بالأرقام', /6\.8/.test(msg) && /6\.0/.test(msg), msg);
-  check('⭐⭐⭐ وبتقول التلات حلول (السطور كمان مش الطول والخط بس)',
-    /سطور/.test(msg) && /كبّر «الطول»/.test(msg) && /صغّر «حجم الخط»/.test(msg), msg);
+  check('⭐⭐⭐⭐⭐ ٣ سطور بقت معلومة مش تحذير', info.indexOf('ℹ️') === 0, info);
+  check('⭐⭐⭐⭐ وبتقول الخط هيطلع كام فعلًا', /1\.67مم/.test(info), info);
+  check('⭐⭐⭐ ومش بتقول الحفظ ممنوع', !/⚠️/.test(info), info);
+
+  // ⚠️ والتحذير الأحمر فضل للحالة اللي الكلام فيها مش هيتقرا أصلًا.
+  const warn = await p.evaluate(() => {
+    const e = el('name');
+    e.lines = 3; e.h = 3.5; // 3.5 ÷ 3.6 = 0.97مم
+    render();
+    return document.getElementById('hint').textContent;
+  });
+  check('⭐⭐⭐⭐ والمساحة اللي مايتقراش فيها لسه بتحذّر', /⚠️/.test(warn) && /0\.97/.test(warn), warn);
 
   // ============================================================
-  // ⭐⭐⭐⭐ "اطبع تجربة" بيطلّع ورقة بمقاس الملصق بالظبط
+  // ⭐⭐⭐⭐⭐ "اطبع تجربة" بتروح للطابعة على طول
   // ============================================================
-  const ph = await p.evaluate(() => {
+  // ⚠️⚠️ النسخة الأولى كانت بتفتح نافذة طباعة المتصفح، واتبلّغ بالنص
+  // إنها بايظة: "بيطلع ورق فاضي من الماكينه والملصق بيظهر حتي من
+  // الجنب ويطلع ٣ ورقات". السبب: نافذة المتصفح بتحط هوامشها وبتحجّم
+  // لـA4، والطابعة الحرارية مالهاش دعوة بده.
+  //
+  // فالفحص ده بيتأكد إن الطريق بقى زي الصفحة الرئيسية بالظبط:
+  // كانفاس بمقاس نقط الطابعة → صورة → POST على /label.
+  await p.evaluate(() => {
     const e = el('name');
-    e.lines = 2; e.fontMm = 1.9; e.h = 4.6; // رجّعه صالح
-    return printHTML();
+    e.lines = 2; e.fontMm = 1.9; e.h = 4.6; e.overflow = 'shrink';
+    d.font = 'system';
+    render();
   });
-  check('⭐⭐⭐ ورق الطباعة بمقاس الملصق بالحرف', /@page\{size:38mm 25mm;margin:0\}/.test(ph), ph.slice(0, 160));
-  check('⭐⭐ وفيه الرمز صورة جوّه الورقة', ph.includes('data:image/'), null);
-  check('⭐⭐ وبيقيس ويصغّر جوّه نافذة الطباعة كمان', ph.includes('scrollHeight') && ph.includes('window.print()'), null);
-  // ⚠️ الاسم لازم يبقى rtl في الورقة — من غيرها الأرقام اللي جوّه
-  // الكلام العربي بتطلع في المكان الغلط.
-  check('⭐⭐ واسم الصنف بيتكتب من اليمين', /direction:rtl/.test(ph), null);
+
+  let sent = null;
+  await p.route('**/label', (r) => {
+    sent = JSON.parse(r.request().postData() || '{}');
+    return r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, width: 304, height: 200, bytes: 1234, count: 1 }) });
+  });
+  await p.click('#s-print');
+  await p.waitForFunction(() => /اتبعت ملصق واحد/.test(document.getElementById('msg').textContent), null, { timeout: 8000 }).catch(() => {});
+
+  check('⭐⭐⭐⭐⭐ بيبعت على /label مش بيفتح نافذة طباعة', sent !== null, sent);
+  check('⭐⭐⭐⭐ وبمقاس الملصق الحقيقي',
+    sent && sent.widthMm === 38 && sent.heightMm === 25, sent && { w: sent.widthMm, h: sent.heightMm });
+  check('⭐⭐⭐⭐ ولاصقة **واحدة** بس (التجربة ماتكلّفش رول)',
+    sent && sent.labels && sent.labels.length === 1 && sent.labels[0].copies === 1, sent && sent.labels);
+
+  // ⚠️⚠️ والصورة لازم تبقى بمقاس **نقط الطابعة** بالظبط: 38مم على
+  // 203 نقطة/بوصة = 304 نقطة. أي مقاس تاني معناه إن الطابعة هتمطّها
+  // أو تقصّها.
+  const img = await p.evaluate((b64) => new Promise((res) => {
+    const im = new Image();
+    im.onload = () => {
+      // ⚠️ وبنتأكد إنها **مش فاضية**: صورة بيضا بالكامل معناها إن
+      // الرسم فشل والطابعة هتطلّع ورقة فاضية — وده بالظبط اللي اتبلّغ.
+      const c = document.createElement('canvas');
+      c.width = im.width; c.height = im.height;
+      const x = c.getContext('2d');
+      x.drawImage(im, 0, 0);
+      const px = x.getImageData(0, 0, im.width, im.height).data;
+      let dark = 0;
+      for (let i = 0; i < px.length; i += 4) if (px[i] < 128) dark++;
+      res({ w: im.width, h: im.height, dark });
+    };
+    im.onerror = () => res(null);
+    im.src = 'data:image/png;base64,' + b64;
+  }), sent ? sent.labels[0].png : '');
+  check('⭐⭐⭐⭐⭐ الصورة بمقاس نقط الطابعة (304×200)', img && img.w === 304 && img.h === 200, img);
+  check('⭐⭐⭐⭐⭐ والصورة **مش فاضية** (فيها حبر فعلًا)', img && img.dark > 500, img);
+
+  // ⚠️ وبيوري اللي اتبعت على الشاشة — عشان لو المعاينة اختلفت عن
+  // الورق، تشوف بعينك من غير ما تستنى اللاصقة تخرج.
+  check('⭐⭐⭐ وبيعرض الصورة اللي اتبعتت',
+    await p.evaluate(() => !document.getElementById('sent-wrap').hidden
+      && /^data:image\/png/.test(document.getElementById('sent-img').src)), null);
+
+  await p.unroute('**/label');
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ تغيير الخط لازم يغيّر **القياس** مش الشكل بس
+  // ============================================================
+  // اتطلب بالنص: "عاوزك تضيف تغير الخط في نظام تصميم الملصق في
+  // البرنامج المساعد ... بحيث بردوا اقدر اشوف تغير الخط هياثر ازاي".
+  //
+  // ⚠️⚠️ و"يأثر" هنا معناها حاجة محدّدة: الخط الأضيق بيخلّي نفس
+  // الاسم يدخل بمقاس أكبر. لو غيّرنا الخط والمقاس المعروض ما اتغيّرش،
+  // يبقى المعاينة بتقيس بخط الجهاز وبتكتب اسم خط تاني — وده أسوأ من
+  // إن الخانة ماتبقاش موجودة أصلًا.
+  // ⚠️⚠️ لازم **اسم طويل** هنا: الاسم القصير بيدخل بالمقاس المطلوب
+  // في أي خط، فالمقارنة كانت هتطلّع نفس الرقم للخطوط كلها والفحص
+  // يعدّي وهو مايقيسش حاجة. (وده اللي حصل فعلًا أول مرة كتبته.)
+  // فرق الخطوط بيبان **بس** لما التصغير يشتغل.
+  await p.fill('#s-name', 'بونيه حجاب بندانه سوري مفتوح درجة اولى قطن مصري 100% مقاس كبير جدا');
+  await p.waitForTimeout(300);
+
+  const byFont = {};
+  for (const id of ['system', 'plex', 'almarai']) {
+    await p.selectOption('#dfont', id);
+    await p.waitForTimeout(600);
+    byFont[id] = await p.evaluate(() => {
+      const box = [...document.querySelectorAll('#sheet .el')]
+        .find((x) => x.querySelector('span') && x.querySelector('span').textContent === SAMPLE.name);
+      const sp = box && box.querySelector('span');
+      return {
+        mm: sp ? +(parseFloat(sp.style.fontSize) / px()).toFixed(2) : null,
+        fam: sp ? sp.style.fontFamily : '',
+        saved: d.font,
+        loaded: [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family),
+      };
+    });
+  }
+  check('⭐⭐⭐ الخط المختار بيتحفظ في التصميم نفسه', byFont.plex.saved === 'plex', byFont.plex.saved);
+  check('⭐⭐⭐ والمعاينة بترسم بيه فعلًا', /Plex Arabic/.test(byFont.plex.fam), byFont.plex.fam);
+  check('⭐⭐⭐⭐ والملف بينزل من البرنامج (مش خط بديل)',
+    byFont.plex.loaded.some((f) => /Plex Arabic/.test(f)), byFont.plex.loaded);
+  check('⭐⭐⭐⭐⭐ وتغيير الخط بيغيّر المقاس اللي هيطلع على الورق',
+    byFont.plex.mm !== byFont.system.mm && byFont.almarai.mm !== byFont.plex.mm, byFont);
+  // ⚠️ والاتجاه لازم يبقى صح: بلكس أضيق، يعني نفس الاسم بيدخل بمقاس
+  // **أكبر**. لو طلع أصغر، يبقى إحنا بنقيس بخط غير اللي بنرسم بيه.
+  check('⭐⭐⭐⭐ وبلكس (الأضيق) بيدّي مقاس أكبر من خط الجهاز',
+    byFont.plex.mm > byFont.system.mm, byFont);
+
+  // ⚠️ و"خط الجهاز" لازم يرجّع كل حاجة زي ما كانت بالحرف.
+  await p.selectOption('#dfont', 'system');
+  await p.waitForTimeout(400);
+  const backToSystem = await p.evaluate(() => {
+    const box = [...document.querySelectorAll('#sheet .el')]
+      .find((x) => x.querySelector('span') && x.querySelector('span').textContent === SAMPLE.name);
+    const sp = box && box.querySelector('span');
+    return { fam: sp.style.fontFamily, mm: +(parseFloat(sp.style.fontSize) / px()).toFixed(2) };
+  });
+  check('⭐⭐⭐⭐ و"خط الجهاز" بيرجّع الخط والمقاس زي الأول',
+    !/TZ |Plex/.test(backToSystem.fam) && backToSystem.mm === byFont.system.mm, backToSystem);
+
+  // ⚠️⚠️ ولازم الخط يبقى **في الصورة المبعوتة** مش في المعاينة بس:
+  // الكانفاس مابيطلبش الخط لوحده، فلو رسمنا قبل ما ينزل، الورق
+  // بيطلع بخط الجهاز والشاشة بخط تاني.
+  let sent2 = null;
+  await p.route('**/label', (r) => {
+    sent2 = JSON.parse(r.request().postData() || '{}');
+    return r.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, width: 304, height: 200, bytes: 1, count: 1 }) });
+  });
+  await p.selectOption('#dfont', 'cairo');
+  await p.waitForTimeout(500);
+  await p.click('#s-print');
+  await p.waitForFunction(() => /اتبعت ملصق واحد/.test(document.getElementById('msg').textContent), null, { timeout: 8000 }).catch(() => {});
+  const fontPng = await p.evaluate(() => document.getElementById('sent-img').src);
+  await p.unroute('**/label');
+  check('⭐⭐⭐⭐ الصورة المبعوتة بتتغيّر لما الخط يتغيّر',
+    sent2 !== null && fontPng !== '' && sent2.labels[0].png !== (sent ? sent.labels[0].png : ''), null);
 
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 

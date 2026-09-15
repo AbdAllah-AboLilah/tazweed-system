@@ -68,6 +68,18 @@ const (
 	minSideMm = 0.5
 	maxSideMm = 200.0
 	maxLines  = 4
+
+	// ⚠️ 1.2مم = نفس PRINT_SIZE_MM_MIN في js/print-core.js بالحرف.
+	// تحت كده الحروف بتتلخبط على طابعة 203 نقطة/بوصة — الحرف بيبقى
+	// أقل من 10 نقط وشكل الحرف العربي مابيبقاش واضح.
+	minReadableMm = 1.2
+)
+
+// قيم "لو مايدخلش"
+const (
+	overflowShrink   = "shrink"
+	overflowWrap     = "wrap"
+	overflowEllipsis = "ellipsis"
 )
 
 // ============================================================
@@ -106,10 +118,16 @@ type designElement struct {
 }
 
 type labelDesign struct {
-	Name     string          `json:"name"`
-	WidthMm  float64         `json:"widthMm"`
-	HeightMm float64         `json:"heightMm"`
-	Halves   int             `json:"halves"`
+	Name     string  `json:"name"`
+	WidthMm  float64 `json:"widthMm"`
+	HeightMm float64 `json:"heightMm"`
+	Halves   int     `json:"halves"`
+
+	// ⚠️ خط الملصق — معرّف من labelFonts في fonts.go. فاضي أو "system"
+	// معناه خط الجهاز، وده الافتراضي: تصميم قديم متخزّن من غير الحقل
+	// ده بيفضل شغّال زي ما هو بالظبط.
+	Font string `json:"font,omitempty"`
+
 	Elements []designElement `json:"elements"`
 }
 
@@ -194,6 +212,18 @@ func validateDesign(d *labelDesign) error {
 		return errors.New("التصميم فاضي — لازم يبقى فيه عنصر واحد على الأقل")
 	}
 
+	// ⚠️ الخط بيتملّى لو فاضي مش بيترفض: التصاميم المتخزّنة من نسخة
+	// أقدم مافيهاش الحقل ده خالص، ومايصحّش تبقى فجأة "غير صالحة".
+	if d.Font == "" {
+		d.Font = defaultFontID
+	}
+	if fontByID(d.Font) == nil {
+		// ⚠️⚠️ واسم خط مش معروف **بيترفض** مش بيتجاهل: لو سكتنا عليه،
+		// التصميم هيتحفظ وهو بيقول "خط كذا" والملصق هيطلع بخط تاني —
+		// وده بالظبط الكذب اللي المصمّم اتعمل عشان يمنعه.
+		return errors.New("خط مش معروف: " + d.Font)
+	}
+
 	cellH := d.cellHeightMm()
 	seen := map[string]bool{}
 
@@ -211,6 +241,16 @@ func validateDesign(d *labelDesign) error {
 
 		if e.W < minSideMm || e.H < minSideMm {
 			return errors.New(arabicKind(e.Kind) + ": المقاس صغير أوي")
+		}
+
+		// ⚠️⚠️ تطبيع «لو مايدخلش» **قبل** فحص المقاس تحت: الفحص ده
+		// بيفرّق بين اللي بيصغّر واللي بيتقص، فلو القيمة لسه فاضية
+		// وقتها كان هيحكم على عنصر غلط.
+		if e.Overflow == "" {
+			e.Overflow = overflowShrink
+		}
+		if e.Overflow != overflowShrink && e.Overflow != overflowWrap && e.Overflow != overflowEllipsis {
+			return errors.New(arabicKind(e.Kind) + ": خانة «لو مايدخلش» فيها قيمة مش معروفة")
 		}
 
 		// ---- حد الأمان على الحروف الأربعة ----
@@ -243,18 +283,47 @@ func validateDesign(d *labelDesign) error {
 		// ⚠️⚠️ الفحص ده هو اللي بيمنع أشهر غلطة في المصمّمات: خط 3مم
 		// في صندوق 2مم. النص بيتقص والمستخدم بيفتكر إن الطابعة بايظة.
 		// السطر محتاج تقريبًا 1.2 ضعف حجم الخط.
-		if need := float64(e.Lines) * e.FontMm * 1.2; need > e.H+0.05 {
-			// ⚠️⚠️ الرسالة بتقول **الأرقام والتلات حلول**، مش "غير صالح".
-			// اتبلّغ بالنص: "مش عاوز يتحفظ ليه ايه المفروض يتحفظ" —
-			// والرسالة القديمة كانت بتقول حلّين بس (كبّر الطول / صغّر
-			// الخط) وكانت ساكتة عن **عدد السطور**، اللي هو غالبًا
-			// السبب الحقيقي. اللي بيقرا لازم يعرف يعمل إيه من غير ما
-			// يحسب حاجة بنفسه.
+		// ============================================================
+		// ⚠️⚠️⚠️ الرفض هنا كان **غلط** — اقرا قبل ما ترجّعه
+		// ============================================================
+		// اتبلّغ بالنص:
+		//   "انا جربت اخلي الاسم ينزل في ٣ سطور نزل عادي بس لما جيت
+		//    احفظ التصميم قالي ان الحجم لازم يكبر بالرغم من في
+		//    المعاينة قدامي علي الشاشة طلعت عادي مظبوطه وانا كنت راضي"
+		//
+		// وهو **صح**. كان فيه تناقض بين حاجتين في نفس البرنامج:
+		//   • المعاينة بتصغّر الخط لحد ما يدخل وبتوريه نضيف
+		//   • والحفظ بيرفض نفس التصميم
+		//
+		// والمعاينة هي اللي كانت بتقول الحقيقة: الملصق الحقيقي كمان
+		// **بيصغّر** (overflow: shrink). يعني التصميم كان سليم
+		// وبيتطبع كويس، والرفض كان بيمنع حاجة شغّالة.
+		//
+		// القاعدة الصح: المهم مش "هل الخط المطلوب يدخل؟" — المهم
+		// **"هل اللي هيطلع بعد التصغير ينفع يتقرا؟"**
+		fit := e.H / (float64(e.Lines) * 1.2) // أكبر خط يدخل في الطول
+		switch {
+		// ⚠️ اللي مابيصغّرش (بيتقص بنقط أو بينزل سطر وخلاص) لازم
+		// يدخل بالمقاس المطلوب — غير كده بيضيع كلام فعلًا.
+		case e.Overflow == overflowEllipsis && float64(e.Lines)*e.FontMm*1.2 > e.H+0.05:
 			return fmt.Errorf(
-				"%s: الخط أكبر من الصندوق — %d سطور × %.1fمم = %.1fمم، والصندوق %.1fمم."+
-					" قلّل السطور، أو كبّر الطول لـ%.1fمم، أو صغّر الخط لـ%.1fمم.",
-				arabicKind(e.Kind), e.Lines, e.FontMm, need, e.H,
-				math.Ceil(need*10)/10, math.Floor(e.H/(float64(e.Lines)*1.2)*10)/10,
+				"%s: الخط أكبر من الصندوق و«لو مايدخلش» متظبطة على «اقصه بنقط» — يعني الكلام هيضيع."+
+					" %d سطور × %.1fمم = %.1fمم، والصندوق %.1fمم."+
+					" خليها «صغّره»، أو كبّر الطول لـ%.1fمم، أو صغّر الخط لـ%.1fمم.",
+				arabicKind(e.Kind), e.Lines, e.FontMm,
+				float64(e.Lines)*e.FontMm*1.2, e.H,
+				math.Ceil(float64(e.Lines)*e.FontMm*1.2*10)/10, math.Floor(fit*10)/10,
+			)
+
+		// ⚠️⚠️ وده الرفض الوحيد اللي فضل: المساحة أصغر من إن **أي**
+		// كلام يتقرا فيها. التصغير مش سحر — تحت 1.2مم الحروف بتتلخبط
+		// على طابعة حرارية 203 نقطة/بوصة.
+		case fit < minReadableMm:
+			return fmt.Errorf(
+				"%s: المساحة صغيرة أوي — %d سطور في %.1fمم معناها خط %.2fمم، وده أصغر من إنه يتقرا (%.1fمم)."+
+					" قلّل السطور أو كبّر الطول لـ%.1fمم على الأقل.",
+				arabicKind(e.Kind), e.Lines, e.H, fit, minReadableMm,
+				math.Ceil(float64(e.Lines)*1.2*minReadableMm*10)/10,
 			)
 		}
 
@@ -269,12 +338,6 @@ func validateDesign(d *labelDesign) error {
 		}
 		if e.Weight != "normal" && e.Weight != "bold" {
 			return errors.New(arabicKind(e.Kind) + ": سُمك الخط لازم يبقى عادي أو عريض")
-		}
-		if e.Overflow == "" {
-			e.Overflow = "shrink"
-		}
-		if e.Overflow != "shrink" && e.Overflow != "wrap" && e.Overflow != "ellipsis" {
-			return errors.New(arabicKind(e.Kind) + ": خانة «لو مايدخلش» فيها قيمة مش معروفة")
 		}
 		if e.Show == "" {
 			e.Show = "always"

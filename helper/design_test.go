@@ -76,17 +76,65 @@ func TestRejectsElementOnTheEdge(t *testing.T) {
 // ============================================================
 // أشهر غلطة في أي مصمّم: بتكبّر الخط والصندوق زي ما هو، فالكلام بيتقص
 // والمستخدم بيفتكر إن الطابعة بايظة. لازم يترفض **وهو بيحفظ**.
-func TestRejectsFontTallerThanBox(t *testing.T) {
+// ⚠️⚠️ الفحص ده اتقلب رأسًا على عقب في v0.97.1، واتقلب **صح**.
+//
+// كان بيقول: خط أكبر من الصندوق = مرفوض. واتبلّغ بالنص:
+//   "جربت اخلي الاسم ينزل في ٣ سطور نزل عادي بس لما جيت احفظ التصميم
+//    قالي ان الحجم لازم يكبر بالرغم من في المعاينة قدامي علي الشاشة
+//    طلعت عادي مظبوطه وانا كنت راضي"
+//
+// وكان معاه حق: الملصق الحقيقي **بيصغّر** (overflow: shrink)، فالتصميم
+// ده بيتطبع كويس. الرفض كان بيمنع حاجة شغّالة، والمعاينة كانت بتقول
+// الحقيقة والحفظ بيكذّبها.
+func TestAcceptsWhatTheRealLabelCanShrink(t *testing.T) {
 	d := defaultDesign()
-	d.Elements[1].FontMm = 3.5
-	d.Elements[1].Lines = 2 // 2 × 3.5 × 1.2 = 8.4مم في صندوق 4.7
+	e := &d.Elements[1]
+	e.FontMm = 1.9
+	e.Lines = 3
+	e.H = 6.0 // 3 × 1.9 × 1.2 = 6.84 > 6.0 — بس هيتصغّر لـ1.67مم ويتقرا
+	if err := validateDesign(&d); err != nil {
+		t.Fatalf("تصميم بيتصغّر عادي اترفض: %v", err)
+	}
+}
+
+// ⚠️⚠️ والرفض الوحيد اللي فضل: المساحة أصغر من إن **أي** كلام يتقرا
+// فيها. التصغير مش سحر — تحت 1.2مم الحروف بتتلخبط على 203 نقطة/بوصة.
+func TestRejectsWhenEvenShrunkIsUnreadable(t *testing.T) {
+	d := defaultDesign()
+	e := &d.Elements[1]
+	e.Lines = 3
+	e.H = 3.5 // 3.5 ÷ (3 × 1.2) = 0.97مم — مايتقراش
 	err := validateDesign(&d)
 	if err == nil {
-		t.Fatal("الخط أكبر من الصندوق وعدّى")
+		t.Fatal("مساحة مايتقراش فيها كلام وعدّت")
 	}
-	// ⚠️ والرسالة لازم تقوله يعمل إيه — مش "غير صالح".
-	if !strings.Contains(err.Error(), "كبّر الطول") {
-		t.Fatalf("الرسالة مش بتقول الحل: %v", err)
+	// ⚠️ والرسالة لازم تقول الرقم اللي طلع والرقم اللي لازم يوصله.
+	for _, want := range []string{"0.97", "1.2", "قلّل السطور"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("الرسالة ناقصة %q: %v", want, err)
+		}
+	}
+}
+
+// ⚠️ واللي **مابيصغّرش** (بيتقص بنقط) لازم يدخل بالمقاس المطلوب —
+// غير كده بيضيع كلام فعلًا، وده مختلف تمامًا عن إنه يصغّر.
+func TestRejectsEllipsisThatWouldCutText(t *testing.T) {
+	d := defaultDesign()
+	e := &d.Elements[1]
+	e.FontMm = 3.5
+	e.Lines = 2 // 8.4مم في صندوق 4.6
+	e.Overflow = overflowEllipsis
+	err := validateDesign(&d)
+	if err == nil {
+		t.Fatal("كلام هيتقص وعدّى")
+	}
+	if !strings.Contains(err.Error(), "صغّره") {
+		t.Fatalf("الرسالة مش بتقول الحل الأسهل: %v", err)
+	}
+	// ⚠️ ونفس التصميم بالظبط بـ«صغّره» لازم **يعدّي** — ده الفرق كله.
+	e.Overflow = overflowShrink
+	if err := validateDesign(&d); err != nil {
+		t.Fatalf("نفس التصميم بـ«صغّره» اترفض: %v", err)
 	}
 }
 
@@ -193,7 +241,11 @@ func TestGetDesignReturnsUsableJSON(t *testing.T) {
 // فالمستخدم كان بيشوف "خطأ" وخلاص.
 func TestPostBadDesignExplainsWhy(t *testing.T) {
 	d := defaultDesign()
-	d.Elements[1].FontMm = 7.5 // أكبر من الصندوق بكتير
+	// ⚠️ لازم تصميم **مرفوض فعلًا** بعد ما القاعدة اتصلحت: الخط
+	// الكبير لوحده بقى مقبول (بيتصغّر)، فبنضيّق المساحة لدرجة إن
+	// اللي هيطلع مايتقراش.
+	d.Elements[1].Lines = 4
+	d.Elements[1].H = 3.0 // 3.0 ÷ (4 × 1.2) = 0.63مم
 	body, _ := json.Marshal(d)
 
 	rec := httptest.NewRecorder()
@@ -254,46 +306,29 @@ func TestDesignerPageHasTheEssentials(t *testing.T) {
 }
 
 // ============================================================
-// ⭐⭐⭐⭐⭐ رسالة "الخط أكبر من الصندوق" لازم تقول **الأرقام والحلول**
+// ⭐⭐⭐⭐⭐ الحالة اللي اتبلّغت بالنص — لازم **تتحفظ**
 // ============================================================
-// ⚠️⚠️ اتبلّغ بالنص وهو واقف قدام المصمّم: "مش عاوز يتحفظ ليه ايه
-// المفروض يتحفظ". الرسالة القديمة كانت بتقول حلّين (كبّر الطول / صغّر
-// الخط) وساكتة عن **عدد السطور** — وهو اللي كان السبب فعلًا (٣ سطور ×
-// ١.٩ = ٦.٨مم في صندوق ٦مم).
-//
-// فالرسالة لازم تقول: هو حسب إيه، والصندوق قد إيه، والتلات حلول
-// بأرقامهم. ده الفرق بين رسالة بتقفل الطريق ورسالة بتفتحه.
-func TestFontTooBigMessageShowsNumbersAndAllThreeFixes(t *testing.T) {
+// "٣ سطور، خط ١.٩مم، صندوق ٦مم" — ده اللي كان قدامه على الشاشة وهو
+// راضي عنه، والحفظ كان بيرفضه. الفحص ده بيثبّت إنه بقى بيتحفظ،
+// وبيثبّت كمان إن الحد اللي فضل (اللي مايتقراش) لسه شغّال.
+func TestReportedThreeLineCaseSaves(t *testing.T) {
 	d := defaultDesign()
-	e := &d.Elements[1] // اسم الصنف
+	e := &d.Elements[1]
 	e.FontMm = 1.9
 	e.Lines = 3
-	e.H = 6.0 // 3 × 1.9 × 1.2 = 6.84 في صندوق 6.0 — نفس الحالة اللي اتبلّغت
+	e.H = 6.0
 
-	err := validateDesign(&d)
-	if err == nil {
-		t.Fatal("٣ سطور × ١.٩مم في صندوق ٦مم وعدّى")
+	body, _ := json.Marshal(d)
+	rec := httptest.NewRecorder()
+	handleDesign(rec, httptest.NewRequest(http.MethodPost, "/design", strings.NewReader(string(body))))
+
+	var out struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
 	}
-	msg := err.Error()
-	for _, want := range []string{
-		"6.8",   // اللي محتاجه
-		"6.0",   // اللي عنده
-		"سطور",  // إن عدد السطور نفسه حل
-		"كبّر الطول",
-		"صغّر الخط",
-	} {
-		if !strings.Contains(msg, want) {
-			t.Fatalf("الرسالة ناقصة %q: %s", want, msg)
-		}
-	}
-	// ⚠️ والأرقام المقترحة لازم تبقى **صح**: لو نفّذ اللي الرسالة
-	// بتقوله، لازم يعدّي. غير كده الرسالة بتوهّمه وبس.
-	fixed := defaultDesign()
-	fixed.Elements[1].FontMm = 1.9
-	fixed.Elements[1].Lines = 3
-	fixed.Elements[1].H = 6.9 // اللي الرسالة بتقترحه (ceil لـ6.84)
-	if err := validateDesign(&fixed); err != nil {
-		t.Fatalf("الطول اللي الرسالة اقترحته اترفض هو كمان: %v", err)
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if !out.OK {
+		t.Fatalf("الحالة اللي اتبلّغت لسه بتترفض: %s", out.Error)
 	}
 }
 
