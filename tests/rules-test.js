@@ -469,6 +469,29 @@ const PROFILES = {
   await T5('⭐⭐⭐ خنق الإشعارات مقفول على النظام (كتابة)', 'owner',
     (u) => as(u).collection('pushState').doc('restock').set({ lastSentAt: 0 }), false);
 
+  // ============================================================
+  // 🧪 إشعار التجربة — لنفسه بس
+  // ============================================================
+  // اتطلب: "عاوزك تتاكد ان الاشعارات بتوصل كويس ل الاجهزة". المستخدم
+  // بيكتب مستند هنا، والسحابة بتبعت لتوكناته هو وبتكتب النتيجة.
+  //
+  // ⚠️⚠️ أخطر حاجة هنا إن حد يرنّ على تليفون حد تاني: لو `uid` مش
+  // مربوط بحسابه، أي واحد يقدر يبعت إشعارات لأي حد وقت ما يحب.
+  await T5('⭐⭐⭐ المستخدم بيطلب إشعار تجربة لنفسه', 'plain',
+    (u) => as(u).collection('pushTests').add({ uid: u }), true);
+  await T5('⭐⭐⭐⭐⭐ ومايقدرش يرنّ على تليفون حد تاني', 'plain',
+    (u) => as(u).collection('pushTests').add({ uid: 'owner' }), false);
+
+  // ⚠️ والنتيجة بتتكتب من السحابة بس: لو المستخدم قدر يعدّلها، يقدر
+  // يكتب "وصل" وهو مش واصل — والفحص يبقى بلا قيمة.
+  await as('plain').collection('pushTests').doc('t1').set({ uid: 'plain' });
+  await T5('⭐⭐⭐⭐ والنتيجة مايقدرش يعدّلها (بتتكتب من السحابة)', 'plain',
+    (u) => as(u).collection('pushTests').doc('t1').set({ uid: u, result: 'وصل' }, { merge: true }), false);
+  await T5('⭐⭐⭐ وبيقرا نتيجته هو', 'plain',
+    (u) => as(u).collection('pushTests').doc('t1').get(), true);
+  await T5('⭐⭐⭐⭐ ومايقراش نتيجة حد تاني', 'owner',
+    (u) => as(u).collection('pushTests').doc('t1').get(), false);
+
   await env.cleanup();
   console.log('\n✅ نجح (' + pass.length + ')');
   if (fail.length) { console.log('\n❌ فشل (' + fail.length + '):'); fail.forEach((x) => console.log('   ' + x)); }
