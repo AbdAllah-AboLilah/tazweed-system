@@ -38,6 +38,9 @@ const state = {
   printCart: [], // [{ key, product, qty }] — سلة شاشة الطباعة
   undoCount: 0, // عدد الحركات المتاحة للتراجع (من الحفظ المحلي)
   activityLog: [],
+  // فيه سجل أقدم من اللي محمّل؟ وكام سطر وصل فعلًا؟
+  logHasMore: false,
+  logLoaded: 0,
   pendingByCategory: {}, // { categoryId: [أرقام الدرجات المعلّقة] }
   outByCategory: {}, // { categoryId: [أرقام الدرجات اللي خلصت] }
   outCount: 0,
@@ -2295,6 +2298,54 @@ LOG_KINDS.forEach((k) => k.actions.forEach((a) => (LOG_KIND_OF[a] = k.key)));
 
 const LOG_KINDS_STORE = 'tazweed_log_kinds';
 const LOG_DAYS_STORE = 'tazweed_log_days';
+
+// ============================================================
+// ⭐⭐ عدد السطور اللي بتتجاب — وزرار "اعرض أكتر"
+// ============================================================
+// ⚠⚠ العطل اللي بيتحل، اتبلّغ بالنص:
+//   "السجل انا عاملينه ب الايام دلوقتي مش بلاقي غير عدد معين في
+//    سجل العمليات حتي لما بضغط علي اخر 3 ايام او اسبوع او شهر"
+//
+// السبب: الاستعلام كان بيجيب **400 سطر وخلاص**، وأزرار المدة
+// بتفلتر الـ400 دول في الذاكرة. يعني لو عندك 1200 عملية، "شهر"
+// **عمره ما يوصلها** — الرقم ثابت مهما دوست.
+//
+// ⚠️ والفلترة بالمدة فضلت **في الذاكرة عن قصد**، مانقلناهاش للاستعلام:
+// العملية اللي اتعملت وانت مفصول وقتها لسه مش متحدد (السيرفر هو
+// اللي بيحطه)، فشرط `timestamp >= X` كان **هيخفيها من القايمة** — وهي
+// أكتر حاجة محتاج تتطمّن إنها اتسجّلت.
+const LOG_PAGE_STORE = 'tazweed_log_page';
+const LOG_PAGE_DEFAULT = 50;
+const LOG_PAGE_MIN = 10;
+const LOG_PAGE_MAX = 100;   // السقف اللي اتطلب بالنص: "بحد اقصي 100"
+
+// ⚠️ سقف مطلق للمجموع مهما دوس "اعرض أكتر": الاشتراك حيّ على
+// السطور دي، فكل سطر زيادة شغل زيادة على الجهاز. 2000 كتير جدًا
+// لأي استعمال حقيقي وفي نفس الوقت بيمنع إن دوسة متكررة توقّف التليفون.
+const LOG_FETCH_MAX = 2000;
+
+// كام صفحة محمّلة دلوقتي. بترجع 1 مع كل فتحة ومع تغيير المدة —
+// مش متخزّنة، عشان ماتفتحش بكرة على 2000 سطر لأنك دوست امبارح.
+let logPages = 1;
+
+function getLogPageSize() {
+  const raw = parseInt(localStorage.getItem(LOG_PAGE_STORE), 10);
+  if (!Number.isFinite(raw)) return LOG_PAGE_DEFAULT;
+  return Math.max(LOG_PAGE_MIN, Math.min(LOG_PAGE_MAX, raw));
+}
+
+function setLogPageSize(n) {
+  const v = parseInt(n, 10);
+  if (!Number.isFinite(v)) return getLogPageSize();
+  const clamped = Math.max(LOG_PAGE_MIN, Math.min(LOG_PAGE_MAX, v));
+  localStorage.setItem(LOG_PAGE_STORE, String(clamped));
+  return clamped;
+}
+
+// العدد اللي هنطلبه من السحابة دلوقتي.
+function logFetchCount() {
+  return Math.min(LOG_FETCH_MAX, getLogPageSize() * logPages);
+}
 const LOG_TAB_STORE = 'tazweed_log_tab';
 const LOG_DAY_CHOICES = [3, 7, 30, 0]; // 0 = من غير حد
 
@@ -2452,6 +2503,7 @@ function activityLogHTML() {
   const tab = getLogTab();
   const days = getLogDays();
   const cutoff = days ? Date.now() - days * 86400000 : 0;
+  const pageSize = getLogPageSize();
 
   const all = state.activityLog || [];
   const rows = all.filter((e) => {
@@ -2494,6 +2546,24 @@ function activityLogHTML() {
         <button class="btn log-refresh" id="log-refresh">🔄 حدّث</button>
       </div>
 
+      <!-- ============================================================
+           ⭐⭐ كام عملية تتجاب في المرة
+           ============================================================
+           اتطلب بالنص: "ممكن تحطلي مربع اكتب فيها اظهر كل قد
+           ايه بحد اقصي 100". -->
+      <div class="log-row" style="margin-top:6px; flex-wrap:wrap; gap:8px; align-items:center;">
+        <span class="log-lbl">كل مرة</span>
+        <input class="input" type="number" id="log-page-size" inputmode="numeric"
+               min="${LOG_PAGE_MIN}" max="${LOG_PAGE_MAX}" value="${escapeHTML(pageSize)}"
+               style="width:76px; padding:6px; text-align:center;" />
+        <span class="log-lbl" style="font-weight:400;">عملية</span>
+        ${
+          state.logHasMore
+            ? `<button class="btn" id="log-more">⬇️ اعرض أكتر</button>`
+            : ''
+        }
+      </div>
+
       <div class="log-tabs" role="tablist">
         <button type="button" class="log-tab ${tab === LOG_TAB_ALL ? 'on' : ''}" role="tab"
                 aria-selected="${tab === LOG_TAB_ALL}" data-log-tab="${LOG_TAB_ALL}">
@@ -2530,6 +2600,21 @@ function activityLogHTML() {
           ? 'دوس على تاب عشان تشوف قسم لوحده، أو شيل العلامة من تحت عشان تشوف كذا قسم مع بعض. اختيارك بيتحفظ.'
           : 'دوس <strong>الكل</strong> عشان ترجّع باقي الأقسام.'}
         ${pendingCount ? `<br>⏳ <strong>${escapeHTML(pendingCount)}</strong> عملية لسه مترفعتش — محفوظة على الجهاز وهترفع أول ما النت يرجع.` : ''}
+        <!-- ⚠⚠ السطر ده مهم: قبل كده الشاشة مكانتش بتقول إن فيه
+             سجل ورا اللي باين، فاللي بيدوّر على حاجة قديمة كان يفتكرها
+             مش موجودة خالص. -->
+        <br>📥 محمّل <strong>${escapeHTML(all.length)}</strong> عملية${
+          state.logHasMore
+            ? ' — وفيه أقدم منهم. دوس <strong>⬇️ اعرض أكتر</strong> فوق.'
+            : ' — وده كل اللي موجود.'
+        }
+        ${
+          // ⚠️ في فرق ما بين "المحمّل" و"اللي باين"، ولازم يتقال:
+          // الفلترة بالمدة والأقسام بتحصل على المحمّل بس.
+          rows.length !== all.length
+            ? `<br>وبالفلترة باين <strong>${escapeHTML(rows.length)}</strong> منهم.`
+            : ''
+        }
       </div>
     </div>`;
 
@@ -2596,6 +2681,8 @@ function attachActivityLogEvents() {
   document.querySelectorAll('[data-log-days]').forEach((btn) => {
     btn.addEventListener('click', () => {
       setLogDays(btn.getAttribute('data-log-days'));
+      // ⚠️ مابنرجّعش logPages لواحد هنا عن قصد: اللي حمّل 500 سطر
+      // وبعدين دوس "شهر" مايصحش يرجعوا 50 ويفضل يدوس من الأول.
       renderFromData();
     });
   });
@@ -2616,6 +2703,39 @@ function attachActivityLogEvents() {
       renderFromData();
     });
   });
+
+  // ============================================================
+  // ⭐⭐ زرار "اعرض أكتر" — بيوسّع الاشتراك صفحة كمان
+  // ============================================================
+  const more = document.getElementById('log-more');
+  if (more) {
+    more.addEventListener('click', () => {
+      more.disabled = true;
+      more.textContent = '⬇️ بيجيب…';
+      logPages += 1;
+      // ⚠️ إعادة فتح الاشتراك بعدد أكبر. مابنعملش استعلام تاني
+      // جنبه عشان مايبقاش عندنا اشتراكين حيين على نفس المجموعة.
+      subscribeActivityLog();
+    });
+  }
+
+  // ============================================================
+  // ⭐ خانة "كل مرة كام عملية"
+  // ============================================================
+  const pageBox = document.getElementById('log-page-size');
+  if (pageBox) {
+    // ⚠⚠ الحفظ على change مش input: مع كل حرف كنّا هنعيد فتح
+    // الاشتراك — يعني تكتب "100" تبقى تلات استعلامات (1 ثم 10 ثم 100).
+    const apply = () => {
+      const val = setLogPageSize(pageBox.value);
+      pageBox.value = val;          // بيوريه الرقم بعد القص لو كتب 200
+      logPages = 1;                 // رقم جديد = نبدأ من صفحة واحدة
+      subscribeActivityLog();
+    };
+    pageBox.addEventListener('change', apply);
+    // والإنتر كمان، عشان على التليفون الـchange ممكن يتأخّر.
+    pageBox.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); pageBox.blur(); } });
+  }
 
   const refresh = document.getElementById('log-refresh');
   if (refresh) {
@@ -6099,15 +6219,14 @@ async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldVal
   }
 }
 
-// عدد السطور اللي بنجيبها. الشاشة بتفلتر منها بالأيام والأقسام.
-const LOG_FETCH_LIMIT = 400;
-
+// ⚠️ كان هنا رقم ثابت (400)، وهو اللي كان بيخلي أزرار المدة
+// ماتوصّلش لحاجة وراه. بقى من إعداد المستخدم × عدد الصفحات.
 function subscribeActivityLog() {
   if (unsubActivityLog) unsubActivityLog();
   unsubActivityLog = db
     .collection('activityLog')
     .orderBy('timestamp', 'desc')
-    .limit(LOG_FETCH_LIMIT)
+    .limit(logFetchCount())
     .onSnapshot(
       { includeMetadataChanges: true },
       (snap) => {
@@ -6127,6 +6246,13 @@ function subscribeActivityLog() {
           pending: d.metadata.hasPendingWrites,
           ...d.data({ serverTimestamps: 'estimate' }),
         }));
+
+        // ⚠️ وصلنا العدد اللي طلبناه بالظبط → غالبًا فيه كمان وراه.
+        // (ممكن يكون العدد مطابق بالصدفة ومافيش وراه حاجة — وقتها
+        //  الزرار بيتداس مرة ومابيجيبش جديد، وده مقبول جدًا قدام إننا
+        //  نخبّي عنه سجل موجود.)
+        state.logHasMore = snap.size >= logFetchCount() && logFetchCount() < LOG_FETCH_MAX;
+        state.logLoaded = snap.size;
 
         // ============================================================
         // ⚠️⚠️ مانرسمش الشاشة إلا لو السجل **باين** فعلًا
@@ -6204,6 +6330,10 @@ function init() {
       state.activeCategoryId = null;
       state.screen = 'home';
       state.activityLog = [];
+      // ⚠️ اللي حمّل 500 سطر وخرج، اللي يدخل بعده مايبدأش بـ500.
+      logPages = 1;
+      state.logHasMore = false;
+      state.logLoaded = 0;
       state.showAddCategoryForm = false;
       state.showAddGradeForm = false;
       state.showEditCategoryInfoForm = false;
