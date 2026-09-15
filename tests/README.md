@@ -192,6 +192,7 @@ node tests/stale-job-test.js
 node tests/machine-id-test.js
 node tests/job-claim-test.js
 node tests/sheet-autoprint-test.js
+node tests/open-fixes-test.js
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js

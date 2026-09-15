@@ -31,6 +31,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const out = {};
     let probes = 0;
     let running = false;
+    let version = '1.7.0';   // بيتغيّر تحت عشان نقلّد تحديث البرنامج
 
     const realFetch = window.fetch;
     window.fetch = async (u, o) => {
@@ -38,7 +39,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       if (s.indexOf('/status') !== -1) {
         probes++;
         if (!running) throw new Error('البرنامج مش شغّال');
-        return { ok: true, json: async () => ({ app: 'tazweed-helper', version: '1.5.0', printers: ['P'] }) };
+        return { ok: true, json: async () => ({ app: 'tazweed-helper', version, printers: ['P'] }) };
       }
       return realFetch(u, o);
     };
@@ -62,14 +63,30 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.probesAfterTTL = probes;
 
     // ============================================================
-    // ⭐⭐⭐⭐ النجاح بيفضل متخزّن للجلسة (السرعة)
+    // ⭐⭐⭐⭐ النجاح متخزّن **دقيقة** مش للأبد
     // ============================================================
+    // جوّه الدقيقة: فحص واحد بس — السرعة ماتقلّش.
     reset();
     running = true;
     await helperStatus();
     await helperStatus();
     await helperStatus();
     out.probesWhenRunning = probes;
+
+    // ============================================================
+    // ⭐⭐⭐⭐⭐ وبعد الدقيقة: رقم النسخة بيتحدّث لوحده
+    // ============================================================
+    // ⚠⚠ ده جوهر العطل اللي اتبلّغ:
+    //   "انا حدثت البرنامج المساعد قعدت اعمل ري فريش لحد م
+    //    الاصدار الجديد بان في الاعدادات"
+    // النسخة بتيجي من نفس الفحص ده، فلو الفحص مابيتكررش الرقم
+    // مابيتغيّرش خالص.
+    version = '1.8.0';                       // المستخدم حدّث البرنامج
+    out.versionBefore = await readHelperVersion();  // لسه القديم (جوّه الدقيقة)
+    helperCacheAt = Date.now() - (HELPER_HIT_TTL_MS + 1000);   // زوّرنا مرور دقيقة
+    out.versionAfter = await readHelperVersion();
+    out.probesAfterHit = probes;
+    version = '1.7.0';
 
     // ============================================================
     // ⭐⭐⭐ والفشل مابيغرقش الشبكة جوّه النافذة
@@ -93,8 +110,16 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     r.foundAfterTTL === true, r.foundAfterTTL);
   check('⭐⭐⭐⭐ يعني سأل تاني فعلًا', r.probesAfterTTL === 2, r.probesAfterTTL);
 
-  check('⭐⭐⭐⭐ والبرنامج شغّال → فحص واحد للجلسة كلها (السرعة ماتقلّش)',
+  check('⭐⭐⭐⭐ والبرنامج شغّال → فحص واحد جوّه الدقيقة (السرعة ماتقلّش)',
     r.probesWhenRunning === 1, r.probesWhenRunning);
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ رقم النسخة بيتحدّث من غير ريفريش
+  // ============================================================
+  check('⭐⭐⭐ جوّه الدقيقة: لسه الرقم القديم (مابنغرقش الفحص)',
+    r.versionBefore === '1.7.0', r.versionBefore);
+  check('⭐⭐⭐⭐⭐ وبعد الدقيقة: الرقم الجديد بيبان **من غير ريفريش**',
+    r.versionAfter === '1.8.0', r.versionAfter);
   check('⭐⭐⭐ والبرنامج مش شغّال → فحص واحد كمان في النافذة',
     r.probesWhenMissing === 1, r.probesWhenMissing);
 
