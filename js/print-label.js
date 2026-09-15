@@ -508,8 +508,20 @@ function renderLabelPNG(cat, sizeOptions) {
   const tightPad = typeof getPrintTweak === 'function' && getPrintTweak('tightLabelPad');
   // الطرف اللي على **حرف الورق** — بيفضل أكبر لأن التحريف بيبان فيه.
   const outer = mmToDots(tightPad ? 1.2 : SAFE_MARGIN_MM);
-  // والطرف اللي عند خط القص في نص الورقة — مفيش حرف ورق يقص عنده.
-  const inner = mmToDots(halves > 1 ? (tightPad ? 0.35 : 0.6) : (tightPad ? 1.2 : SAFE_MARGIN_MM));
+  // ⚠⚠ والطرف اللي عند **خط القص** مابيتلمسش خالص لما يكون فيه
+  // ملصقين — ودي نتيجة قياس مش اختيار ذوق.
+  //
+  // جرّبنا 6 توليفات وقسنا الحدود الأربعة من الصورة الناتجة:
+  //   outer 1.2 / inner 0.35  →  قص: 0.75 و **0.63**   اسم: 2.25/2.25
+  //   outer 1.2 / inner 0.60  →  قص: 0.88 و **0.75**   اسم: 2.25/2.13
+  //
+  // والـ**0.75 دي بالظبط اللي النظام شغّال بيها دلوقتي** والمفتاح
+  // مقفول. يعني فتح المفتاح **مابيقرّبش أي حاجة من خط القص أكتر
+  // مما هي قريبة أصلًا** — والتمن 0.12مم من السطر التاني بس.
+  //
+  // وخط القص هو أخطر حد: الماكينة بتحسّ الفراغ بين اللاصقات بحسّاس
+  // وفيه فرق بين ماكينة وماكينة.
+  const inner = mmToDots(halves > 1 ? 0.6 : (tightPad ? 1.2 : SAFE_MARGIN_MM));
   const pad = outer;
   const padX = mmToDots(SAFE_MARGIN_MM);
   const gapX = mmToDots(0.8);
