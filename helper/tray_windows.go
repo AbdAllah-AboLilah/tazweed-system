@@ -42,11 +42,13 @@ func startTray(onQuit func()) {
 		systray.SetTooltip("مساعد التزويد — نسخة " + version + "\nشغّال على " + addr)
 
 		open := systray.AddMenuItem("افتح الواجهة", "يفتح صفحة الإعدادات والتجربة")
+		dsg := systray.AddMenuItem("مصمّم الملصق", "تحرّك عناصر الملصق بالمليمتر")
 		upd := systray.AddMenuItem("شوف لو فيه تحديث", "بيفتح الواجهة على قسم التحديث")
 		systray.AddSeparator()
 		quit := systray.AddMenuItem("اقفل البرنامج", "بيوقف الطباعة المباشرة")
 
 		open.Click(func() { openBrowser("http://" + addr) })
+		dsg.Click(func() { openBrowser("http://" + addr + "/designer") })
 		upd.Click(func() { openBrowser("http://" + addr + "/?update=1") })
 		quit.Click(func() {
 			systray.Quit()
