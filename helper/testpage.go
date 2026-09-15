@@ -31,6 +31,7 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
 <div class="card">
  <h1>&#127374; مساعد التزويد</h1>
  <div class="sub">صفحة تجربة — بتطبع ورقة على الطابعة مباشرة من غير ما تعدّي على تعريف الويندوز.</div>
+ <a href="/designer" style="display:block;text-align:center;margin:0 0 16px;padding:11px;border:1px solid #ccd;border-radius:8px;text-decoration:none;color:#1c2024;font-size:14px;font-weight:500">&#127912; مصمّم الملصق &mdash; حرّك عناصر الملصق بالمليمتر</a>
  <label>طابعة ورقة التزويد</label><select id="p"></select>
  <label>طابعة الملصق</label><select id="l"></select>
  <div style="display:flex;gap:10px">
