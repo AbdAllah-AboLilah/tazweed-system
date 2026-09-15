@@ -154,24 +154,49 @@ check('⭐⭐ ودرجة رقمها صفر بتبان', () =>
 // التواريخ دي منقولة من جدول Firebase CLI نفسه
 // (lib/deploy/functions/runtimes/supported/types.js).
 const RUNTIME_END = { '18': '2025-10-31', '20': '2026-10-31', '22': '2027-10-31' };
+
+// ⚠⚠ الملف اللي **بيقرّر** هو firebase.json مش package.json.
+// ده كود Firebase CLI بالحرف:
+//     getRuntimeChoice = (dir, runtimeFromConfig) =>
+//         runtimeFromConfig || getRuntimeChoiceFromPackageJson(dir)
+// يعني طالما firebase.json فيه runtime، engines اللي في package.json
+// **مابتتقراش خالص**.
+//
+// ودي مش نظرية: غيّرت engines لوحدها ورفعت، وسجل الرفع قال:
+//     updating Node.js 20 (2nd Gen) function notifyRestock(europe-west1)
+// التغيير عدى والرفع نجح والمحرّك فضل 20.
+const fs = require('fs');
+const path = require('path');
+const firebaseJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'firebase.json'), 'utf8'));
+const configRuntime = String((firebaseJson.functions || {}).runtime || '');
 const enginesNode = String((require('./package.json').engines || {}).node || '');
 
+// المرجع هو firebase.json، ولو مافيهوش runtime ساعتها بس بنرجع لـengines.
+const effective = configRuntime ? configRuntime.replace('nodejs', '') : enginesNode;
+
+check('⭐⭐⭐⭐⭐ الملفين متفقين على نفس النسخة', () =>
+  assert.strictEqual(effective, enginesNode,
+    `firebase.json بيقول ${configRuntime} و package.json بيقول ${enginesNode} — ` +
+    'واللي بيترفع فعلًا هو اللي في firebase.json'));
+
 check('⭐⭐⭐ محرّك Node المكتوب معروف (مش رقم متكتب غلط)', () =>
-  assert.ok(RUNTIME_END[enginesNode], `النسخة ${enginesNode} مش في الجدول`));
+  assert.ok(RUNTIME_END[effective], `النسخة ${effective} مش في الجدول`));
 
 // ⚠️ الفحص بيقع لما النسخة تبقى **اتقفلت فعلًا** — وساعتها الرفع
 // كان هيفشل بردو عند جوجل، فأحسن يبان هنا وإحنا فاهمين السبب.
 check('⭐⭐⭐⭐⭐ ولسه مااتقفلش', () => {
-  const end = Date.parse(RUNTIME_END[enginesNode] + 'T23:59:59Z');
+  const end = Date.parse(RUNTIME_END[effective] + 'T23:59:59Z');
   assert.ok(Date.now() < end,
-    `Node ${enginesNode} اتقفل يوم ${RUNTIME_END[enginesNode]} — غيّر engines.node في functions/package.json`);
+    `Node ${effective} اتقفل يوم ${RUNTIME_END[effective]} — غيّر runtime في firebase.json`);
 });
 
 // ⚠️ ودي **تنبيه مش فشل** عن قصد: لو خلّيناه يفشل، رفع الدالة
 // كان هيتقفل تلات شهور قبل ما يبقى فيه مشكلة أصلًا.
-const daysLeft = Math.round((Date.parse(RUNTIME_END[enginesNode] + 'T23:59:59Z') - Date.now()) / 86400000);
-if (daysLeft < 90) {
-  console.log(`   ⚠️ فاضل ${daysLeft} يوم ويتقفل Node ${enginesNode} — ارفعه للنسخة اللي بعده`);
+if (RUNTIME_END[effective]) {
+  const daysLeft = Math.round((Date.parse(RUNTIME_END[effective] + 'T23:59:59Z') - Date.now()) / 86400000);
+  if (daysLeft < 90) {
+    console.log(`   ⚠️ فاضل ${daysLeft} يوم ويتقفل Node ${effective} — غيّر runtime في firebase.json`);
+  }
 }
 
 pass.forEach((n) => console.log('   ✓ ' + n));
