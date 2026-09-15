@@ -191,6 +191,89 @@ check('⭐⭐⭐⭐⭐ مستمع التحديث بينده على الحارس 
     { label: r2.labelAfterSave, restock: r2.restockAfterSave });
 
   // ============================================================
+  // ⭐⭐⭐⭐⭐ (٢ب) QZ ماردّش → النافذة ماتستناهوش للأبد
+  // ============================================================
+  // ⚠⚠ اتبلّغ بالنص ومعاه صورة النافذة واقفة على
+  // "جارِ البحث عن QZ Tray...":
+  //     "هو مش عاوز يفتح بالمساعد بردوه"
+  //     "الاعدادت فتحت بعد نص دقيقة تقريبا"
+  //
+  // وده **عطل تاني غير** اللي فوق: اللي فوق كان "مافيش طابعات →
+  // اخرج"، وده "ماحدش رد → استنى". والتاني بيحصل **قبل** الأول،
+  // فإصلاح الأول لوحده ماكانش بيبان خالص.
+  //
+  // ⚠️ وأوحش حاجة: ده بيحصل **حتى والبرنامج المساعد شغّال**
+  // وراجع الطابعات خلاص — عشان كده الفحص بيقلّد المساعد **شغّال**.
+  // ⚠⚠ الفحص مابيستنّاش openPrinterSettings تخلص — بيسابقها بموعد
+  // نهائي. السبب متعلّم من تخريب فعلي: لما شيلنا المهلة، الفحص
+  // **اتعلّق** بدل ما يفشل — وفحص بيتعلّق في السكة أوحش من فحص فاشل.
+  const openWithin = async (setup, ms) => p.evaluate(async ({ setupName, budget }) => {
+    const out = {};
+    const realFetch = window.fetch;
+    // المساعد شغّال وراجع طابعتين — عشان نثبت إن QZ لوحده هو
+    // اللي كان بيوقّف كل حاجة.
+    helperCache = null; helperCacheAt = 0;
+    window.fetch = async (u) => {
+      if (String(u).indexOf('/status') !== -1) {
+        return { ok: true, json: async () => ({ app: 'tazweed-helper', version: '1.7.0', printers: ['XP-235B', 'XP-80C'] }) };
+      }
+      throw new Error('\u0644\u0623');
+    };
+
+    const never = () => new Promise(() => {});
+    if (setupName === 'connectHangs') {
+      // الجهاز اللي اتبلّغ عنه: الاتصال نفسه مابيردّش
+      window.qz = {
+        websocket: { connect: never, isActive: () => false, setClosedCallbacks: () => {} },
+        printers: { find: never },
+        api: { getVersion: never },
+      };
+    } else {
+      // ⚠️ حالة تانية خالص: الاتصال **نجح** بس طلب القايمة مابيردّش.
+      // دي اللي مهلة القايمة بتحمي منها — مهلة الاتصال مابتمسكهاش.
+      window.qz = {
+        websocket: { connect: () => Promise.resolve(), isActive: () => true, setClosedCallbacks: () => {} },
+        printers: { find: never },
+        api: { getVersion: never },
+      };
+    }
+    qzConnected = false; qzConnecting = null;
+
+    const t0 = Date.now();
+    let finished = false;
+    const job = openPrinterSettings().then(() => { finished = true; }).catch(() => { finished = true; });
+    await Promise.race([job, new Promise((r) => setTimeout(r, budget))]);
+    out.ms = Date.now() - t0;
+    out.finished = finished;
+    const f = document.querySelector('#qz-printer-fields');
+    out.opened = !!(f && f.offsetParent !== null);
+    const sel = document.querySelector('#qz-label-printer-select');
+    out.printers = sel ? Array.from(sel.options).map((o) => o.value).filter(Boolean) : [];
+
+    window.fetch = realFetch;
+    const ov = f && f.closest('div[style*="position:fixed"]');
+    if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+    window.qz = undefined;
+    qzConnected = false; qzConnecting = null;
+    return out;
+  }, { setupName: setup, budget: ms });
+
+  // ⚠️ الرقم اللي اتبلّغ: "الاعدادت فتحت بعد نص دقيقة تقريبا".
+  // المهلة 3 ثواني، والميزانية 8 فيها متسع للجهاز البطيء.
+  const rHang = await openWithin('connectHangs', 8000);
+  check('⭐⭐⭐⭐⭐ QZ مابيردّش → النافذة بتفتح (مش بتستنى نص دقيقة)',
+    rHang.finished === true && rHang.opened === true, rHang);
+  check('⭐⭐⭐⭐⭐ وطابعات المساعد واصلة (ماضاعتش مع QZ)',
+    rHang.printers.length === 2, rHang.printers);
+
+  // ⚠⚠ الحالة دي مهلة الاتصال **مابتمسكهاش**: الاتصال نجح واللي معلّق
+  // هو طلب القايمة. اتضافت لأن تخريب "شيل مهلة القايمة" عدّى
+  // من غيرها — يعني المهلة دي كانت بتبان زيادة وهي مش زيادة.
+  const rList = await openWithin('findHangs', 8000);
+  check('⭐⭐⭐⭐⭐ وQZ متصل بس مش بيرجّع القايمة → النافذة بتفتح بردو',
+    rList.finished === true && rList.opened === true, rList);
+
+  // ============================================================
   // ⭐⭐⭐⭐⭐ (٥) خانات حجم الخط ليها عنوان بيبان
   // ============================================================
   const r5 = await p.evaluate(() => {
