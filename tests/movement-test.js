@@ -34,7 +34,18 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       { catId: 'c2', gradeId: 'g5', name: '9', branchQty: 0, mainQty: 0 },   // خلصانة — مش راكدة
     ];
     movementStats = {
-      c1__g1: { gradeNumber: '56', lastMovedAt: mk(now - 1 * day), soldByMonth: { [M]: 20 }, soldTotal: 20, moves: 9 },
+      // ⚠️⚠️ الدقيقة الزيادة دي **مش تفصيلة**. من غيرها الدرجة دي
+      // بتقع على حد القطع بالظبط لما المدة تبقى يوم واحد:
+      //     fromMs = now - يوم        (بيتحسب هنا)
+      //     cutoff = Date.now() - يوم (بيتحسب جوّه التقرير بعدها)
+      // والشرط `fromMs < cutoff`. لو النداءين رجّعوا **نفس** الملي
+      // ثانية، الاتنين بيتساووا فالشرط بيبقى غلط والدرجة مابتعدّش
+      // راكدة — فالفحص كان بيقع مرة كل تلات مرات تقريبًا من غير أي
+      // تغيير في الكود.
+      //
+      // ⚠️ والعلاج في الفحص مش في النظام: سلوك "اللي على الحد بالظبط
+      // لسه مش راكد" سليم. اللي كان غلط إننا حطينا العيّنة على الحد.
+      c1__g1: { gradeNumber: '56', lastMovedAt: mk(now - 1 * day - 60000), soldByMonth: { [M]: 20 }, soldTotal: 20, moves: 9 },
       c1__g2: { gradeNumber: '12', lastMovedAt: mk(now - 40 * day), soldByMonth: { [M]: 0 }, soldTotal: 3, moves: 2 },
       c2__g3: { gradeNumber: '3', lastMovedAt: mk(now - 2 * day), soldByMonth: { [M]: 5 }, soldTotal: 5, moves: 4 },
     };

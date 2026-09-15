@@ -997,6 +997,10 @@ async function rebuildFromSpec(spec, sizeOptions) {
   // سكوت. الخروج المباشر هنا بيقفل الباب ده قبل ما يتفتح.
   if (spec.kind === 'restock') return null;
   const n = Math.max(1, parseInt(spec.copies, 10) || 1);
+  // ⚠️⚠️ **قبل** أي رسم: الكانفاس مابيطلبش الخط لوحده. لو الملف لسه
+  // مانزلش، المتصفح بيرسم بخط بديل من غير أي خطأ — يعني ملصق مطبوع
+  // بخط غير اللي اتختار والمستخدم مش واخد باله. شوف js/label-font.js.
+  if (typeof ensureLabelFontReady === 'function') await ensureLabelFontReady();
   try {
     if (spec.kind === 'text' && typeof buildTextLabel === 'function') {
       const b = buildTextLabel(spec.text, sizeOptions, n);
@@ -2100,6 +2104,9 @@ const PRINT_FIELDS = [
   // فالخانة في نافذة الإرسال عن بُعد بتبقى موجودة ومالهاش أي أثر.
   { key: 'codeMm', label: 'مقاس رقم الباركود' },
   { key: 'priceMm', label: 'مقاس السعر' },
+  // ⚠️ زي إخواته فوق: من غير السطر ده، `cleanPrintFields` بتشيل الحقل
+  // في صمت — فتغيّر خط الملصق من التليفون ومايحصلش أي حاجة.
+  { key: 'labelFont', label: 'خط الملصق' },
 ];
 
 const PRINT_FIELD_KEYS = PRINT_FIELDS.map((f) => f.key);
@@ -5032,6 +5039,54 @@ async function openPrinterSettings() {
         </div>
 
         <!-- ============================================================
+             🔤 خط الملصق
+             ============================================================
+             اتطلب بالنص: "ماشي موافق حط الخط في البرنامج مع اضافة كذا
+             نوع من الخط اقدر اغير بينهم".
+
+             ⚠️⚠️ ومش في "إعدادات متقدمة — للتجربة" عن قصد: ده اختيار
+             المفروض يتفتح ويتقارن ويترجع منه بسهولة، مش مفتاح بيتفتح
+             مرة وينتسي. والافتراضي "خط الجهاز" = مافيش أي تغيير.
+
+             ⚠️ القايمة بتتبني من LABEL_FONTS في js/label-font.js — أي
+             خط جديد بيتضاف هناك وبيظهر هنا لوحده. -->
+        <div class="pset-sec">
+          <button type="button" class="pset-toggle" data-pset="labelfont" aria-expanded="false" aria-controls="pset-body-labelfont">
+            <span class="pset-sec-title">🔤 خط الملصق<small>يخلّي الملصق يطلع بنفس الخط على كل جهاز</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-labelfont" hidden>
+            <div style="font-size:12px; font-weight:500; margin-bottom:4px;">🔤 خط الملصق</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:8px;">
+              الملصق دلوقتي بيترسم بخط <strong>الجهاز نفسه</strong> — وده سبب
+              فرق قديم: نفس الدرجة بتطلع كاملة من الكمبيوتر و<strong>ناقصة</strong>
+              من الموبايل، لأن كل جهاز عنده خط بعرض مختلف فالحساب بيطلع مختلف.
+              <br>لو اخترت خط من دول، الخط بيتحمّل <strong>من جوّه النظام</strong>
+              فبيبقى واحد بالظبط على كل الأجهزة.
+              <br>☁️ الاختيار بيتحفظ لكل الأجهزة.
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
+              <select class="input" id="pq-labelfont" style="padding:6px; width:230px;">
+                ${LABEL_FONTS.map(
+                  (f) => `<option value="${escapeHTML(f.id)}">${escapeHTML(f.label)}</option>`
+                ).join('')}
+              </select>
+              <button class="btn btn-primary" id="pq-labelfont-save" style="padding:5px 14px; font-size:12px; min-height:32px;">احفظ</button>
+              <span id="pq-labelfont-status" style="font-size:11px; color:var(--text-muted);"></span>
+            </div>
+            <div id="pq-labelfont-hint" style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin-bottom:8px;"></div>
+            <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7;
+                        background:var(--surface-muted); padding:8px; border-radius:8px;">
+              ⚠️ بعد ما تغيّر الخط، <strong>اطبع ملصق واحد وبُصّ عليه</strong> قبل
+              ما تطبع دفعة. الخط الجديد عرضه مختلف، يعني الاسم الطويل ممكن
+              يدخل سطر واحد بدل سطرين (وده أحسن) أو العكس.
+              <br>لو حاجة ماعجبتكش، رجّعها لـ<strong>"خط الجهاز"</strong> — بيرجع
+              زي ما كان بالظبط.
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================
              ⭐ الأقسام الأربعة اللي تحت بقت **تتفتح وتتقفل** زي اللي فوق
              ============================================================
              ⚠️ الملاحظة اللي وصلت بالنص: "هي علي جهاز الكمبيوتر مش زي م
@@ -5451,6 +5506,48 @@ async function openPrinterSettings() {
         const st = overlay.querySelector('#pq-sizes-status');
         if (st) {
           st.textContent = `✅ اتحفظ — الرقم ${getPrintCodeMm()}مم والسعر ${getPrintPriceMm()}مم`;
+          setTimeout(() => { st.textContent = ''; }, 3000);
+        }
+      });
+    }
+  }
+
+  // ============================================================
+  // 🔤 خط الملصق — قايمة اختيار بزرار حفظ
+  // ============================================================
+  // ⚠️ العيّنة تحت القايمة مش زينة: هي اللي **بتنزّل الخط** أصلًا.
+  // المتصفح مابينزّلش ملف خط إلا لما يلاقي كلام معروض بيه فعلًا —
+  // فالعيّنة بتخلّي اللي بيقارن يشوف الخط الحقيقي قبل ما يحفظ، وبتخلّي
+  // الملف جاهز على الجهاز قبل أول طبعة.
+  const pqLabelFont = overlay.querySelector('#pq-labelfont');
+  const pqLabelFontSave = overlay.querySelector('#pq-labelfont-save');
+  if (pqLabelFont) {
+    pqLabelFont.value = getLabelFontId();
+    const lfHint = overlay.querySelector('#pq-labelfont-hint');
+    const showLabelFontHint = () => {
+      const f = labelFontById(pqLabelFont.value);
+      if (!lfHint || !f) return;
+      // ⚠️ نص العيّنة مقصود: فيه اسم طويل عربي **وأرقام** — الخط مقسوم
+      // لملفين (عربي/لاتيني)، والأرقام هي نص الملصق (الباركود والسعر).
+      const fam = f.family ? `'${f.family}', ` : '';
+      lfHint.innerHTML =
+        `${escapeHTML(f.hint)}` +
+        `<div style="margin-top:6px; padding:6px 8px; border:1px solid var(--border);` +
+        ` border-radius:6px; background:#fff; color:#000; font-size:15px; line-height:1.4;` +
+        ` font-family:${fam}Arial, Helvetica, Tahoma, sans-serif;">` +
+        `بونيه حجاب — بندانه سوري مفتوح درجة 4<br>6221031490112 &nbsp; 85 ج</div>`;
+    };
+    pqLabelFont.addEventListener('change', showLabelFontHint);
+    showLabelFontHint();
+    if (pqLabelFontSave) {
+      pqLabelFontSave.addEventListener('click', () => {
+        setLabelFontId(pqLabelFont.value);
+        pqLabelFont.value = getLabelFontId();
+        showLabelFontHint();
+        const st = overlay.querySelector('#pq-labelfont-status');
+        if (st) {
+          const f = labelFontById(getLabelFontId());
+          st.textContent = `✅ اتحفظ — ${f ? f.label : getLabelFontId()}`;
           setTimeout(() => { st.textContent = ''; }, 3000);
         }
       });

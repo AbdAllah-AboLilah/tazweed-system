@@ -750,6 +750,17 @@ function openPrintSettingsDialog(preselectDeviceId) {
           <input class="input" type="number" id="ps-pricemm" min="1.2" max="3" step="0.1" inputmode="decimal" style="padding:6px;" />
         </div>
       </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:flex-end; margin-bottom:6px;">
+        <div class="field" style="width:260px; margin-bottom:0;">
+          <label style="font-size:11px;">🔤 خط الملصق</label>
+          <select class="input" id="ps-labelfont" style="padding:6px;">
+            <option value="">زي ما هي</option>
+            ${LABEL_FONTS.map(
+              (f) => `<option value="${escapeHTML(f.id)}">${escapeHTML(f.label)}</option>`
+            ).join('')}
+          </select>
+        </div>
+      </div>
       <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin:0 0 10px;">
         📏 التلاتة دول بيشتغلوا مع مفتاح <strong>"اسم الصنف بمقاس ثابت"</strong>
         و<strong>"ثبّت مقاس السعر ورقم الباركود"</strong> — والمفتاحين تحت في
@@ -864,6 +875,7 @@ function openPrintSettingsDialog(preselectDeviceId) {
         nameMm: has(sh.nameMm) ? sh.nameMm : PRINT_NAME_MM_DEFAULT,
         codeMm: has(sh.codeMm) ? sh.codeMm : PRINT_CODE_MM_DEFAULT,
         priceMm: has(sh.priceMm) ? sh.priceMm : PRINT_PRICE_MM_DEFAULT,
+        labelFont: has(sh.labelFont) ? sh.labelFont : LABEL_FONT_DEFAULT,
         x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
         tweaks: sh.tweaks || {},
         fromDefault,
@@ -881,6 +893,9 @@ function openPrintSettingsDialog(preselectDeviceId) {
       nameMm: ps.nameMm ?? PRINT_NAME_MM_DEFAULT,
       codeMm: ps.codeMm ?? PRINT_CODE_MM_DEFAULT,
       priceMm: ps.priceMm ?? PRINT_PRICE_MM_DEFAULT,
+      // ⚠️ الجهاز بينشر ده مع كل نبضة (شوف printSetup في js/app.js)،
+      // فدي الحقيقة اللي عليه مش تخميننا.
+      labelFont: ps.labelFont || LABEL_FONT_DEFAULT,
       x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
       tweaks: ps.tweaks || {},
     };
@@ -917,6 +932,9 @@ function openPrintSettingsDialog(preselectDeviceId) {
       nameMm: num('ps-namemm'),
       codeMm: num('ps-codemm'),
       priceMm: num('ps-pricemm'),
+      // ⚠️ فاضية = "زي ما هي"، زي باقي الخانات بالظبط — و`cleanPrintFields`
+      // بتشيل الفاضي فمابيتبعتش أصلًا.
+      labelFont: pick('ps-labelfont'),
       align: Object.keys(align).length ? align : undefined,
       tweaks: Object.keys(tweaks).length ? tweaks : undefined,
       labelPrinter: pick('ps-label-printer'),
@@ -941,6 +959,13 @@ function openPrintSettingsDialog(preselectDeviceId) {
     ph('ps-namemm', cur.nameMm);
     ph('ps-codemm', cur.codeMm);
     ph('ps-pricemm', cur.priceMm);
+    // 🔤 خط الملصق: قايمة مش خانة، فأول خيار فيها هو اللي بيقول
+    // "زي ما هي" وبيتكتب جنبه الخط الشغّال دلوقتي.
+    const lfSel = overlay.querySelector('#ps-labelfont');
+    if (lfSel && lfSel.options.length) {
+      const f = typeof labelFontById === 'function' ? labelFontById(cur.labelFont) : null;
+      lfSel.options[0].textContent = `زي ما هي (${f ? f.label : cur.labelFont})`;
+    }
     ph('ps-x', cur.x);
     ph('ps-y', cur.y);
     ph('ps-shrink', cur.shrink);
@@ -1343,6 +1368,10 @@ function attachPrintScreenEvents() {
 // بتبني ملصق صنف واحد من السلة حسب الشكل المختار له.
 // بترجّع { html, image } — والصورة بتتستخدم في المعاينة وفي وظيفة الطباعة.
 async function buildCartItemLabel(item, sizeOptions) {
+  // ⚠️⚠️ **قبل** أي رسم: الكانفاس مابيطلبش الخط لوحده. لو الملف لسه
+  // مانزلش، المتصفح بيرسم بخط بديل من غير أي خطأ — يعني ملصق مطبوع
+  // بخط غير اللي اتختار والمستخدم مش واخد باله. شوف js/label-font.js.
+  if (typeof ensureLabelFontReady === 'function') await ensureLabelFontReady();
   if (item.custom) {
     // ⚠️ لازم تعدّي من buildTextLabel زي باقي الشاشات. النسخة القديمة كانت
     // بترسم صورة **على طول** من غير ما تبصّ على مفتاح "ابعت الملصق كنص" —

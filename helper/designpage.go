@@ -1,5 +1,23 @@
 package main
 
+import _ "embed"
+
+// ============================================================
+// 📱 مولّد رمز QR — **نفس** الملف اللي النظام بيستخدمه بالحرف
+// ============================================================
+// اتطلب بالنص: "ويعمل الكيو ار كود من ارقام الباركود واجرب شكله".
+//
+// ⚠️⚠️ ومهم إنه **نفس** الملف مش مكتبة تانية: لو المعاينة رسمت QR
+// بمولّد مختلف، ممكن يطلع بعدد مربعات مختلف — فتظبط المقاس على حاجة
+// والطابعة تطلّع حاجة تانية. وده أسوأ من إننا مانرسمش QR أصلًا.
+//
+// ⚠️ والنسخة دي مكرّرة من js/vendor/qrcode-generator.js عشان go:embed
+// مابيقدرش يطلع بره مجلد الموديول. فيه فحص (TestQRLibMatchesSystem)
+// بيقارن الملفين بايت ببايت ويقع لو واحد فيهم اتغيّر من غير التاني.
+//
+//go:embed qrcode-generator.js
+var qrcodeLibJS string
+
 // ============================================================
 // 🎨 صفحة مصمّم الملصق
 // ============================================================
@@ -50,6 +68,7 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
  .ok{color:var(--sage)} .bad{color:var(--warn)}
  .hint{font-size:12px;color:var(--mut);line-height:1.7;margin-top:8px}
 </style>
+<script src="/qrcode.js"></script>
 <div class="wrap">
 
  <div class="card">
@@ -77,6 +96,40 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
    <div class="sheet" id="sheet"></div>
    <div class="scale">المعاينة بترسم بنفس خط الملصق الحقيقي وبتصغّر زيّه</div>
    <div class="scale bad" id="shrunk" style="min-height:16px"></div>
+  </div>
+
+  <!-- ============================================================
+       🧪 بيانات التجربة
+       ============================================================
+       اتطلبت بالنص: "انا عاوزك تحت اسم الصنف ورقم الباركود والسعر
+       والسعر قبل الخصم حقول اكتب فيها عشان اختبر فيها اللي عاوزه
+       يعني اكتب اسم صنف كبير واشوف شكله هيطلع ازاي بعد م غيرت
+       الاعدادات ... ممكن تعمل تاب ل التجربة ... او شوف انت اقتراحك".
+
+       ⚠️⚠️ واختَرنا **مش تاب** عن قصد: التاب معناه إنك تغيّر إعداد،
+       تروح للتاب التاني، تبص، وترجع. والحاجة اللي بتتظبط هنا هي
+       بالظبط **العلاقة** بين الإعداد والنتيجة — فلازم الاتنين يبقوا
+       قدام عينك في نفس اللحظة. فالخانات تحت المعاينة على طول،
+       وكل حرف بتكتبه بيتعاد رسمه فورًا.
+
+       ⚠️ والأزرار الجاهزة مش رفاهية: "اسم طويل" و"اسم قصير" هما
+       الحالتين اللي بيفرّقوا في كل شكوى اتبلّغت عن الملصق. -->
+  <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+   <div style="font-size:13px;font-weight:600;margin-bottom:3px">&#129514; بيانات التجربة</div>
+   <div class="scale" style="margin-bottom:10px">اكتب اللي انت عايز تشوفه على الورق — المعاينة فوق بتتغيّر وانت بتكتب. البيانات دي <b>مابتتحفظش</b>، هي للتجربة بس.</div>
+   <div class="grid">
+    <div style="grid-column:1/-1"><label>اسم الصنف</label><input id="s-name"></div>
+    <div><label>رقم الباركود</label><input id="s-code" inputmode="numeric"></div>
+    <div><label>السعر</label><input id="s-price"></div>
+    <div><label>السعر قبل الخصم</label><input id="s-old" placeholder="سيبها فاضية = مافيش خصم"></div>
+   </div>
+   <div class="row" style="margin-top:10px">
+    <button class="ghost" id="s-long">اسم طويل</button>
+    <button class="ghost" id="s-short">اسم قصير</button>
+    <button class="ghost" id="s-nodisc">من غير خصم</button>
+    <button id="s-print">&#128424; اطبع تجربة</button>
+   </div>
+   <div class="scale" style="margin-top:8px">&#128424; «اطبع تجربة» بتفتح نافذة طباعة المتصفح بمقاس الملصق بالظبط — اختار طابعة الملصقات واطبع واحد وبُص عليه قبل ما تحفظ.</div>
   </div>
  </div>
 
@@ -108,6 +161,36 @@ var KIND_AR = {qr:'رمز QR', name:'اسم الصنف', code:'رقم البار
 var d = null, sel = 'name', designs = [], shrunk = [];
 
 function $(id){ return document.getElementById(id); }
+
+// ============================================================
+// رمز QR — **نفس منطق النظام بالحرف**
+// ============================================================
+// ⚠️ منقول من buildBestQR في js/print-label.js: بنجرّب كذا إعداد
+// ونختار اللي بيطلع بأقل عدد مربعات. لو غيّرنا المنطق هنا بس، الرمز
+// في المعاينة هيبقى غير اللي بيتطبع — وده أسوأ من إننا مانرسمهوش.
+var qrCache = {};
+function qrURL(text){
+  text = String(text || '');
+  if (!text || typeof qrcode !== 'function') return '';
+  if (qrCache[text] !== undefined) return qrCache[text];
+  var digits = /^[0-9]+$/.test(text);
+  var combos = [['Byte','M']];
+  if (digits) combos.push(['Numeric','M']);
+  combos.push(['Byte','L']);
+  if (digits) combos.push(['Numeric','L']);
+  var best = null;
+  for (var i=0;i<combos.length;i++){
+    try {
+      var q = qrcode(0, combos[i][1]);
+      q.addData(text, combos[i][0]);
+      q.make();
+      var n = q.getModuleCount();
+      if (!best || n < best.n) best = {q:q, n:n};
+    } catch (err) { /* المحتوى مش داخل في الإعداد ده — نجرّب اللي بعده */ }
+  }
+  qrCache[text] = best ? best.q.createDataURL(4, 0) : '';
+  return qrCache[text];
+}
 function say(t, bad){ var m=$('msg'); m.textContent=t; m.className='msg '+(bad?'bad':'ok'); }
 
 function el(kind){ for (var i=0;i<d.elements.length;i++) if (d.elements[i].kind===kind) return d.elements[i]; return null; }
@@ -146,10 +229,25 @@ function draw(){
       box.style.height = (e.h*K)+'px';
 
       if (e.kind==='qr'){
-        // ⚠️ مربع رمادي مش QR حقيقي: المعاينة بتظبط **المكان والمقاس**،
-        // والرمز نفسه بيتولّد وقت الطباعة من رقم الصنف.
-        box.style.background='repeating-linear-gradient(45deg,#333 0 2px,#fff 2px 4px)';
-        box.style.border='1px solid #999';
+        // ⚠️⚠️ ده QR **حقيقي** من رقم الباركود اللي في خانة التجربة،
+        // مش مربع توضيحي. اتطلب بالنص: "ويعمل الكيو ار كود من ارقام
+        // الباركود واجرب شكله".
+        //
+        // والفايدة مش الشكل: عدد مربعات الـQR بيزيد كل ما الرقم يطول،
+        // فالرمز اللي مقاسه مظبوط لرقم من ٧ أرقام ممكن يبقى مزنوق
+        // لرقم من ١٣. اللي بيصمّم لازم يشوف ده بعينه.
+        var u = qrURL(SAMPLE.code);
+        if (u){
+          var im = document.createElement('img');
+          im.src = u;
+          im.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated';
+          box.appendChild(im);
+        } else {
+          // مفيش رقم (أو المولّد مش محمّل) → المربع القديم عشان
+          // المكان والمقاس يفضلوا باينين.
+          box.style.background='repeating-linear-gradient(45deg,#333 0 2px,#fff 2px 4px)';
+          box.style.border='1px solid #999';
+        }
       } else {
         var s = document.createElement('span');
         s.textContent = SAMPLE[e.kind] || '';
@@ -162,15 +260,20 @@ function draw(){
         s.style.direction = (e.kind==='name' ? 'rtl' : 'ltr');
         if (e.overflow==='ellipsis'){ s.style.overflow='hidden'; s.style.textOverflow='ellipsis'; }
         box.appendChild(s);
+        // ⚠️⚠️⚠️ **لازم** يتحط في الصفحة الأول
+        // ------------------------------------------------------------
+        // عطل حقيقي اتمسك بالقياس: الكود كان بيقيس box.clientHeight
+        // والصندوق **لسه مش في الصفحة** (الإضافة كانت بعد اللوب) —
+        // والمتصفح بيرجّع صفر لأي حاجة مش مرسومة. يعني الشرط كان
+        // "صفر أكبر من واحد" = غلط دايمًا، واللوب **عمره ما اشتغل**.
+        //
+        // والنتيجة: المعاينة كانت بتوري الاسم الطويل بالمقاس اللي
+        // طلبته وهو طالع بره صندوقه — وده بالظبط عكس السبب اللي
+        // المصمّم اتعمل عشانه.
+        sh.appendChild(box);
         // ============================================================
         // ⚠⚠ المعاينة لازم تصغّر زي الملصق الحقيقي
         // ============================================================
-        // من غير ده، المعاينة بتوريك الاسم الطويل بالمقاس اللي
-        // طلبته وهو **مش هيطلع كده على الورق** — يعني المعاينة
-        // بتكدب في الحالة الوحيدة اللي المصمّم اتعمل عشانها.
-        //
-        // فبنصغّر لحد ما يدخل، زي النظام بالظبط، وبنكتب المقاس
-        // اللي طلع فعلًا تحت عشان تشوف الفرق بعينيك.
         if (e.overflow!=='ellipsis'){
           var f = e.fontMm*K, guard = 0;
           while ((s.scrollHeight > box.clientHeight+1 || s.scrollWidth > box.clientWidth+1) && f > 2 && guard++ < 60){
@@ -179,6 +282,8 @@ function draw(){
           }
           if (f < e.fontMm*K - 0.5 && h===0) shrunk.push(KIND_AR[e.kind]+' ← '+(f/K).toFixed(2)+'مم');
         }
+        box.onclick = (function(k){ return function(){ sel=k; render(); }; })(e.kind);
+        continue;
       }
       box.onclick = (function(k){ return function(){ sel=k; render(); }; })(e.kind);
       sh.appendChild(box);
@@ -259,8 +364,16 @@ function fields(){
   // ⚠️ تحذير فوري قبل الحفظ: الخط أكبر من الصندوق هو أشهر غلطة،
   // والمستخدم بيفتكر إن الطابعة بايظة مش إن الرقم غلط.
   var h='';
-  if(sel!=='qr' && (e.lines||1)*e.fontMm*1.2 > e.h+0.05)
-    h='⚠️ الخط أكبر من الصندوق — كبّر الطول أو صغّر الخط، وإلا الكلام هيتقص.';
+  // ⚠️⚠️ الرسالة بتقول **الأرقام والتلات حلول**. القديمة كانت
+  // "كبّر الطول أو صغّر الخط" وساكتة عن **عدد السطور** — وهو غالبًا
+  // السبب الحقيقي، فاللي بيقراها كان بيفضل يلف من غير ما يعرف.
+  var need = (e.lines||1)*e.fontMm*1.2;
+  if(sel!=='qr' && need > e.h+0.05){
+    h='⚠️ الخط أكبر من الصندوق: '+(e.lines||1)+' سطور × '+e.fontMm.toFixed(1)+'مم = '
+      +need.toFixed(1)+'مم، والصندوق '+e.h.toFixed(1)+'مم.'
+      +' الحل: قلّل السطور، أو كبّر «الطول» لـ'+(Math.ceil(need*10)/10).toFixed(1)+'مم،'
+      +' أو صغّر «حجم الخط» لـ'+(Math.floor(e.h/((e.lines||1)*1.2)*10)/10).toFixed(1)+'مم.';
+  }
   else if(e.y+e.h > cellH()-0.7)
     h='⚠️ العنصر قريب أوي من تحت — التحريف ممكن ياكل منه.';
   else if(e.x+e.w > d.widthMm-0.7 || e.x < 0.7)
@@ -325,6 +438,106 @@ $('save').onclick=function(){
    })
    .catch(function(e){ $('save').disabled=false; say('مش قادر أحفظ: '+e, true); });
 };
+
+// ============================================================
+// 🧪 بيانات التجربة — بتتربط بالمعاينة وانت بتكتب
+// ============================================================
+// ⚠️ مافيش زرار "طبّق". كل حرف بيتعاد رسمه فورًا — ده اللي بيخلّي
+// الخانات دي مفيدة أصلًا: انت بتجرّب، مش بتملا استمارة.
+var LONG_NAME  = 'لافوال بوتيه بدون خياطه قطن 100%';
+var SHORT_NAME = 'بندانه سوري';
+
+function readSample(){
+  SAMPLE.name     = $('s-name').value;
+  SAMPLE.code     = $('s-code').value;
+  SAMPLE.price    = $('s-price').value;
+  SAMPLE.oldPrice = $('s-old').value;
+  draw();
+}
+function writeSample(){
+  $('s-name').value  = SAMPLE.name;
+  $('s-code').value  = SAMPLE.code;
+  $('s-price').value = SAMPLE.price;
+  $('s-old').value   = SAMPLE.oldPrice;
+}
+['s-name','s-code','s-price','s-old'].forEach(function(id){ $(id).oninput = readSample; });
+$('s-long').onclick   = function(){ SAMPLE.name = LONG_NAME;  writeSample(); draw(); };
+$('s-short').onclick  = function(){ SAMPLE.name = SHORT_NAME; writeSample(); draw(); };
+$('s-nodisc').onclick = function(){ SAMPLE.oldPrice = '';     writeSample(); draw(); };
+writeSample();
+
+// ============================================================
+// 🖨️ اطبع تجربة
+// ============================================================
+// اتطلب بالنص: "لما اغير يعني او اظبط اعداد واحتاج اجرب اللي عملته".
+//
+// ⚠️⚠️ **البرنامج مش هو اللي بيرسم** — المتصفح هو اللي بيرسم، وبيبعت
+// للطابعة عن طريق ويندوز. ده مقصود ومكتوب سببه في design.go: رسم
+// العربي (شكل الحرف حسب مكانه + اتجاه الأرقام جوّه الكلام) حاجة
+// المتصفح بيعملها ببلاش، ولغة البرنامج مافيهاش حاجة جاهزة ليها.
+//
+// ⚠️ ويعني كمان إن اللي بيتطبع من هنا هو **بالحرف** اللي في المعاينة
+// فوق — نفس المحرّك ونفس الخط ونفس قاعدة التصغير. لو اختلف حاجة،
+// يبقى المعاينة هي الغلط.
+function sampleFor(kind){
+  if (kind==='name')  return SAMPLE.name;
+  if (kind==='code')  return SAMPLE.code;
+  if (kind==='price') return SAMPLE.price;
+  if (kind==='oldPrice') return SAMPLE.oldPrice;
+  return '';
+}
+
+function printHTML(){
+  var ch = cellH(), n = d.halves||1, out = [];
+  for (var h=0; h<n; h++){
+    for (var i=0;i<d.elements.length;i++){
+      var e = d.elements[i];
+      if (e.kind==='oldPrice' && e.show==='ifDiscount' && !SAMPLE.oldPrice) continue;
+      var pos = 'position:absolute;overflow:hidden;left:'+e.x+'mm;top:'+((h*ch)+e.y)+'mm;'
+              + 'width:'+e.w+'mm;height:'+e.h+'mm;';
+      if (e.kind==='qr'){
+        var u = qrURL(SAMPLE.code);
+        out.push('<div style="'+pos+'">' + (u
+          ? '<img src="'+u+'" style="width:100%;height:100%;display:block;image-rendering:pixelated">'
+          : '') + '</div>');
+        continue;
+      }
+      var txt = String(sampleFor(e.kind) || '')
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var st = 'display:flex;align-items:center;line-height:1.2;'
+             + 'font-family:Arial,Helvetica,Tahoma,sans-serif;'
+             + 'font-size:'+e.fontMm+'mm;'
+             + 'font-weight:'+(e.weight==='bold'?'700':'400')+';'
+             + 'text-align:'+(e.align==='right'?'right':e.align==='left'?'left':'center')+';'
+             + 'direction:'+(e.kind==='name'?'rtl':'ltr')+';'
+             + (e.kind==='oldPrice'?'text-decoration:line-through;':'')
+             + (e.lines>1?'white-space:normal;':'white-space:nowrap;');
+      out.push('<div class="fit" style="'+pos+st+'"><span style="display:block;width:100%">'+txt+'</span></div>');
+    }
+  }
+  // ⚠️ التصغير بيتعمل **بعد** ما الصفحة ترسم، بنفس اللوب اللي في
+  // المعاينة بالحرف — عشان اللي بيطلع على الورق يبقى هو هو.
+  var fit = 'var bs=document.querySelectorAll(".fit");'
+    + 'for(var i=0;i<bs.length;i++){var b=bs[i],sp=b.firstChild;'
+    + 'var f=parseFloat(getComputedStyle(sp.parentNode).fontSize),g=0;'
+    + 'while((sp.scrollHeight>b.clientHeight+1||sp.scrollWidth>b.clientWidth+1)&&f>2&&g++<60)'
+    + '{f-=Math.max(0.5,f*0.04);b.style.fontSize=f+"px";}}'
+    + 'setTimeout(function(){window.print();},80);';
+
+  return '<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">'
+    + '<title>تجربة طباعة</title><style>'
+    + '@page{size:'+d.widthMm+'mm '+d.heightMm+'mm;margin:0}'
+    + '*{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    + 'body{width:'+d.widthMm+'mm;height:'+d.heightMm+'mm;position:relative;background:#fff;color:#000}'
+    + '</style><body>' + out.join('') + '<script>' + fit + '<\/script></body></html>';
+}
+
+$('s-print').onclick = function(){
+  var w = window.open('', '_blank', 'width=420,height=360');
+  if (!w){ say('المتصفح منع النافذة — اسمح للنوافذ المنبثقة وجرّب تاني.', true); return; }
+  w.document.open(); w.document.write(printHTML()); w.document.close();
+};
+
 window.addEventListener('resize', function(){ if(d) draw(); });
 load();
 </script>

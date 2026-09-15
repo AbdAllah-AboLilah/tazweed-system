@@ -473,7 +473,7 @@ function renderLabelPNG(cat, sizeOptions) {
   if (!hi) return '';
   const ctx = hi.ctx;
 
-  const FAMILY = 'Arial, Helvetica, Tahoma, sans-serif';
+  const FAMILY = labelFontStack('Arial, Helvetica, Tahoma, sans-serif');
   const name = String(cat.itemName || cat.name || '');
   const code = String(cat.barcodeNumber || '');
   const sellNum = Number(cat.sellingPrice) || 0;
@@ -797,7 +797,7 @@ const QUARTER_QR_DOTS_PER_MODULE = 3;
 // رقم الباركود يخرج من عموده ويركب على الكود: مقاسه كان متحسوب من
 // الارتفاع لوحده، والعرض مالوش أي دور في الحساب.
 function drawQuarterCell(ctx, cat, x0, y0, W, H, noPrice) {
-  const F = 'Arial, Helvetica, Tahoma, sans-serif';
+  const F = labelFontStack('Arial, Helvetica, Tahoma, sans-serif');
   const name = String(cat.itemName || cat.name || '');
   const code = String(cat.barcodeNumber || '');
   const showPrice = !!cat.sellingPrice && !noPrice;
@@ -1028,7 +1028,8 @@ function buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
       <style>
         @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, Helvetica, Tahoma, sans-serif; width: ${pageWidthMm}mm; color: #000; line-height: ${LINE}; }
+        ${labelFontFaceCSS()}
+        body { font-family: ${labelFontStack('Arial, Helvetica, Tahoma, sans-serif')}; width: ${pageWidthMm}mm; color: #000; line-height: ${LINE}; }
         .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; position: relative; ${printAlignCSS()} }
         .label + .label { page-break-before: always; break-before: page; }
         .half { height: ${cellH}mm; width: 100%; display: flex; }
@@ -1078,6 +1079,10 @@ function buildQuarterLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
 // ⚠️ أي شاشة عايزة تطبع مقسوم ٤ **لازم** تعدّي من هنا. متكتبش نسخة تانية —
 // ده بالظبط اللي خلّى المسمّى يطلع بشكلين مختلفين قبل كده.
 async function buildQuarterLabel(cat, sizeOptions, copies) {
+  // ⚠️⚠️ **قبل** أي رسم: الكانفاس مابيطلبش الخط لوحده. لو الملف لسه
+  // مانزلش، المتصفح بيرسم بخط بديل من غير أي خطأ — يعني ملصق مطبوع
+  // بخط غير اللي اتختار والمستخدم مش واخد باله. شوف js/label-font.js.
+  if (typeof ensureLabelFontReady === 'function') await ensureLabelFontReady();
   const n = Math.max(1, parseInt(copies, 10) || 1);
   // ⚠️ مفتاحين مش واحد: `htmlLabels` بيخص **كل** الملصقات (زي الأول
   // بالظبط)، و`quarterImage` بيخص **ده لوحده** — عشان تقدر تجرّب مقسوم ٤
@@ -1123,7 +1128,7 @@ function renderGradeLabelPNG(text, sizeOptions) {
   if (!hi) return '';
   const ctx = hi.ctx;
 
-  const FAMILY = 'Tahoma, Arial, sans-serif';
+  const FAMILY = labelFontStack('Tahoma, Arial, sans-serif');
   const body = String(text || '');
   // الهامش الآمن على حرف الورقة بس — خط القص اللي في النص مش حرف
   const outer = mmToDots(SAFE_MARGIN_MM);
@@ -1533,8 +1538,9 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
       <style>
         @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
+        ${labelFontFaceCSS()}
         body {
-          font-family: Arial, Helvetica, Tahoma, sans-serif;
+          font-family: ${labelFontStack('Arial, Helvetica, Tahoma, sans-serif')};
           width: ${pageWidthMm}mm;
           color: #000; line-height: ${LINE};
         }
@@ -1608,6 +1614,10 @@ function buildLabelHTML(cat, sizeOptions, qrDataUrl, copies) {
 // بترجّع { previewHTML, jobHTML, image } — والـimage بتتبعت لـQZ مباشرة
 // لما تكون موجودة.
 async function buildItemLabel(cat, sizeOptions, copies) {
+  // ⚠️⚠️ **قبل** أي رسم: الكانفاس مابيطلبش الخط لوحده. لو الملف لسه
+  // مانزلش، المتصفح بيرسم بخط بديل من غير أي خطأ — يعني ملصق مطبوع
+  // بخط غير اللي اتختار والمستخدم مش واخد باله. شوف js/label-font.js.
+  if (typeof ensureLabelFontReady === 'function') await ensureLabelFontReady();
   if (!getPrintTweak('htmlLabels')) {
     const png = renderLabelPNG(cat, sizeOptions);
     if (png) {
@@ -1763,7 +1773,7 @@ const FIT_SAFETY = 0.96;
 
 function fitMeasureCtx(bold) {
   const ctx = document.createElement('canvas').getContext('2d');
-  ctx.font = `${bold ? 'bold ' : ''}${FIT_REF_PX}px Tahoma, Arial, sans-serif`;
+  ctx.font = `${bold ? 'bold ' : ''}${FIT_REF_PX}px ${labelFontStack('Tahoma, Arial, sans-serif')}`;
   return ctx;
 }
 
@@ -1904,7 +1914,8 @@ function buildGradeLabelHTML(text, sizeOptions, copies) {
       <style>
         @page { size: ${pageWidthMm}mm ${pageHeightMm}mm; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Tahoma, Arial, sans-serif; width: ${pageWidthMm}mm; color: #000; }
+        ${labelFontFaceCSS()}
+        body { font-family: ${labelFontStack('Tahoma, Arial, sans-serif')}; width: ${pageWidthMm}mm; color: #000; }
         .label { width: ${pageWidthMm}mm; height: ${pageHeightMm}mm; overflow: hidden; ${printAlignCSS()} }
         .label + .label { page-break-before: always; break-before: page; }
         .half {
@@ -1938,6 +1949,11 @@ async function printGradeLabels(cat, sizeOptions) {
     .filter((p) => p.qty > 0);
 
   if (!picks.length) return;
+
+  // ⚠️⚠️ **قبل** أي رسم: الكانفاس مابيطلبش الخط لوحده. لو الملف لسه
+  // مانزلش، المتصفح بيرسم بخط بديل من غير أي خطأ — يعني ملصق مطبوع
+  // بخط غير اللي اتختار والمستخدم مش واخد باله. شوف js/label-font.js.
+  if (typeof ensureLabelFontReady === 'function') await ensureLabelFontReady();
 
   // ⭐ نفس بنّاء الملصق النصّي اللي بتستخدمه كل الشاشات — شوف buildTextLabel
   const buildOne = (label, copies) => {
@@ -2048,6 +2064,10 @@ function openCustomLabelDialog(opts) {
 // بتطبع ملصق نص حر (سطرين). نفس مسار ملصق الدرجة: صورة بمقاس نقط
 // الطابعة، معاينة، وبعدين وظايف طباعة صغيرة.
 async function printTextLabel(text, sizeOptions) {
+  // ⚠️⚠️ **قبل** أي رسم: الكانفاس مابيطلبش الخط لوحده. لو الملف لسه
+  // مانزلش، المتصفح بيرسم بخط بديل من غير أي خطأ — يعني ملصق مطبوع
+  // بخط غير اللي اتختار والمستخدم مش واخد باله. شوف js/label-font.js.
+  if (typeof ensureLabelFontReady === 'function') await ensureLabelFontReady();
   const copies = sizeOptions.copies || 1;
   const built = buildTextLabel(text, sizeOptions, copies);
 
