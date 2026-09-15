@@ -2,7 +2,7 @@
   "name": "tazweed-functions",
   "description": "إشعارات التزويد وقت ما النظام مقفول",
   "private": true,
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "main": "index.js",
   "scripts": {
     "test": "node test.js"

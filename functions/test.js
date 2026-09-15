@@ -144,6 +144,36 @@ check('⭐ ومن غير اسم فئة بيفضل مفهوم', () =>
 check('⭐⭐ ودرجة رقمها صفر بتبان', () =>
   assert.match(buildMessage('كريب', 0).body, /0/));
 
+// ============================================================
+// ⏰ محرّك الدالة لسه مدعوم
+// ============================================================
+// جوجل بتقفل كل نسخة من Node بعد مدة. ولما تتقفل، الدالة
+// **بتفضل شغالة** بس مابقاش نقدر نرفع عليها أي تعديل خالص —
+// يعني الباب بيتقفل في وشنا وإحنا مش واخدين بالنا.
+//
+// التواريخ دي منقولة من جدول Firebase CLI نفسه
+// (lib/deploy/functions/runtimes/supported/types.js).
+const RUNTIME_END = { '18': '2025-10-31', '20': '2026-10-31', '22': '2027-10-31' };
+const enginesNode = String((require('./package.json').engines || {}).node || '');
+
+check('⭐⭐⭐ محرّك Node المكتوب معروف (مش رقم متكتب غلط)', () =>
+  assert.ok(RUNTIME_END[enginesNode], `النسخة ${enginesNode} مش في الجدول`));
+
+// ⚠️ الفحص بيقع لما النسخة تبقى **اتقفلت فعلًا** — وساعتها الرفع
+// كان هيفشل بردو عند جوجل، فأحسن يبان هنا وإحنا فاهمين السبب.
+check('⭐⭐⭐⭐⭐ ولسه مااتقفلش', () => {
+  const end = Date.parse(RUNTIME_END[enginesNode] + 'T23:59:59Z');
+  assert.ok(Date.now() < end,
+    `Node ${enginesNode} اتقفل يوم ${RUNTIME_END[enginesNode]} — غيّر engines.node في functions/package.json`);
+});
+
+// ⚠️ ودي **تنبيه مش فشل** عن قصد: لو خلّيناه يفشل، رفع الدالة
+// كان هيتقفل تلات شهور قبل ما يبقى فيه مشكلة أصلًا.
+const daysLeft = Math.round((Date.parse(RUNTIME_END[enginesNode] + 'T23:59:59Z') - Date.now()) / 86400000);
+if (daysLeft < 90) {
+  console.log(`   ⚠️ فاضل ${daysLeft} يوم ويتقفل Node ${enginesNode} — ارفعه للنسخة اللي بعده`);
+}
+
 pass.forEach((n) => console.log('   ✓ ' + n));
 fail.forEach((n) => console.log('   ✗ ' + n));
 console.log(fail.length ? `\n❌ فشل (${fail.length})` : `\n✅ نجح (${pass.length})`);
