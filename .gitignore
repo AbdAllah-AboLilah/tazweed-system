@@ -5,3 +5,8 @@
 *-key.json
 *.pem
 !docs/qz-tray/*.crt
+
+# سجلات المحاكي — بتتعمل وقت فحص القواعد ومالهاش لازمة في المستودع
+*-debug.log
+firebase-debug.log
+firestore-debug.log

@@ -557,7 +557,63 @@ function restockNotifyButtonHTML() {
          ⚠️ وهي بتوصل <strong>والنظام مفتوح بس</strong> — ${escapeHTML(why)}
        </div>`
     : '';
-  return `<button class="btn" id="restock-notify-btn">${label}</button>${note}`;
+  // ============================================================
+  // 🧪 زرار "جرّب الإشعار"
+  // ============================================================
+  // اتطلب بالنص: "عاوزك تتاكد ان الاشعارات بتوصل كويس ل الاجهزة".
+  //
+  // ⚠️ والتأكد ده **مش** حاجة تتفحص من الكود: إعدادات الإشعارات على
+  // أندرويد، وتوفير البطارية، والإذن — كلهم على تليفونه مش عندنا.
+  // الحاجة الوحيدة اللي بتحسم الموضوع إنه يجرّب والنظام مقفول.
+  //
+  // وقبل ده مكانش فيه طريقة يجرّب بيها غير إن حد يعمل **طلب تزويد
+  // حقيقي** — يعني يلخبط بيانات المحل عشان يختبر إشعار.
+  //
+  // ⚠️ بيظهر بس لما الإشعارات تبقى شغّالة فعلًا: قبل كده مالوش معنى.
+  const testBtn =
+    st === 'on'
+      ? `<button class="btn" id="restock-notify-test" style="margin-top:6px;">🧪 جرّب الإشعار</button>
+         <div id="restock-notify-test-out" style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin-top:4px;"></div>`
+      : '';
+  return `<button class="btn" id="restock-notify-btn">${label}</button>${note}${testBtn}`;
+}
+
+// ============================================================
+// 🧪 بيبعت إشعار تجربة للأجهزة المسجّلة على الحساب ده
+// ============================================================
+// بيكتب مستند في pushTests، والدالة في السحابة بتبعت **لتوكناته هو
+// بس** وبتكتب النتيجة في نفس المستند — وإحنا بنعرضها.
+//
+// ⚠️ النتيجة بتتكتب من السحابة، فبنسمع على المستند بدل ما نخمّن.
+// وبمهلة: لو الدالة مش مرفوعة، السكوت لازم يتقال مش يفضل تحميل للأبد.
+async function sendTestNotification() {
+  const out = document.getElementById('restock-notify-test-out');
+  const say = (t) => { if (out) out.textContent = t; };
+  if (!state.user || !state.user.uid) return;
+  say('بيبعت...');
+  try {
+    const ref = await db.collection('pushTests').add({
+      uid: state.user.uid,
+      at: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    let done = false;
+    const stop = ref.onSnapshot((snap) => {
+      const d = snap.data();
+      if (!d || !d.result) return;
+      done = true;
+      stop();
+      say((d.ok ? '✅ ' : '⚠️ ') + d.result);
+    });
+    setTimeout(() => {
+      if (done) return;
+      stop();
+      // ⚠️ السكوت هنا معناه إن الدالة نفسها مش شغّالة في السحابة —
+      // مش إن الإشعار مااتبعتش. والفرق ده مهم للي بيدوّر على السبب.
+      say('⚠️ مافيش رد من السحابة. غالبًا دالة الإشعارات مش مرفوعة.');
+    }, 15000);
+  } catch (err) {
+    say('⚠️ مانفعش نبعت: ' + ((err && err.message) || err));
+  }
 }
 
 async function toggleRestockNotifications() {

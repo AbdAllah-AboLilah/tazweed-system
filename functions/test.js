@@ -3,7 +3,16 @@
 // ⚠️ الملف اللي بيتفحص هنا (notify-core.js) هو **كل** المنطق اللي ممكن
 // يغلط. اللي في index.js توصيل بس.
 const assert = require('assert');
-const { becamePending, shouldSend, tokenIsEligible, buildMessage, THROTTLE_MS } = require('./notify-core');
+const {
+  becamePending,
+  tokenIsEligible,
+  buildMessage,
+  buildGroupedMessage,
+  formatGradeList,
+  categoryTag,
+  MAX_LISTED_GRADES,
+  PUSH_TAG,
+} = require('./notify-core');
 
 const pass = [], fail = [];
 const check = (n, fn) => {
@@ -31,15 +40,69 @@ check('⭐⭐ الدرجة اتمسحت → مافيش إشعار', () =>
   assert.strictEqual(becamePending({ status: 'pending' }, undefined), false));
 
 // ============================================================
-// الخنق
+// ⚠️⚠️ الخنق اتشال — والتجميع هو اللي حلّ محله
 // ============================================================
-// طلب واحد ممكن يخلي عشرين درجة معلّقة في نفس اللحظة = عشرين إشعار.
-check('⭐⭐⭐ أول إشعار بيعدّي على طول', () =>
-  assert.strictEqual(shouldSend(0, 1000), true));
-check('⭐⭐⭐⭐ واللي وراه في نفس الدقيقة بيتخنق', () =>
-  assert.strictEqual(shouldSend(1000, 1000 + THROTTLE_MS - 1), false));
-check('⭐⭐ وبعد الدقيقة بيعدّي تاني', () =>
-  assert.strictEqual(shouldSend(1000, 1000 + THROTTLE_MS), true));
+// كان: إشعار واحد كل دقيقة والباقي بيتسكت عنه. اتشال بطلب صريح:
+// "عاوز اي طلب تزويد يطلب يوصل رسالة ... مش يستني دقيقة".
+//
+// والمشكلة اللي كان بيحلها (عشرين درجة معلّقة في لحظة = عشرين إشعار)
+// اتحلّت بالتجميع: إشعار واحد للفئة بيتحدّث ويكبر.
+check('⭐⭐⭐⭐⭐ الخنق مابقاش موجود خالص', () => {
+  const core = require('./notify-core');
+  assert.strictEqual(core.shouldSend, undefined, 'shouldSend لسه موجودة');
+  assert.strictEqual(core.THROTTLE_MS, undefined, 'THROTTLE_MS لسه موجود');
+});
+
+// ============================================================
+// 🧾 تجميع الدرجات — ده اللي اتطلب بالنص
+// ============================================================
+// "لو في طلب تزويد من الكريب السادة درجة 5 وبعدين طلبت درجة 6 لما
+//  يوصل اشعار 6 ... يكتب درجة 5 و 6"
+check('⭐⭐⭐⭐⭐ درجتين → الاتنين في الإشعار', () =>
+  assert.strictEqual(buildGroupedMessage('كريب سادة', [5, 6]).body, 'كريب سادة — درجات 5، 6'));
+
+check('⭐⭐⭐ ودرجة واحدة تفضل بصيغة المفرد', () =>
+  assert.strictEqual(buildGroupedMessage('كريب سادة', [5]).body, 'كريب سادة — درجة 5'));
+
+// ⚠️ الترتيب مهم: الاستعلام مش مضمون ترتيبه، و"5 و 6" أوضح من "6 و 5".
+check('⭐⭐⭐⭐ والترتيب بيتظبط مهما جت مقلوبة', () =>
+  assert.strictEqual(formatGradeList([9, 2, 5]), 'درجات 2، 5، 9'));
+
+// ⚠️ التكرار بيحصل فعلًا: الدرجة الجديدة بتتضاف بإيدنا **وكمان** ممكن
+// تكون في الاستعلام. من غير التنضيف ده الإشعار هيقول "درجة 5، 5".
+check('⭐⭐⭐⭐⭐ والتكرار بيتشال (الدرجة الجديدة بتتضاف مرتين)', () =>
+  assert.strictEqual(formatGradeList([5, 6, 5]), 'درجات 5، 6'));
+
+check('⭐⭐⭐ والعنوان بيقول العدد لما يبقى أكتر من واحدة', () =>
+  assert.strictEqual(buildGroupedMessage('كريب', [5, 6, 7]).title, '🔔 3 طلبات تزويد'));
+
+// ⚠️ بسقف: فئة فيها 40 درجة معلّقة كانت هتطلّع سطر مالوش آخر.
+check('⭐⭐⭐⭐ والقايمة الطويلة بتتقص وبتقول الباقي كام', () => {
+  const many = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  const txt = formatGradeList(many);
+  assert.ok(/و3 غيرهم/.test(txt), txt);
+  assert.ok(txt.split('،').length <= MAX_LISTED_GRADES + 1, txt);
+});
+
+check('⭐⭐ والدرجة صفر قيمة صحيحة مش فاضية', () =>
+  assert.strictEqual(formatGradeList([0, 1]), 'درجات 0، 1'));
+
+check('⭐⭐ ومافيش درجات → نص مفهوم مش فاضي', () =>
+  assert.ok(buildGroupedMessage('كريب', []).body.length > 0));
+
+// ============================================================
+// 🏷️ وسم لكل فئة — ده اللي بيخلي التجميع يبان
+// ============================================================
+// ⚠️⚠️ من غيره، طلب في فئة تانية كان هيمسح إشعار الفئة الأولى وكإنه
+// اتزوّد — والمستخدم يفتكر إن الطلب راح.
+check('⭐⭐⭐⭐⭐ كل فئة ليها وسم لوحدها', () =>
+  assert.notStrictEqual(categoryTag('cat-1'), categoryTag('cat-2')));
+
+check('⭐⭐⭐⭐ ونفس الفئة ليها نفس الوسم (عشان يستبدل مكانه)', () =>
+  assert.strictEqual(categoryTag('cat-1'), categoryTag('cat-1')));
+
+check('⭐⭐ والفئة من غير رقم بتاخد الوسم العام', () =>
+  assert.strictEqual(categoryTag(''), PUSH_TAG));
 
 // ============================================================
 // مين ياخد

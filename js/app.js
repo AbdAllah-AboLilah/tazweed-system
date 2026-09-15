@@ -3489,6 +3489,8 @@ function attachDashboardEvents() {
   wire('install-app-btn', () => promptAppInstall());
   // ⚠️ لازم من ضغطة المستخدم — المتصفح بيرفض طلب إذن الإشعارات لو اتنادى لوحده
   wire('restock-notify-btn', () => safeAsync(() => toggleRestockNotifications(), 'إشعارات التزويد'));
+  // 🧪 زرار تجربة الإشعار — الشرح الكامل عند sendTestNotification
+  wire('restock-notify-test', () => safeAsync(() => sendTestNotification(), 'تجربة الإشعار'));
   wire('export-btn', async (e) => {
     const btn = document.getElementById('export-btn');
     btn.disabled = true;
