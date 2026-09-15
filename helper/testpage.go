@@ -18,46 +18,144 @@ package main
 const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8">
 <title>تجربة مساعد التزويد</title>
 <style>
- body{font-family:system-ui,Segoe UI,sans-serif;background:#f4f5f7;margin:0;padding:20px;color:#1c2024}
- .card{max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:20px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
- h1{font-size:19px;margin:0 0 4px} .sub{color:#666;font-size:13px;margin-bottom:18px}
- label{display:block;font-size:13px;margin:14px 0 6px;font-weight:500}
- select,input{width:100%;padding:9px;border:1px solid #ccd;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box}
- button{width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-size:15px;font-weight:500;cursor:pointer;font-family:inherit}
- button:disabled{background:#9ab}
- #out{margin-top:14px;font-size:13.5px;line-height:1.8;white-space:pre-wrap}
- .ok{color:#0a6b2e} .bad{color:#b02020}
+ :root{--ink:#1c2024;--line:#d9dce1;--bg:#f4f5f7;--card:#fff;--sage:#2f6b46;--warn:#b02020;--mut:#6b7280}
+ *{box-sizing:border-box}
+ body{font-family:system-ui,Segoe UI,Tahoma,sans-serif;background:var(--bg);margin:0;padding:16px;color:var(--ink)}
+ .wrap{max-width:620px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+ .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 2px 12px rgba(0,0,0,.07)}
+ h1{font-size:20px;margin:0}
+ .sub{color:var(--mut);font-size:13px}
+ .sec-title{font-size:14px;font-weight:600;margin:0 0 3px}
+ .sec-sub{color:var(--mut);font-size:12px;line-height:1.7;margin-bottom:12px}
+ .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+ label{display:block;font-size:12px;margin-bottom:5px;color:var(--mut);font-weight:400}
+ input,select{width:100%;padding:8px;border:1px solid var(--line);border-radius:7px;font-size:14px;font-family:inherit;background:var(--card);color:var(--ink)}
+ button{padding:10px 14px;border:0;border-radius:8px;background:var(--sage);color:#fff;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit}
+ button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+ button:disabled{opacity:.5;cursor:default}
+ .chk{display:flex;gap:9px;align-items:flex-start;font-size:13px;cursor:pointer;padding:7px 0;margin:0;color:var(--ink)}
+ .chk input{width:auto;margin:2px 0 0}
+ .chk small{display:block;color:var(--mut);font-size:11.5px;line-height:1.6;margin-top:2px}
+ .pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:3px 10px;border-radius:999px;background:#eaf3ee;color:var(--sage);font-weight:600}
+ .pill.grey{background:#eef0f2;color:var(--mut)}
+ .hr{border:0;border-top:1px solid var(--line);margin:13px 0}
+ .note{font-size:11.5px;color:var(--mut);line-height:1.7;background:#f7f8f9;padding:9px 11px;border-radius:8px}
+ .big{display:block;width:100%;text-align:center;padding:12px;border:1px solid var(--line);border-radius:9px;
+      text-decoration:none;color:var(--ink);font-size:14px;font-weight:600;background:#fbfcfc;margin-top:12px}
+ .box{background:#fff8e6;border:1px solid #f0d8a0;border-radius:9px;padding:11px}
+ #out,#uout{margin-top:10px;font-size:13px;line-height:1.8;white-space:pre-wrap}
+ .ok{color:var(--sage)} .bad{color:var(--warn)}
 </style>
-<div class="card">
- <h1>&#127374; مساعد التزويد</h1>
- <div class="sub">صفحة تجربة — بتطبع ورقة على الطابعة مباشرة من غير ما تعدّي على تعريف الويندوز.</div>
- <a href="/designer" style="display:block;text-align:center;margin:0 0 16px;padding:11px;border:1px solid #ccd;border-radius:8px;text-decoration:none;color:#1c2024;font-size:14px;font-weight:500">&#127912; مصمّم الملصق &mdash; حرّك عناصر الملصق بالمليمتر</a>
- <label>طابعة ورقة التزويد</label><select id="p"></select>
- <label>طابعة الملصق</label><select id="l"></select>
- <div style="display:flex;gap:10px">
-  <div style="flex:1"><label>الفاصل بين اللاصقات (مم)</label><input id="gap" type="number" step="0.5" min="0" max="20" value="2"></div>
-  <div style="flex:1"><label>اتجاه الملصق</label><select id="dir"><option value="1">1</option><option value="0">0</option></select></div>
+
+<!-- ============================================================
+     ⚠️⚠️ الترتيب ده مقصود — اتبلّغ بالنص
+     ============================================================
+     "عاوزك بردوا تظبط اماكن كل حاجه في الشاشة الرئيسية ل البرنامج
+      المساعد لان حاسس في لغبطه او عدم ترتيب"
+
+     وكان معاه حق: الصفحة كانت **كتلة واحدة** فيها الطابعات ومقاسات
+     الملصق واسم الجهاز والتشغيل مع الويندوز والتجربة والتحديث ورا
+     بعض من غير أي فاصل، وزرار الحفظ **في النص** — فاللي تحته مالوش
+     علاقة بيه وهو مش باين كده.
+
+     دلوقتي كل قسم حاجة واحدة، والحفظ في الآخر ثابت وانت بتنزّل.
+
+     ⚠️ ولا id واحد اتغيّر: نفس الخانات ونفس الأزرار، فكل المنطق
+     تحت شغّال زي ما هو بالحرف. اللي اتغيّر الترتيب والشكل بس. -->
+<div class="wrap">
+
+ <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+  <div>
+   <h1>&#127374; مساعد التزويد</h1>
+   <div class="sub">شغّال على الكمبيوتر ده — سيبه مفتوح والنظام هيلاقيه لوحده.</div>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap" id="pills">
+   <span class="pill">&#9679; شغّال</span>
+  </div>
  </div>
- <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:14px;font-weight:400">
-   <input type="checkbox" id="flip" style="width:auto;margin:0"> اقلب ألوان الملصق (افتحه لو طلع أسود بالكامل)
- </label>
- <label style="margin-top:14px">اسم الجهاز (زي ما هيظهر في النظام)</label>
- <input id="devname" type="text" maxlength="40" placeholder="مثلاً: كمبيوتر الكاشير">
- <div style="font-size:12px;color:#6b7280;margin-top:-6px;margin-bottom:6px">
-   الاسم ده بيمشي على كل المتصفحات اللي على الكمبيوتر ده — فالجهاز بيتحسب مرة واحدة في النظام بدل ما كل متصفح يبقى جهاز لوحده.
+
+ <div class="card">
+  <div class="sec-title">&#128424; الطابعات والجهاز</div>
+  <div class="sec-sub">أهم قسم — ده اللي بيخلي النظام يعرف يطبع على الكمبيوتر ده.</div>
+  <div class="row">
+   <div style="flex:1;min-width:200px"><label>طابعة الملصق</label><select id="l"></select></div>
+   <div style="flex:1;min-width:200px"><label>طابعة ورقة التزويد</label><select id="p"></select></div>
+  </div>
+  <div class="row" style="margin-top:11px">
+   <div style="flex:1"><label>اسم الجهاز (زي ما هيظهر في النظام)</label>
+    <input id="devname" type="text" maxlength="40" placeholder="مثلاً: كمبيوتر الكاشير"></div>
+  </div>
+  <div class="note" style="margin-top:9px">الاسم بيمشي على كل المتصفحات اللي على الكمبيوتر ده — فالجهاز بيتحسب مرة واحدة في النظام بدل ما كل متصفح يبقى جهاز لوحده.</div>
  </div>
- <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:14px;font-weight:400">
-   <input type="checkbox" id="auto" style="width:auto;margin:0"> يشتغل لوحده مع الويندوز (في الخلفية، من غير ما يفتح الصفحة)
- </label>
- <button id="save" style="background:#0a6b2e;margin-top:12px">احفظ الإعدادات</button>
- <div id="sout" style="margin-top:8px;font-size:13px"></div>
- <hr style="margin:18px 0;border:0;border-top:1px solid #e5e7eb">
- <label>طول الورقة التجريبية (مم)</label><input id="mm" type="number" value="250" min="20" max="1000">
- <button id="go">اطبع ورقة تجربة</button>
- <button id="lgo" style="background:#7c3aed;margin-top:10px">اطبع ملصق تجربة (لاصقة واحدة)</button>
- <button id="up" style="background:#475569;margin-top:10px">شوف لو فيه تحديث</button>
- <div id="out"></div>
- <div id="uout" style="margin-top:10px;font-size:13.5px;line-height:1.8"></div>
+
+ <div class="card">
+  <div class="sec-title">&#127991; الملصق</div>
+  <div class="sec-sub">شكل الملصق ومقاسه. كل حاجة هنا بتخص اللاصقات بس.</div>
+
+  <div class="box">
+   <div style="font-size:13px;font-weight:600;margin-bottom:3px">&#127912; التصاميم</div>
+   <div style="font-size:11.5px;color:var(--mut);line-height:1.7;margin-bottom:10px">
+    اختار كل نوع ملصق يطبع بأنهي تصميم. تعمل التصاميم وتعدّلها من المصمّم تحت.</div>
+   <div class="row">
+    <div style="flex:1;min-width:175px"><label>الملصق العادي</label><select id="rd-normal"></select></div>
+    <div style="flex:1;min-width:175px"><label>مقسوم ٤</label><select id="rd-quarter"></select></div>
+   </div>
+   <div class="row" style="margin-top:9px">
+    <div style="flex:1;min-width:175px"><label>لما يكون من غير سعر</label><select id="rd-noPrice"></select></div>
+    <div style="flex:1;min-width:175px"></div>
+   </div>
+   <div id="rd-status" style="font-size:12px;margin-top:8px;min-height:16px"></div>
+   <!-- ⚠️⚠️ الشرح ده مش زوّاقة: السؤال اتسأل بالنص ("هل لما اطبع من
+        غير سعر هيتم تنفيذ التصميم من غير السعر ولا ده هيحتاج نعمله
+        تصميم معين")، فالإجابة لازم تبقى مكتوبة **جنب الخانة** مش في
+        رسالة اتبعتت مرة. -->
+   <div class="note" style="margin-top:10px;background:#fffdf7">
+    &#9888; <b>«من غير سعر»</b>: لو سايبها على <b>تلقائي</b>، النظام بيستخدم الملصق العادي
+    والسعر بيختفي — والباقي مكانه زي ما هو. لو عايز الاسم يكبر وياخد مساحة السعر،
+    اعمل تصميم تاني من المصمّم واختاره هنا.</div>
+  </div>
+
+  <a class="big" href="/designer">&#127912; افتح مصمّم الملصق &mdash; حرّك أي حاجة بالمليمتر</a>
+
+  <hr class="hr">
+  <div style="font-size:12.5px;font-weight:600;margin-bottom:8px">معايرة الماكينة</div>
+  <div class="row">
+   <div style="flex:1;min-width:150px"><label>الفاصل بين اللاصقات (مم)</label>
+    <input id="gap" type="number" step="0.5" min="0" max="20" value="2"></div>
+   <div style="flex:1;min-width:150px"><label>اتجاه الملصق</label>
+    <select id="dir"><option value="1">1</option><option value="0">0</option></select></div>
+  </div>
+  <label class="chk" style="margin-top:6px"><input type="checkbox" id="flip">
+   <span>اقلب ألوان الملصق<small>افتحها بس لو اللاصقة طلعت سودا بالكامل.</small></span></label>
+ </div>
+
+ <div class="card">
+  <div class="sec-title">&#129514; جرّب قبل ما تعتمد</div>
+  <div class="sec-sub">بيطبعوا على الطابعة على طول — من غير نافذة طباعة.</div>
+  <div class="row">
+   <button class="ghost" id="lgo">&#127991; اطبع ملصق تجربة (لاصقة واحدة)</button>
+   <button class="ghost" id="go">&#128220; اطبع ورقة تجربة</button>
+   <div style="width:130px"><label>طول الورقة (مم)</label>
+    <input id="mm" type="number" value="250" min="20" max="1000"></div>
+  </div>
+  <div id="out"></div>
+ </div>
+
+ <div class="card">
+  <div class="sec-title">&#9881;&#65039; البرنامج</div>
+  <label class="chk"><input type="checkbox" id="auto">
+   <span>يشتغل لوحده مع الويندوز<small>في الخلفية، من غير ما يفتح الصفحة دي.</small></span></label>
+  <div class="row" style="margin-top:8px">
+   <button class="ghost" id="up">&#128260; شوف لو فيه تحديث</button>
+  </div>
+  <div id="uout"></div>
+ </div>
+
+ <div class="card" style="position:sticky;bottom:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <button id="save" style="flex:1;min-width:180px">&#128190; احفظ الإعدادات</button>
+  <div id="sout" style="font-size:12.5px"></div>
+ </div>
+
 </div>
 <script>
 const out=document.getElementById('out'),sel=document.getElementById('p'),go=document.getElementById('go');
@@ -75,8 +173,57 @@ fetch('/status').then(r=>r.json()).then(s=>{
   document.getElementById('gap').value=(s.labelGapMm!==undefined?s.labelGapMm:2);
   document.getElementById('dir').value=String(s.labelDirection!==undefined?s.labelDirection:1);
   document.getElementById('flip').checked=!!s.labelFlip;
-  say('نسخة '+s.version+' — '+(s.printers||[]).length+' طابعة');
+  // ⚠️ النسخة وعدد الطابعات فوق في الشريط مش في صندوق نتيجة الطباعة:
+  // كانوا بيتكتبوا في #out، وأول ما تطبع تجربة بيتمسحوا — فالمعلومة
+  // اللي المفروض تفضل قدامك كانت بتختفي.
+  const pills=document.getElementById('pills');
+  pills.innerHTML='<span class="pill">\u25cf شغّال</span>'
+   +'<span class="pill grey">نسخة '+s.version+'</span>'
+   +'<span class="pill grey">'+(s.printers||[]).length+' طابعة</span>';
 }).catch(e=>say('مش قادر أقرا الحالة: '+e,'bad'));
+
+// ============================================================
+// 🎭 أنهي تصميم لأنهي نوع ملصق
+// ============================================================
+// اتطلب بالنص: "ممكن نعمل في البرنامج المساعد حقل ل المقسوم العادي
+// اختار من التصاميم المتاحه ... وحقل تاني اختار التصميم ل مقسوم ٤".
+//
+// ⚠️ "تلقائي" خيار حقيقي مش فراغ: معناه إن البرنامج يتصرّف (شوف
+// designForRole في design.go). واللي بيتنفّذ فعلًا مكتوب جنبه بين
+// قوسين، عشان "تلقائي" ماتبقاش لغز.
+const ROLES=['normal','quarter','noPrice'];
+function loadRoles(){
+  fetch('/design/all').then(r=>r.json()).then(j=>{
+    const names=(j.designs||[]).map(x=>x.name);
+    ROLES.forEach(role=>{
+      const sel=document.getElementById('rd-'+role);
+      if(!sel) return;
+      const picked=(j.picked||{})[role]||'';
+      const eff=(j.roles||{})[role]||'';
+      sel.innerHTML='<option value="">تلقائي'+(eff?' ('+eff+')':'')+'</option>'
+        +names.map(n=>'<option'+(n===picked?' selected':'')+'>'+n+'</option>').join('');
+    });
+  }).catch(()=>{});
+}
+ROLES.forEach(role=>{
+  const sel=document.getElementById('rd-'+role);
+  if(!sel) return;
+  sel.onchange=async()=>{
+    const st=document.getElementById('rd-status');
+    st.textContent='بيحفظ...'; st.className='';
+    try{
+      const r=await (await fetch('/design/role',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({role:role,name:sel.value})})).json();
+      st.textContent=r.ok?'\u2705 اتحفظ':'\u274c '+(r.error||'مش عارف');
+      st.className=r.ok?'ok':'bad';
+      // ⚠️ بنعيد التحميل بعد الحفظ: "تلقائي" بتتغيّر نتيجتها لما
+      // نوع تاني يتغيّر (من غير سعر بيتبع العادي)، فالمكتوب بين
+      // القوسين لازم يفضل صح.
+      if(r.ok) loadRoles();
+    }catch(e){ st.textContent='\u274c '+e; st.className='bad'; }
+  };
+});
+loadRoles();
 
 // ⚠️ التشغيل مع الويندوز بيتحفظ **لوحده** أول ما تعلّم عليه — مش
 // مربوط بزرار الحفظ، عشان ماحدش يعلّم ويمشي ويفتكره اتحفظ.

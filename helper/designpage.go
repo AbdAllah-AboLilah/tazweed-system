@@ -63,6 +63,9 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
  .stage{background:#e9ebee;border-radius:10px;padding:18px;display:flex;flex-direction:column;align-items:center;gap:8px}
  .sheet{background:#fff;position:relative;box-shadow:0 1px 6px rgba(0,0,0,.18);overflow:hidden}
  .cut{position:absolute;left:0;right:0;border-top:1px dashed #bbb}
+ .cutV{position:absolute;top:0;bottom:0;left:auto;right:auto;border-top:0;border-right:1px dashed #bbb}
+ .preset{padding:5px 11px;font-size:12.5px}
+ .preset.on{background:var(--sage);color:#fff;border-color:var(--sage)}
  .el{position:absolute;overflow:hidden;display:flex;align-items:center;line-height:1.2}
  .el.sel{outline:1.5px solid var(--sage);outline-offset:1px;background:rgba(47,107,70,.07)}
  .el span{display:block;width:100%}
@@ -91,8 +94,22 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
    <div style="flex:1;min-width:90px"><label>اسم التصميم</label><input id="dname"></div>
    <div style="width:92px"><label>العرض (مم)</label><input id="dw" type="number" step="0.5" min="10" max="200"></div>
    <div style="width:92px"><label>الطول (مم)</label><input id="dh" type="number" step="0.5" min="5" max="200"></div>
-   <div style="width:110px"><label>ملصقات في الورقة</label><select id="dhalves"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+   <div style="width:78px"><label>صفوف</label><select id="dhalves"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+   <!-- ============================================================
+        ⚠️⚠️ الأعمدة — دي اللي خلّت "مقسوم ٤" مش صفحة تانية
+        ============================================================
+        الفرق الوحيد بين مقسوم ٤ والملصق العادي إنه **عمودين بدل
+        عمود واحد**. فبدل ما نعمل مصمّم تاني وكود تاني وفحوص تانية،
+        خانة واحدة بتعمل الاتنين. -->
+   <div style="width:78px"><label>أعمدة</label><select id="dcols"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
   </div>
+  <div class="row" style="margin-top:10px;align-items:center">
+   <span class="scale">أشكال جاهزة:</span>
+   <button class="ghost preset" data-preset="1x1">ملصق واحد (1×1)</button>
+   <button class="ghost preset" data-preset="2x1">عادي (2×1)</button>
+   <button class="ghost preset" data-preset="2x2">مقسوم ٤ (2×2)</button>
+  </div>
+  <div class="scale" id="cellinfo" style="margin-top:6px"></div>
   <!-- ============================================================
        🔤 خط الملصق
        ============================================================
@@ -151,6 +168,10 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
     <button class="ghost" id="s-long">اسم طويل</button>
     <button class="ghost" id="s-short">اسم قصير</button>
     <button class="ghost" id="s-nodisc">من غير خصم</button>
+    <!-- ⚠️⚠️ ده اللي بيجاوب السؤال "هل الطبعة من غير سعر هتنفّذ
+         التصميم؟" **قبل** ما يطبع: بيوري نفس التصميم والسعر مخفي،
+         زي ما النظام هيعمل بالظبط. -->
+    <button class="ghost" id="s-noprice">من غير سعر</button>
     <button id="s-print">&#128424; اطبع تجربة</button>
    </div>
    <div class="scale" style="margin-top:8px">&#128424; «اطبع تجربة» بتطبع <b>ملصق واحد على طول</b> على طابعة الملصق المتظبطة في الصفحة الرئيسية — من غير نافذة طباعة ومن غير اختيار ماكينة.</div>
@@ -253,6 +274,36 @@ function say(t, bad){ var m=$('msg'); m.textContent=t; m.className='msg '+(bad?'
 
 function el(kind){ for (var i=0;i<d.elements.length;i++) if (d.elements[i].kind===kind) return d.elements[i]; return null; }
 function cellH(){ return d.heightMm / (d.halves||1); }
+function cellW(){ return d.widthMm / (d.cols||1); }
+
+// ⚠️ حالة عرض بس — **مش** بتتحفظ في التصميم. دي بتحاكي طبعة "من غير
+// سعر" اللي بتتعمل من النظام، عشان تشوفها قبل ما تطبع.
+var NOPRICE = false;
+
+// العنصر ده بيتعرض دلوقتي ولا لأ؟ نفس القاعدة بالحرف في المعاينة
+// وفي الصورة اللي بتتبعت للطابعة — عشان مايبقاش فيه فرق بينهم.
+function elVisible(e){
+  if (NOPRICE && (e.kind==='price' || e.kind==='oldPrice')) return false;
+  // ⚠️⚠️ السعر القديم **مابيترسمش لوحده**: بيترسم جنب السعر في نفس
+  // الصندوق (شوف priceHTML تحت). صندوقه بيقول حاجتين بس: مقاس خطه،
+  // وهل يظهر ولا لأ.
+  //
+  // السبب اتقاس على صورة حقيقية: لو كل واحد في صندوقه، سعرين من
+  // رقمين بيتراكبوا (110 L.E و85 L.E فوق بعض). ولو فصلنا الصندوقين،
+  // الصنف اللي مافيهوش خصم سعره بيقع في نص الجزء اليمين بدل نص
+  // الملصق. الزوج المتوسّط بيحل الاتنين.
+  if (e.kind==='oldPrice') return false;
+  return true;
+}
+
+function oldPriceEl(){
+  for (var i=0;i<d.elements.length;i++) if (d.elements[i].kind==='oldPrice') return d.elements[i];
+  return null;
+}
+function showOldPrice(){
+  var o = oldPriceEl();
+  return !!(o && SAMPLE.oldPrice && !NOPRICE);
+}
 
 // ============================================================
 // المعاينة — مم × معامل ثابت، فالنسب مضبوطة
@@ -272,16 +323,29 @@ function draw(){
   $('scale').textContent = d.widthMm+' × '+d.heightMm+' mm  ·  ×'+K.toFixed(1);
   shrunk = [];
 
-  var n = d.halves||1, ch = cellH();
+  var n = d.halves||1, nc = d.cols||1, ch = cellH(), cw = cellW();
+  $('cellinfo').textContent = (n*nc) + ' لاصقة في الورقة — كل واحدة '
+    + cw.toFixed(1) + ' × ' + ch.toFixed(1) + ' مم';
+
+  // خطوط القص: أفقية بين الصفوف، ورأسية بين الأعمدة
+  for (var r=1; r<n; r++){
+    var c=document.createElement('div'); c.className='cut'; c.style.top=(r*ch*K)+'px'; sh.appendChild(c);
+  }
+  for (var q=1; q<nc; q++){
+    var v=document.createElement('div'); v.className='cutV'; v.style.right=(q*cw*K)+'px'; sh.appendChild(v);
+  }
+
   for (var h=0; h<n; h++){
-    // خط القص بين الملصقات
-    if (h>0){ var c=document.createElement('div'); c.className='cut'; c.style.top=(h*ch*K)+'px'; sh.appendChild(c); }
+   for (var col=0; col<nc; col++){
     for (var i=0;i<d.elements.length;i++){
       var e = d.elements[i];
-      if (e.kind==='oldPrice' && e.show==='ifDiscount' && !SAMPLE.oldPrice) continue;
+      if (!elVisible(e)) continue;
       var box = document.createElement('div');
-      box.className = 'el' + (e.kind===sel && h===0 ? ' sel' : '');
-      box.style.left   = (e.x*K)+'px';
+      // ⚠️ التحديد على أول لاصقة بس (أول صف وأول عمود) — لو حدّدنا
+      // كلهم، الأربع صناديق بتتلوّن والمستخدم مش عارف بيعدّل في أنهي
+      // واحدة. وهي أصلًا واحدة: العناصر بتتكرّر مش بتتعدّد.
+      box.className = 'el' + (e.kind===sel && h===0 && col===0 ? ' sel' : '');
+      box.style.left   = ((col*cw + e.x)*K)+'px';
       box.style.top    = ((h*ch + e.y)*K)+'px';
       box.style.width  = (e.w*K)+'px';
       box.style.height = (e.h*K)+'px';
@@ -306,6 +370,27 @@ function draw(){
           box.style.background='repeating-linear-gradient(45deg,#333 0 2px,#fff 2px 4px)';
           box.style.border='1px solid #999';
         }
+      } else if (e.kind==='price' && showOldPrice()){
+        // الزوج: القديم مشطوب وأصغر، وبعده السعر عريض — متوسّطين سوا.
+        var o = oldPriceEl();
+        box.style.justifyContent='center';
+        box.style.gap=(0.8*K)+'px';
+        var so=document.createElement('span');
+        so.textContent=SAMPLE.oldPrice;
+        so.style.cssText='width:auto;white-space:nowrap;text-decoration:line-through;direction:ltr;font-weight:400;font-size:'+((o.fontMm||e.fontMm*0.8)*K)+'px';
+        var sp=document.createElement('span');
+        sp.textContent=SAMPLE.price;
+        sp.style.cssText='width:auto;white-space:nowrap;direction:ltr;font-weight:'+(e.weight==='bold'?'700':'400')+';font-size:'+(e.fontMm*K)+'px';
+        so.style.fontFamily=sp.style.fontFamily=fontStack();
+        box.appendChild(so); box.appendChild(sp);
+        sh.appendChild(box);
+        // تصغير الزوج مع بعض لو أوسع من الصندوق
+        var g=0, fo=parseFloat(so.style.fontSize), fp=parseFloat(sp.style.fontSize);
+        while (box.scrollWidth > box.clientWidth+1 && fp>2 && g++<60){
+          fo*=0.96; fp*=0.96; so.style.fontSize=fo+'px'; sp.style.fontSize=fp+'px';
+        }
+        box.onclick = (function(k){ return function(){ sel=k; render(); }; })(e.kind);
+        continue;
       } else {
         var s = document.createElement('span');
         s.textContent = SAMPLE[e.kind] || '';
@@ -338,7 +423,7 @@ function draw(){
             f -= Math.max(0.5, f*0.04);
             s.style.fontSize = f+'px';
           }
-          if (f < e.fontMm*K - 0.5 && h===0) shrunk.push(KIND_AR[e.kind]+' ← '+(f/K).toFixed(2)+'مم');
+          if (f < e.fontMm*K - 0.5 && h===0 && col===0) shrunk.push(KIND_AR[e.kind]+' ← '+(f/K).toFixed(2)+'مم');
         }
         box.onclick = (function(k){ return function(){ sel=k; render(); }; })(e.kind);
         continue;
@@ -346,6 +431,7 @@ function draw(){
       box.onclick = (function(k){ return function(){ sel=k; render(); }; })(e.kind);
       sh.appendChild(box);
     }
+   }
   }
   // ⚠️ وبنقول صراحةً مين اللي مادخلش بالمقاس اللي طلبته — ده
   // **بيت القصيد**: النظام قبل كده كان بيصغّر في سكوت.
@@ -412,6 +498,13 @@ function fields(){
   }
   f.appendChild(g);
 
+  if(sel==='oldPrice'){
+    var nt=document.createElement('div'); nt.className='hint';
+    nt.textContent='⚠️ السعر القديم بيترسم **جنب السعر** في صندوق السعر، مش في مكانه هو. '
+      +'المهم هنا: حجم خطه، وهل يظهر ولا لأ. (لو كل واحد في صندوقه، السعرين بيتراكبوا.)';
+    f.appendChild(nt);
+  }
+
   if(sel!=='name'){
     var rm=document.createElement('button'); rm.className='danger'; rm.style.marginTop='12px';
     rm.textContent='شيل '+KIND_AR[sel]+' من الملصق';
@@ -449,8 +542,9 @@ function fields(){
   }
   else if(e.y+e.h > cellH()-0.7)
     h='⚠️ العنصر قريب أوي من تحت — التحريف ممكن ياكل منه.';
-  else if(e.x+e.w > d.widthMm-0.7 || e.x < 0.7)
-    h='⚠️ العنصر قريب أوي من الجنب.';
+  else if(e.x+e.w > cellW()-0.7 || e.x < 0.7)
+    // ⚠️ عرض **الخلية** مش الورقة: في مقسوم ٤ فيه خط قص رأسي في النص.
+    h='⚠️ العنصر قريب أوي من الجنب (عرض اللاصقة '+cellW().toFixed(1)+'مم).';
   $('hint').textContent=h;
 }
 
@@ -480,7 +574,10 @@ function use(name){
   for(var i=0;i<designs.length;i++) if(designs[i].name===name) d=JSON.parse(JSON.stringify(designs[i]));
   if(!d && designs.length) d=JSON.parse(JSON.stringify(designs[0]));
   if(!d) return;
-  $('dname').value=d.name; $('dw').value=d.widthMm; $('dh').value=d.heightMm; $('dhalves').value=String(d.halves||1);
+  if (!d.cols) d.cols=1;
+  $('dname').value=d.name; $('dw').value=d.widthMm; $('dh').value=d.heightMm;
+  $('dhalves').value=String(d.halves||1); $('dcols').value=String(d.cols);
+  markPreset();
   if (!d.font) d.font='system';
   $('dfont').value=d.font;
   fontHint();
@@ -502,12 +599,34 @@ $('dfont').onchange=function(){
   ensureFont(draw);
 };
 $('dname').oninput=function(){ d.name=$('dname').value; };
-['dw','dh','dhalves'].forEach(function(id){
-  $(id).onchange=function(){
-    d.widthMm=parseFloat($('dw').value)||38;
-    d.heightMm=parseFloat($('dh').value)||25;
-    d.halves=parseInt($('dhalves').value,10)||1;
-    draw();
+['dw','dh','dhalves','dcols'].forEach(function(id){
+  $(id).onchange=function(){ readShape(); draw(); };
+});
+
+function readShape(){
+  d.widthMm=parseFloat($('dw').value)||38;
+  d.heightMm=parseFloat($('dh').value)||25;
+  d.halves=parseInt($('dhalves').value,10)||1;
+  d.cols=parseInt($('dcols').value,10)||1;
+  markPreset();
+}
+
+// ⚠️ الأزرار الجاهزة بتغيّر **الشكل بس** — مش بتلمس أماكن العناصر.
+// لو غيّرناها معاها، اللي ضبط تصميمه بالمليمتر كان هيلاقيه اتمسح
+// بدوسة واحدة من غير سؤال.
+function markPreset(){
+  var key = (d.halves||1)+'x'+(d.cols||1);
+  var bs = document.querySelectorAll('.preset');
+  for (var i=0;i<bs.length;i++){
+    var on = bs[i].getAttribute('data-preset')===key;
+    bs[i].className = 'ghost preset' + (on?' on':'');
+  }
+}
+document.querySelectorAll('.preset').forEach(function(b){
+  b.onclick=function(){
+    var parts=b.getAttribute('data-preset').split('x');
+    $('dhalves').value=parts[0]; $('dcols').value=parts[1];
+    readShape(); draw();
   };
 });
 $('newd').onclick=function(){
@@ -526,9 +645,7 @@ $('reset').onclick=function(){
 };
 $('save').onclick=function(){
   d.name=$('dname').value;
-  d.widthMm=parseFloat($('dw').value)||38;
-  d.heightMm=parseFloat($('dh').value)||25;
-  d.halves=parseInt($('dhalves').value,10)||1;
+  readShape();
   $('save').disabled=true;
   fetch('/design',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
    .then(function(r){return r.json();})
@@ -565,6 +682,13 @@ function writeSample(){
 $('s-long').onclick   = function(){ SAMPLE.name = LONG_NAME;  writeSample(); draw(); };
 $('s-short').onclick  = function(){ SAMPLE.name = SHORT_NAME; writeSample(); draw(); };
 $('s-nodisc').onclick = function(){ SAMPLE.oldPrice = '';     writeSample(); draw(); };
+// ⚠️ ده مفتاح **عرض**، مش تعديل في التصميم — بيتقفل ويتفتح.
+$('s-noprice').onclick = function(){
+  NOPRICE = !NOPRICE;
+  $('s-noprice').className = NOPRICE ? 'preset on' : 'ghost';
+  $('s-noprice').textContent = NOPRICE ? '✓ من غير سعر' : 'من غير سعر';
+  draw();
+};
 writeSample();
 
 // ============================================================
@@ -663,6 +787,38 @@ function drawFit(x, txt, X, Y, W, H, e){
   }
 }
 
+// ⚠️ السعر والقديم زوج متوسّط في صندوق السعر — **نفس** اللي النظام
+// بيعمله في renderDesignPNG بالحرف. أي فرق بينهم معناه إن الشاشة
+// بتوري حاجة والورق بيطلع حاجة تانية.
+function drawPricePair(x, X, Y, W, H, e){
+  var o = oldPriceEl();
+  var orig = SAMPLE.oldPrice, sell = SAMPLE.price;
+  var gap = 0.8*DPMM;
+  var sSize = e.fontMm*DPMM;
+  var oSize = ((o && o.fontMm) ? o.fontMm : e.fontMm*0.8)*DPMM;
+  for (var i=0;i<40;i++){
+    x.font = '400 '+oSize.toFixed(2)+'px '+fontStack();
+    var ow = x.measureText(orig).width;
+    x.font = '700 '+sSize.toFixed(2)+'px '+fontStack();
+    var sw = x.measureText(sell).width;
+    if (ow+gap+sw <= W && sSize*1.2 <= H) break;
+    sSize*=0.96; oSize*=0.96;
+    if (sSize < 4) break;
+  }
+  x.textAlign='left'; x.textBaseline='middle'; x.direction='ltr';
+  x.font = '400 '+oSize.toFixed(2)+'px '+fontStack();
+  var ow2 = x.measureText(orig).width;
+  x.font = '700 '+sSize.toFixed(2)+'px '+fontStack();
+  var sw2 = x.measureText(sell).width;
+  var px0 = X + (W - (ow2+gap+sw2))/2, cy = Y + H/2;
+  x.font = '400 '+oSize.toFixed(2)+'px '+fontStack();
+  x.fillText(orig, px0, cy);
+  x.fillRect(px0, cy - oSize*0.03, ow2, Math.max(1, Math.round(oSize*0.07)));
+  px0 += ow2 + gap;
+  x.font = '700 '+sSize.toFixed(2)+'px '+fontStack();
+  x.fillText(sell, px0, cy);
+}
+
 // بترسم الملصق كله وبترجّع وعد بـ PNG (base64 من غير الترويسة).
 function renderLabelPNG(){
   var W = Math.round(d.widthMm*DPMM), H = Math.round(d.heightMm*DPMM);
@@ -671,12 +827,15 @@ function renderLabelPNG(){
   x.fillStyle='#fff'; x.fillRect(0,0,W,H);
   x.fillStyle='#000';
 
-  var ch = cellH(), n = d.halves||1, waits = [];
+  var ch = cellH(), cw = cellW(), n = d.halves||1, nc = d.cols||1, waits = [];
   for (var h=0; h<n; h++){
+   for (var col=0; col<nc; col++){
     for (var i=0;i<d.elements.length;i++){
       var e = d.elements[i];
-      if (e.kind==='oldPrice' && e.show==='ifDiscount' && !SAMPLE.oldPrice) continue;
-      var X = e.x*DPMM, Y = (h*ch + e.y)*DPMM, Wb = e.w*DPMM, Hb = e.h*DPMM;
+      // ⚠️ **نفس** elVisible بتاعة المعاينة: لو الاتنين اتفرقوا،
+      // الشاشة هتوري حاجة والورق هيطلع حاجة تانية.
+      if (!elVisible(e)) continue;
+      var X = (col*cw + e.x)*DPMM, Y = (h*ch + e.y)*DPMM, Wb = e.w*DPMM, Hb = e.h*DPMM;
       if (e.kind==='qr'){
         var u = qrURL(SAMPLE.code);
         if (u) waits.push((function(u,X,Y,Wb,Hb){
@@ -695,8 +854,13 @@ function renderLabelPNG(){
         })(u,X,Y,Wb,Hb));
         continue;
       }
+      if (e.kind==='price' && showOldPrice()){
+        drawPricePair(x, X, Y, Wb, Hb, e);
+        continue;
+      }
       drawFit(x, sampleFor(e.kind), X, Y, Wb, Hb, e);
     }
+   }
   }
   return Promise.all(waits).then(function(){
     return { png: c.toDataURL('image/png').split(',')[1], w: W, h: H, url: c.toDataURL('image/png') };

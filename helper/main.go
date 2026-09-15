@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.10.0"
+	version = "1.11.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -341,6 +341,9 @@ func newServer() *http.ServeMux {
 	mux.HandleFunc("/design/all", guard(handleDesignAll))
 	mux.HandleFunc("/design/active", guard(handleDesignActive))
 	mux.HandleFunc("/design/delete", guard(handleDesignDelete))
+	// 🎭 أنهي تصميم لأنهي نوع ملصق (عادي / مقسوم ٤ / من غير سعر)
+	mux.HandleFunc("/design/for", guard(handleDesignFor))
+	mux.HandleFunc("/design/role", guard(handleDesignRole))
 	mux.HandleFunc("/designer", guard(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(designerPage))

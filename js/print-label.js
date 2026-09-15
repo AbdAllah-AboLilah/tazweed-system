@@ -461,6 +461,254 @@ function shrinkToPrinterDots(bigCanvas, W, H) {
   }
 }
 
+// أسماء العناصر — نفس اللي في helper/design.go بالحرف.
+// ⚠️ لو اسم اتغيّر في ناحية من غير التانية، العنصر بيختفي من الملصق
+// **في سكوت**: الشرط مابيتحققش، والحلقة بتعدّي عليه عادي.
+const elDesignQR = 'qr';
+const elDesignName = 'name';
+const elDesignCode = 'code';
+const elDesignPrice = 'price';
+const elDesignOldPrice = 'oldPrice';
+
+// ============================================================
+// 🎨 الملصق من **تصميم** بدل الشكل المحفور
+// ============================================================
+// ⚠️⚠️ ده اللي بيوصّل مصمّم البرنامج المساعد بالورق. من غيره، اللي
+// المستخدم بيظبطه في المصمّم بيتحفظ وبس والنظام بيفضل يرسم الشكل
+// اللي في renderLabelPNG تحت.
+//
+// ⚠️ ومابيتندهش إلا لما مفتاح `helperDesign` يتفتح (مقفول افتراضيًا)
+// و`getHelperDesign` ترجّع تصميم مفهوم. أي فشل → بنرجع للشكل المحفور
+// في سكوت. **الطباعة عمرها ما تقف عشان إعداد شكل.**
+//
+// ------------------------------------------------------------
+// ⚠️⚠️ ليه بنعيد استخدام fitCanvasFont و drawLines؟
+// ------------------------------------------------------------
+// عشان الدالتين دول فيهم درسين اتدفع تمنهم على ورق حقيقي:
+//   • `ctx.direction = 'rtl'` — من غيرها `الCopy` بتتطبع `لاCopy`
+//   • البحث الثنائي على المقاس — بيلاقي أكبر خط يدخل في عدد السطور
+// نسخة تانية من الرسم كانت هتفقد الاتنين في صمت.
+//
+// ⚠️ ونفس خط النظام (labelFontStack) — مش خط تاني.
+function renderDesignPNG(cat, sizeOptions, design, hidePrice) {
+  if (!design || !(design.widthMm > 0) || !Array.isArray(design.elements)) return '';
+
+  const rows = Math.max(1, parseInt(design.halves, 10) || 1);
+  const cols = Math.max(1, parseInt(design.cols, 10) || 1);
+  const W = Math.round(mmToDots(design.widthMm));
+  const H = Math.round(mmToDots(design.heightMm));
+  if (!(W > 0) || !(H > 0)) return '';
+
+  const hi = makeHiResCanvas(W, H);
+  if (!hi) return '';
+  const ctx = hi.ctx;
+  const FAMILY = labelFontStack('Arial, Helvetica, Tahoma, sans-serif');
+
+  const cellW = mmToDots(design.widthMm / cols);
+  const cellH = mmToDots(design.heightMm / rows);
+
+  const name = String(cat.itemName || cat.name || '');
+  const code = String(cat.barcodeNumber || '');
+  const origNum = Number(cat.originalPrice) || 0;
+  const sellNum = Number(cat.sellingPrice) || 0;
+  const hasDiscount = origNum > 0 && origNum !== sellNum;
+
+  // ⚠️⚠️ **تلات مصادر** بتقول "من غير سعر"، وكلهم لازم يتحترموا:
+  //   • الصنف نفسه مالوش سعر
+  //   • المستخدم قفل السعر للطبعة دي (sizeOptions.noPrice)
+  //   • البرنامج المساعد قال إن النوع ده من غير سعر (hidePrice)
+  // ده اللي بيخلّي الإجابة على "هل الطبعة من غير سعر هتنفّذ التصميم؟"
+  // = آه، ونفس التصميم بالظبط والسعر مخفي.
+  const showPrice = !!cat.sellingPrice && !sizeOptions.noPrice && !hidePrice;
+
+  const textOf = (kind) => {
+    if (kind === elDesignName) return name;
+    if (kind === elDesignCode) return code;
+    if (kind === elDesignPrice) return showPrice ? `${cat.sellingPrice} L.E` : '';
+    if (kind === elDesignOldPrice) return showPrice && hasDiscount ? `${cat.originalPrice} L.E` : '';
+    return '';
+  };
+
+  // ⚠️ الـQR بيتبني **مرة واحدة** مش لكل خلية: الأربع لاصقات نفس
+  // الصنف، والبناء هو أتقل حاجة في الرسم.
+  const best = code ? buildBestQR(code) : null;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const ox = c * cellW;
+      const oy = r * cellH;
+
+      for (const e of design.elements) {
+        if (!e || !e.kind) continue;
+        // ============================================================
+        // ⚠️⚠️⚠️ السعر القديم بيترسم **جوّه صندوق السعر**، مش لوحده
+        // ============================================================
+        // أول نسخة كانت بتحطه في صندوقه هو، والنتيجة على أول ملصق
+        // بسعرين من رقمين:
+        //
+        //     المفروض:  110 L.E  85 L.E       اللي طلع: 110L.E85 L.E
+        //
+        // الاتنين اتراكبوا فوق بعض، لأن صندوق السعر بيغطّي عرض
+        // الملصق كله وصندوق القديم جوّاه.
+        //
+        // والحل مش "ابعد الصندوقين": لو فصلناهم، الصنف اللي **مافيهوش
+        // خصم** سعره هيقع في نص الجزء اليمين بدل نص الملصق.
+        //
+        // فالاتنين بيترسموا **زوج متوسّط في صندوق السعر** — نفس اللي
+        // الشكل المحفور بيعمله بالظبط من v0.78. وصندوق السعر القديم
+        // بيقول حاجتين بس: مقاس خطه، وهل يظهر ولا لأ.
+        if (e.kind === elDesignOldPrice) continue;
+
+        const x = ox + mmToDots(e.x);
+        const y = oy + mmToDots(e.y);
+        const w = mmToDots(e.w);
+        const h = mmToDots(e.h);
+        if (!(w > 0) || !(h > 0)) continue;
+
+        if (e.kind === elDesignQR) {
+          // ⚠️ مافيش رقم = مافيش كود، والمساحة بتفضل بيضا. **متحطّش
+          // الاسم فيه** — الدرس ده اتاخد من ملصق حقيقي (شوف الشرح
+          // الطويل في renderLabelPNG).
+          if (!best) continue;
+          // ⚠️⚠️ مقاس المربع لازم يبقى **عدد صحيح من النقط**: الكسر
+          // بيخلّي المربعات تتفرد بعرض مختلف والقارئ مابيمسكهاش.
+          const side = Math.min(w, h);
+          const modulePx = Math.max(1, Math.floor(side / best.count));
+          const qrSize = modulePx * best.count;
+          const qx = x + (w - qrSize) / 2;
+          const qy = y + (h - qrSize) / 2;
+          for (let row = 0; row < best.count; row++) {
+            for (let col = 0; col < best.count; col++) {
+              if (best.qr.isDark(row, col)) {
+                ctx.fillRect(qx + col * modulePx, qy + row * modulePx, modulePx, modulePx);
+              }
+            }
+          }
+          continue;
+        }
+
+        // ---- السعر: هو والقديم زوج واحد ----
+        if (e.kind === elDesignPrice) {
+          const sell = textOf(elDesignPrice);
+          if (!sell) continue;
+          const oldEl = design.elements.find((z) => z && z.kind === elDesignOldPrice);
+          const showOld = !!oldEl && hasDiscount && oldEl.show !== 'never';
+          const orig = showOld ? `${cat.originalPrice} L.E` : '';
+
+          const capPx = mmToDots(e.fontMm || 2.4);
+          const oldCap = oldEl && oldEl.fontMm ? mmToDots(oldEl.fontMm) : capPx * 0.8;
+          const gap = mmToDots(0.8);
+
+          // ⚠️ الاتنين بيتصغّروا **مع بعض** لو الزوج أوسع من الصندوق،
+          // عشان النسبة بينهم تفضل زي ما المستخدم ظبطها.
+          let sSize = capPx;
+          let oSize = Math.max(5, Math.round(oldCap));
+          for (let i = 0; i < 40; i++) {
+            ctx.font = `normal ${oSize}px ${FAMILY}`;
+            const ow = orig ? ctx.measureText(orig).width : 0;
+            ctx.font = `bold ${sSize}px ${FAMILY}`;
+            const sw = ctx.measureText(sell).width;
+            const total = ow + (orig ? gap : 0) + sw;
+            if (total <= w && sSize * 1.2 <= h) break;
+            sSize *= 0.96;
+            oSize *= 0.96;
+            if (sSize < 5) break;
+          }
+
+          const prevAlign2 = ctx.textAlign;
+          const prevDir2 = ctx.direction;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          // ⚠️ السعر **إنجليزي** صراحةً: `85 L.E` بتتقلب لـ`L.E 85`
+          // لو الاتجاه بقى عربي. (نفس الحزام في الشكل المحفور)
+          ctx.direction = 'ltr';
+
+          ctx.font = `normal ${oSize}px ${FAMILY}`;
+          const ow = orig ? ctx.measureText(orig).width : 0;
+          ctx.font = `bold ${sSize}px ${FAMILY}`;
+          const sw = ctx.measureText(sell).width;
+          let px0 = x + (w - (ow + (orig ? gap : 0) + sw)) / 2;
+          const cy = y + h / 2;
+
+          if (orig) {
+            ctx.font = `normal ${oSize}px ${FAMILY}`;
+            ctx.fillText(orig, px0, cy);
+            // الشطب — الكانفاس مافيهوش text-decoration
+            ctx.fillRect(px0, cy - oSize * 0.03, ow, Math.max(1, Math.round(oSize * 0.07)));
+            px0 += ow + gap;
+          }
+          ctx.font = `bold ${sSize}px ${FAMILY}`;
+          ctx.fillText(sell, px0, cy);
+
+          ctx.textAlign = prevAlign2;
+          ctx.direction = prevDir2;
+          continue;
+        }
+
+        const txt = textOf(e.kind);
+        if (!txt) continue;
+
+        const weight = e.weight === 'bold' ? 'bold' : 'normal';
+        const maxLines = Math.max(1, parseInt(e.lines, 10) || 1);
+        // السقف هو المقاس اللي المستخدم طلبه؛ fitCanvasFont بتنزل منه
+        // لحد ما الكلام يدخل في العدد ده من السطور.
+        const capPx = mmToDots(e.fontMm || 2);
+        const fit = fitCanvasFont(ctx, txt, w, maxLines, weight, FAMILY, capPx);
+
+        // ⚠️ والطول كمان: fitCanvasFont بتحسب العرض والسطور بس. لو
+        // السطور × الارتفاع أطول من الصندوق، بنصغّر — زي ما المعاينة
+        // في المصمّم بتعمل بالظبط، وإلا اللي على الشاشة غير اللي على
+        // الورق.
+        const LINE_H = 1.2;
+        let size = fit.size;
+        const need = fit.lines.length * size * LINE_H;
+        if (need > h && need > 0) size = size * (h / need);
+
+        const lineH = size * LINE_H;
+        const top = y + Math.max(0, (h - lineH * fit.lines.length) / 2);
+
+        // ============================================================
+        // ⚠️⚠️⚠️ الاتجاه **لكل عنصر على حدة** — عطل حقيقي اتمسك بالعين
+        // ============================================================
+        // أول نسخة من الدالة دي كانت بتنده drawLines لكل حاجة،
+        // وdrawLines بتفرض `direction = 'rtl'`. النتيجة إن السعر
+        // اتطبع **مقلوب**:
+        //
+        //     المطلوب: 85 L.E        اللي طلع: L.E 85
+        //
+        // ومحدش كان هيلاحظ غير من الورق: الاسم العربي بيطلع صح،
+        // والملصق شكله سليم، والسعر مقلوب في سكوت.
+        //
+        // القاعدة (نفس اللي في الشكل المحفور وفي المصمّم بالحرف):
+        //     اسم الصنف            → rtl   (`الCopy` بتتكسر من غيرها)
+        //     الرقم والسعر والقديم → ltr   (`85 L.E` بتتقلب من غيرها)
+        let cx = x + w / 2;
+        const dir = e.kind === elDesignName ? 'rtl' : 'ltr';
+        const prevAlign = ctx.textAlign;
+        const prevDir = ctx.direction;
+        ctx.font = `${weight} ${size}px ${FAMILY}`;
+        ctx.textBaseline = 'middle';
+        ctx.direction = dir;
+        if (e.align === 'right') {
+          ctx.textAlign = 'right';
+          cx = x + w;
+        } else if (e.align === 'left') {
+          ctx.textAlign = 'left';
+          cx = x;
+        } else {
+          ctx.textAlign = 'center';
+        }
+        fit.lines.forEach((line, i) => ctx.fillText(line, cx, top + lineH * (i + 0.5)));
+        ctx.textAlign = prevAlign;
+        ctx.direction = prevDir;
+
+      }
+    }
+  }
+
+  return shrinkToPrinterDots(hi.canvas, W, H);
+}
+
 // بترسم الملصق كله وبترجّع data URL لصورة PNG.
 function renderLabelPNG(cat, sizeOptions) {
   const { pageWidthMm, pageHeightMm } = sizeOptions;
@@ -1084,6 +1332,37 @@ async function buildQuarterLabel(cat, sizeOptions, copies) {
   // بخط غير اللي اتختار والمستخدم مش واخد باله. شوف js/label-font.js.
   if (typeof ensureLabelFontReady === 'function') await ensureLabelFontReady();
   const n = Math.max(1, parseInt(copies, 10) || 1);
+
+  // ============================================================
+  // 🎨 التصميم من البرنامج المساعد — قبل أي حاجة
+  // ============================================================
+  // ⚠️⚠️ **كل الطرق بتعدّي من هنا**: لو المفتاح مقفول أو البرنامج مش
+  // شغّال أو التصميم مش مفهوم، بنكمّل عادي للشكل المحفور تحت. مافيش
+  // رسالة ومافيش وقفة — ده إعداد شكل مش شرط تشغيل.
+  if (typeof getHelperDesign === 'function') {
+    try {
+      const hd = await getHelperDesign('quarter');
+      if (hd && typeof renderDesignPNG === 'function') {
+        const png = renderDesignPNG(cat, sizeOptions, hd.design, hd.hidePrice);
+        if (png) {
+          const dd = {
+            w: Math.round(mmToDots(hd.design.widthMm)),
+            h: Math.round(mmToDots(hd.design.heightMm)),
+          };
+          return {
+            previewHTML: wrapImageLabelPreviewHTML(png, dd.w, dd.h),
+            jobHTML: wrapImageLabelHTML(png, sizeOptions, 1),
+            fallbackHTML: wrapImageLabelHTML(png, sizeOptions, n),
+            image: png,
+            previewPx: dd,
+          };
+        }
+      }
+    } catch (err) {
+      // ⚠️ حتى الخطأ غير المتوقّع مايوقفش الطباعة.
+      console.warn('تعذّر استخدام تصميم البرنامج المساعد:', err);
+    }
+  }
   // ⚠️ مفتاحين مش واحد: `htmlLabels` بيخص **كل** الملصقات (زي الأول
   // بالظبط)، و`quarterImage` بيخص **ده لوحده** — عشان تقدر تجرّب مقسوم ٤
   // كصورة من غير ما تلمس الملصق العادي ولا المسمّى.
@@ -1618,6 +1897,37 @@ async function buildItemLabel(cat, sizeOptions, copies) {
   // مانزلش، المتصفح بيرسم بخط بديل من غير أي خطأ — يعني ملصق مطبوع
   // بخط غير اللي اتختار والمستخدم مش واخد باله. شوف js/label-font.js.
   if (typeof ensureLabelFontReady === 'function') await ensureLabelFontReady();
+
+  // ============================================================
+  // 🎨 التصميم من البرنامج المساعد — قبل أي حاجة
+  // ============================================================
+  // ⚠️⚠️ **كل الطرق بتعدّي من هنا**: لو المفتاح مقفول أو البرنامج مش
+  // شغّال أو التصميم مش مفهوم، بنكمّل عادي للشكل المحفور تحت. مافيش
+  // رسالة ومافيش وقفة — ده إعداد شكل مش شرط تشغيل.
+  if (typeof getHelperDesign === 'function') {
+    try {
+      const hd = await getHelperDesign(sizeOptions.noPrice ? 'noPrice' : 'normal');
+      if (hd && typeof renderDesignPNG === 'function') {
+        const png = renderDesignPNG(cat, sizeOptions, hd.design, hd.hidePrice);
+        if (png) {
+          const dd = {
+            w: Math.round(mmToDots(hd.design.widthMm)),
+            h: Math.round(mmToDots(hd.design.heightMm)),
+          };
+          return {
+            previewHTML: wrapImageLabelPreviewHTML(png, dd.w, dd.h),
+            jobHTML: wrapImageLabelHTML(png, sizeOptions, 1),
+            fallbackHTML: wrapImageLabelHTML(png, sizeOptions, copies),
+            image: png,
+            previewPx: dd,
+          };
+        }
+      }
+    } catch (err) {
+      // ⚠️ حتى الخطأ غير المتوقّع مايوقفش الطباعة.
+      console.warn('تعذّر استخدام تصميم البرنامج المساعد:', err);
+    }
+  }
   if (!getPrintTweak('htmlLabels')) {
     const png = renderLabelPNG(cat, sizeOptions);
     if (png) {

@@ -201,6 +201,62 @@ async function helperStatus() {
   return helperCache;
 }
 
+// ============================================================
+// 🎨 قراية التصميم من البرنامج المساعد
+// ============================================================
+// ⚠️⚠️ **متخزّن**: ده بيتندَه مع كل ملصق، ودفعة 200 ملصق معناها 200
+// نداء لو مخزّناش. والتصميم مابيتغيّرش وانت بتطبع.
+//
+// ⚠️ والفشل متخزّن كمان (مدة أقصر): الجهاز اللي مافيهوش البرنامج
+// مايفضلش يحاول مع كل لاصقة ويبطّئ الطبعة كلها.
+//
+// ⚠️⚠️ وأي فشل بيرجّع null، واللي بينده بيرجع للشكل المحفور في
+// النظام. **الطباعة عمرها ما تقف عشان تصميم** — ده إعداد شكل مش
+// شرط تشغيل.
+const DESIGN_TTL_MS = 60000;
+const DESIGN_MISS_TTL_MS = 20000;
+const DESIGN_FETCH_MS = 1500;
+const designCache = {};
+
+async function getHelperDesign(role) {
+  if (typeof getPrintTweak !== 'function' || !getPrintTweak('helperDesign')) return null;
+  const key = role || 'normal';
+  const hit = designCache[key];
+  if (hit) {
+    const age = Date.now() - hit.at;
+    if (hit.value && age < DESIGN_TTL_MS) return hit.value;
+    if (!hit.value && age < DESIGN_MISS_TTL_MS) return null;
+  }
+  let value = null;
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), DESIGN_FETCH_MS);
+    const res = await fetch(HELPER_URL + '/design/for?role=' + encodeURIComponent(key), {
+      signal: ctl.signal,
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const j = await res.json();
+      // ⚠️ فحص أدنى قبل ما نصدّق: رد ناقص أخطر من رد مفقود، لأنه
+      // بيعدّي وبيطلّع ملصق فاضي على الورق.
+      if (j && j.design && j.design.widthMm > 0 && Array.isArray(j.design.elements) && j.design.elements.length) {
+        value = { design: j.design, hidePrice: !!j.hidePrice };
+      }
+    }
+  } catch (err) {
+    // عادي تمامًا: البرنامج مش شغّال على الجهاز ده.
+    value = null;
+  }
+  designCache[key] = { value, at: Date.now() };
+  return value;
+}
+
+// ⚠️ بيتنده لما المستخدم يقفل/يفتح المفتاح أو يغيّر التصميم — عشان
+// مايستناش دقيقة عشان يشوف اللي عمله.
+function clearHelperDesignCache() {
+  Object.keys(designCache).forEach((k) => delete designCache[k]);
+}
+
 // بترجّع true لو الورقة راحت للطابعة عن طريق البرنامج.
 async function printSheetViaHelper(html) {
   if (typeof getPrintTweak !== 'function' || !getPrintTweak('sheetHelper')) return false;
@@ -2712,6 +2768,37 @@ const PRINT_TWEAKS = [
     apply: (cfg) => (cfg.rasterize = true),
   },
   {
+    // ============================================================
+    // ⭐⭐⭐ اعتمد تصميم البرنامج المساعد
+    // ============================================================
+    // ده المفتاح اللي بيوصّل المصمّم بالورق. من غيره، اللي بتظبطه في
+    // المصمّم بيتحفظ وبس والنظام بيفضل يرسم الشكل المحفور جواه.
+    //
+    // ⚠️⚠️ مقفول افتراضيًا — ومش زي باقي المفاتيح: ده بيغيّر **كل**
+    // الملصقات دفعة واحدة لشكل انت اللي عملته. فلازم تفتحه وانت
+    // قاصد، وتطبع واحد وتبص عليه.
+    //
+    // ⚠️ ولو البرنامج المساعد مش شغّال أو التصميم مش مفهوم، النظام
+    // بيرجع للشكل المحفور **في سكوت** — الملصق بيطلع، مايقفش.
+    // الطباعة عمرها ما تفشل عشان إعداد شكل.
+    key: 'helperDesign',
+    group: 'shape',
+    label: '🎨 اعتمد تصميم البرنامج المساعد',
+    // ⚠️ **مافيش شارة طريق** عن قصد. الشارات معناها "بيغيّر الطريق
+    // للطابعة" (مساعد / QZ)، والمفتاح ده مابيغيّرش طريق — بيغيّر
+    // **شكل** الملصق زي tightLabelPad بالظبط. هو بس محتاج البرنامج
+    // شغّال عشان يقرا منه، والكلام ده مكتوب في الوصف تحت.
+    // وفحص tweak-route-test بيحرس المعنى ده: مفتاحين بس بيغيّروا الطريق.
+    hint:
+      'بدل الشكل المحفور في النظام، الملصق بيترسم من التصميم اللي ' +
+      'ظبطته في مصمّم البرنامج المساعد. ' +
+      '⚠️ محتاج البرنامج المساعد شغّال. ' +
+      '⚠️ افتحه بعد ما تكون جرّبت التصميم وطبعته من المصمّم. ' +
+      'ولو البرنامج مش شغّال، الملصق بيطلع بالشكل القديم عادي.',
+    defaultOn: false,
+    apply: () => {},
+  },
+  {
     // ⚠⚠ مقفول افتراضيًا: ده بيغيّر شكل الملصق المطبوع،
     // والقاعدة المتفق عليها: مانلمسش الملصق من غير موافقة،
     // والتجربة تبقى ورا مفتاح يتقفل في ثانية.
@@ -3043,6 +3130,8 @@ const PRINT_TWEAKS = [
 const PRINT_TWEAK_ROUTE = {
   sheetHelper: 'helper',
   labelHelper: 'helper',
+  // ⚠️ مش 'helper': ده مابيغيّرش الطريق، بس محتاج البرنامج شغّال.
+  helperDesign: 'needsHelper',
 
   sheetRaw: 'qz',
   sheetImage: 'qz',
@@ -3069,6 +3158,13 @@ const PRINT_TWEAK_ROUTE_BADGE = {
   helper: { text: '📦 المساعد', bg: 'var(--surface-muted)', fg: 'var(--ok)' },
   qz: { text: '🖨️ QZ Tray', bg: 'var(--warning-bg)', fg: 'var(--warning-text)' },
   both: { text: 'الاتنين', bg: 'var(--surface-muted)', fg: 'var(--text-muted)' },
+  // ⚠️⚠️ دي **مش** طريق — دي شرط. المفتاح اللي عليها بيغيّر شكل
+  // الملصق (زي tightLabelPad)، بس بيقرا حاجة من البرنامج المساعد
+  // فمالوش أي أثر من غيره.
+  //
+  // ولو حطّيناها 'helper' كان المعنى هيتلخبط: الشارة دي معناها
+  // "الطبعة بتروح للمساعد بدل QZ"، وده مش اللي بيحصل.
+  needsHelper: { text: '📦 محتاج المساعد', bg: 'var(--surface-muted)', fg: 'var(--ok)' },
 };
 
 // شارة صغيرة جنب اسم المفتاح. بترجّع نص فاضي لو المفتاح مش في
@@ -3102,6 +3198,11 @@ function getPrintTweak(key) {
 }
 
 function setPrintTweak(key, on) {
+  // ⚠️ التصميم المتخزّن بقى قديم لو المفتاح ده اتقلب — من غير المسح،
+  // المستخدم بيقفل المفتاح وبيفضل يطبع بالتصميم لحد دقيقة.
+  if (key === 'helperDesign' && typeof clearHelperDesignCache === 'function') {
+    clearHelperDesignCache();
+  }
   try {
     // ⚠️ بنكتب '0' للمقفول مش بنمسح المفتاح. المسح معناه "مفيش اختيار"،
     // واللي بيرجّع القيمة الافتراضية — يعني المفتاح اللي افتراضيه مفتوح
