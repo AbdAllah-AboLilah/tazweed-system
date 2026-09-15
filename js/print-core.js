@@ -847,6 +847,56 @@ function printJobAgeMs(data) {
   }
 }
 
+// ============================================================
+// 🔒 حجز الطلب من البرنامج المساعد
+// ============================================================
+// ⚠️⚠️ العطل اللي بيتحل، اتبلّغ بالنص: "نفس المشكلة المعاينه بتظهر" —
+// وكارت الجهاز في نفس اللحظة بيقول "✅ اتطبعت من البرنامج المساعد".
+// يعني الطبعة **نجحت**، والمعاينة ظهرت برضه.
+//
+// السبب: النظام بيسمع على الطلبات المتبعتة لرقم الجهاز. وقبل v0.91.0
+// كل متصفح كان ليه رقم عشوائي لوحده، فنافذة واحدة بس كانت بتشوف
+// الطلب. ولما وحّدنا رقم الماكينة (عشان الكمبيوتر يتحسب جهاز واحد)،
+// **كل** النوافذ على الكمبيوتر بقت بنفس الرقم — فكلها بتشوف نفس
+// الطلب وكلها بتنفّذه. واحدة بتطبع من المساعد نضيف، والتانية بتلاقي
+// المساعد مشغول فترجع لنافذة طباعة الويندوز.
+//
+// ⚠️ يعني توحيد الجهاز حلّ مشكلة وفتح التانية. ده مش سبب إننا نرجّعه —
+// ده سبب إن الاتنين يتحلّوا مع بعض.
+//
+// والحماية القديمة (قايمة في ذاكرة الصفحة) مابتشوفش النوافذ التانية
+// أصلًا، وبتتفضّى مع كل فتح.
+//
+// بترجّع:
+//   true  = خُد الطلب ونفّذه
+//   false = نافذة تانية خدته — سيبه
+//
+// ⚠️ والبرنامج مش شغّال → **بنرجّع true**. الأرقام مابتتوحّدش أصلًا من
+// غيره، فالتصادم ده مش موجود — والرفض هنا كان هيمنع الطباعة على
+// الأجهزة اللي مافيهاش البرنامج.
+async function claimPrintJob(jobId) {
+  try {
+    const st = await helperStatus();
+    if (!st || !st.app) return true;
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), HELPER_PROBE_MS);
+    const res = await fetch(HELPER_URL + '/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job: String(jobId) }),
+      signal: ctl.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return true; // نسخة قديمة مافيهاش الباب ده
+    const out = await res.json().catch(() => null);
+    if (!out || typeof out.mine !== 'boolean') return true;
+    return out.mine;
+  } catch (err) {
+    // ⚠️ أي فشل = ننفّذ. الطبعة الضايعة أوحش من الطبعة المكررة.
+    return true;
+  }
+}
+
 function subscribePrintJobs() {
   const deviceId = getDeviceId();
   if (!deviceId) return;
@@ -885,7 +935,15 @@ function subscribePrintJobs() {
             return;
           }
 
-          executePrintJob(doc.id, doc.data());
+          // ⚠️ الحجز **قبل** التنفيذ: لو نافذة تانية على نفس الكمبيوتر
+          // سبقتنا، بنسيب الطلب لها بدل ما نطبعه مرة تانية.
+          claimPrintJob(doc.id).then((mine) => {
+            if (!mine) {
+              console.log('طلب الطباعة اتحجز من نافذة تانية على نفس الجهاز:', doc.id);
+              return;
+            }
+            executePrintJob(doc.id, doc.data());
+          });
         });
       },
       (err) => console.warn('تعذّر استقبال طلبات الطباعة:', err)

@@ -118,6 +118,23 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     await adoptMachineId();
     out.nameKept = getDeviceName();
 
+    // ---------- زرار شيل الجهاز ----------
+    // ⚠️ مقفول على الجهاز المقفول بس: الشغّال بيرجّع يسجّل نفسه مع أول
+    // نبضة، وكمان الطبعات اللي في السكة ليه كانت هتضيع.
+    const card = (onlineNow) => {
+      const st = {
+        id: 'dev-x', deviceName: 'جهاز', labelPrinter: 'P', restockPrinter: 'P',
+        printers: ['P'], appVersion: '0.91.1',
+        // ⚠️ lastSeen بشكل تاريخ فايرستور (فيه toMillis) — isStationOnline
+        // بترجّع false لأي شكل تاني، فالتقليد لازم يبقى مطابق.
+        lastSeen: { toMillis: () => (onlineNow ? Date.now() : Date.now() - 10 * 60 * 1000) },
+      };
+      state.printStations = [st];
+      return stationCardHTML(st);
+    };
+    out.removeOnOffline = /data-dev-remove/.test(card(false));
+    out.removeOnOnline = /data-dev-remove/.test(card(true));
+
     window.fetch = realFetch;
     out.deleted = deleted.slice();
     return out;
@@ -145,6 +162,16 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     r.nameFromHelper === 'كمبيوتر الكاشير', r.nameFromHelper);
   check('⭐⭐⭐ والبرنامج من غير اسم مايمسحش المحفوظ',
     r.nameKept === 'اسم محلي', r.nameKept);
+
+  // ============================================================
+  // 🗑️ زرار شيل الجهاز — للكروت المكررة القديمة
+  // ============================================================
+  // اتطلب بالنص: "دلوقتي شاشة الاجهزة فيها بعض الاجهزة مكرره قبل م
+  // نحدث المساعد ... ايه الحل بتاع النقطة دي".
+  check('⭐⭐⭐⭐ الجهاز المقفول عليه زرار "شيله من القايمة"',
+    r.removeOnOffline === true, r.removeOnOffline);
+  check('⭐⭐⭐⭐⭐ والجهاز الشغّال **مالوش** الزرار ده',
+    r.removeOnOnline === false, r.removeOnOnline);
 
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
