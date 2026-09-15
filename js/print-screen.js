@@ -109,6 +109,35 @@ function stationCardHTML(st) {
         <div><span>طابعات متعرّفة عليه</span><b>${escapeHTML(printers.length || 0)}</b></div>
         <div><span>نسخة النظام</span><b>${escapeHTML(st.appVersion || '—')}</b></div>
         ${
+          // ============================================================
+          // 🩺 آخر طبعة على الجهاز ده — الشرح الكامل عند recordLastPrint
+          // ============================================================
+          // ⚠️ ده أهم سطر في الكارت وقت تشخيص عطل طباعة: بيقول الطبعة
+          // خرجت منين وليه، من غير ما حد يقوم يبص على شاشة الكمبيوتر.
+          (() => {
+            const lp = st.lastPrint;
+            if (!lp || !lp.at) return '';
+            const when = new Date(Number(lp.at) || 0);
+            const ago = isNaN(when.getTime()) ? '' : when.toLocaleString('ar-EG');
+            const routeText =
+              typeof PRINT_ROUTE_TEXT === 'object' && PRINT_ROUTE_TEXT[lp.route]
+                ? PRINT_ROUTE_TEXT[lp.route]
+                : lp.route || '—';
+            const what = lp.type === 'restock' ? 'ورقة تزويد' : lp.type === 'label' ? 'ملصق' : lp.type || '';
+            const mark = lp.ok ? '✅' : '⚠️';
+            return `
+        <div><span>آخر طبعة</span><b>${mark} ${escapeHTML(what)} ${escapeHTML(routeText)}${
+              lp.papers > 1 ? ` (${escapeHTML(lp.papers)} ورقة)` : ''
+            }</b></div>
+        <div><span>وقتها</span><b>${escapeHTML(ago)}${lp.from ? ' · ' + escapeHTML(lp.from) : ''}</b></div>
+        ${
+          lp.reason
+            ? `<div><span>السبب</span><b style="color:var(--warning-text)">${escapeHTML(lp.reason)}</b></div>`
+            : ''
+        }`;
+          })()
+        }
+        ${
           // ⚠️⚠️ نسخة البرنامج المساعد — اتطلبت بالنص، ومكانها **فوق**
           // نسخة QZ عن قصد: هو اللي بيطبع فعلًا دلوقتي، وQZ بقى احتياطي.
           // ومسار الملصق محتاج 1.5.0 أو أحدث، فبنعلّم على الأقدم عشان
