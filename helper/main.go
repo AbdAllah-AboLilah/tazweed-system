@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.6.0"
+	version = "1.7.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -333,6 +333,8 @@ func newServer() *http.ServeMux {
 	mux.HandleFunc("/status", guard(handleStatus))
 	mux.HandleFunc("/print", guard(handlePrint))
 	mux.HandleFunc("/label", guard(handleLabel))
+	// 🔒 حجز الطلب — الشرح الكامل في claim.go
+	mux.HandleFunc("/claim", guard(handleClaim))
 	mux.HandleFunc("/settings", guard(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})
