@@ -313,11 +313,21 @@ function onGradesSnapshotForNotify(snap) {
   // هنا مجرد إزعاج. الصوت بس هو المفيد.
   const visible = document.visibilityState === 'visible';
 
+  // ============================================================
+  // ⚠️⚠️ اسم المجموعة في الإشعار — كان ناقص
+  // ============================================================
+  // اتبلّغ بالنص: "لما بيجي اشعار بيجي ب اسم الفئة فقط يعني انا لو
+  // طالب من مجموعة معينه في فئة معينه مش بيجيلي اسمها".
+  //
+  // والفرق مش شكلي: الفئة الواحدة فيها نفس رقم الدرجة في أكتر من
+  // مجموعة (بيجات / بندانة / ...). فإشعار بيقول "كريب 56" بيخلّي
+  // أمين المخزن يدوّر في المكان الغلط.
   notifyLastNames = fresh
     .map((f) => {
       const cat = (state.categories || []).find((c) => c.id === f.catId);
       const grade = f.g.isBase ? f.g.name || 'أساسية' : f.g.number;
-      return (cat ? cat.name + ' ' : '') + grade;
+      const group = String(f.g.group || '').trim();
+      return (cat ? cat.name + ' ' : '') + (group ? group + ' ' : '') + grade;
     })
     .concat(notifyLastNames)
     .slice(0, 8);
