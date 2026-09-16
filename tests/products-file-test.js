@@ -145,6 +145,80 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('والبرنامج بيقدّم الملف نفسه للنظام', /products\/file\/raw/.test(mainGo));
   check('والملف متحمّل في الصفحة', /js\/products-file\.js/.test(idx));
 
+  // ============================================================
+  // 11) ⭐⭐ السلوك نفسه — بمساعد مزيّف في الصفحة
+  // ============================================================
+  // ⚠️ العطل اللي الفحوص دي اتعملت عشانه، اتبلّغ بالنص:
+  //   "اخترت المكان وعملت تحديث تلقائي ومفيش اي حاجه بتتحدث"
+  // والسبب إن الفحص كان بيحصل **مرة واحدة** بعد الدخول، والترتيب
+  // الطبيعي إن النظام بيبقى مفتوح قبل ما تظبّط البرنامج.
+  const run = (opts) =>
+    p.evaluate(async (opts) => {
+      const trace = [];
+      // ⚠️ بالاسم المجرّد مش window.: المتغيّرات المعرّفة بـlet مابتبقاش
+      // خصائص على window، فـwindow.x = ... بيعمل حاجة تانية خالص
+      // والكود بيفضل شايف القديمة.
+      state.profile = { role: 'owner' };
+      state.screen = 'products';
+      window.canManageProducts = () => true;
+      window.isServerReachable = () => true;
+      window.render = () => {};
+      window.logActivity = () => trace.push('log');
+      productsMeta = { sourceFingerprint: opts.saved };
+      window.parseProductsFileBuffer = async () => [{ name: 'ص', barcode: '1', price: 1 }];
+      window.saveProducts = async (list, prog, extra) =>
+        trace.push('save:' + JSON.stringify(extra));
+      window.fetch = async (url) => {
+        if (String(url).endsWith('/products/file')) {
+          return {
+            ok: true,
+            json: async () => ({
+              path: 'C:/x.xlsx', exists: true,
+              fingerprint: opts.onDisk, autoUpload: opts.auto,
+            }),
+          };
+        }
+        return {
+          ok: true,
+          headers: { get: () => opts.header },
+          arrayBuffer: async () => new ArrayBuffer(8),
+        };
+      };
+      pfileState = null; pfileStateAt = 0; pfileNote = ''; pfileDismissed = '';
+      await checkProductsFile({ force: true });
+      return { trace, note: pfileNote, banner: productsFileBannerHTML() };
+    }, opts);
+
+  const same = await run({ saved: 'AAA', onDisk: 'AAA', auto: true, header: 'AAA' });
+  check('⭐⭐ نفس الملف = مافيش رفع (مش 24 كتابة كل مرة تفتح النظام)',
+    same.trace.length === 0, same.trace);
+
+  const changed = await run({ saved: 'OLD', onDisk: 'NEW', auto: true, header: 'NEW' });
+  check('⭐⭐ الملف اتغيّر + الرفع التلقائي مفتوح = بيرفع',
+    changed.trace.join('|') === 'save:{"sourceFingerprint":"NEW"}|log', changed.trace);
+
+  // ⚠️⚠️ ده اللي اتقاس في متصفح حقيقي: من غير Access-Control-Expose-Headers
+  // الصفحة بتقرا الترويسة **فاضية**، فالبصمة بتتحفظ فاضية — ونفس الملف
+  // (47 ألف صنف) بيترفع من أول وجديد كل مرة النظام يفتح.
+  const noHeader = await run({ saved: 'OLD', onDisk: 'NEW', auto: true, header: null });
+  check('⭐⭐ والترويسة لو ماوصلتش (برنامج قديم) بيرجع لبصمة الحالة — مش فاضي',
+    noHeader.trace[0] === 'save:{"sourceFingerprint":"NEW"}', noHeader.trace);
+
+  const off = await run({ saved: 'OLD', onDisk: 'NEW', auto: false, header: 'NEW' });
+  check('⭐⭐ الرفع التلقائي مقفول = مافيش رفع من ورا المستخدم',
+    off.trace.length === 0, off.trace);
+  check('⭐ وبيسأل في شريط شاشة الأصناف', /pfile-upload/.test(off.banner));
+
+  // ============================================================
+  // 12) ⭐ الفحص بيتعاد — مش مرة واحدة بعد الدخول وخلاص
+  // ============================================================
+  check('⭐⭐ فتح شاشة الأصناف بيسأل البرنامج من الأول',
+    /screen === 'products' && typeof checkProductsFile/.test(app));
+  check('⭐⭐ والرجوع للنظام بعد ما تسيبه بيسأل كمان (visibilitychange)',
+    /visibilitychange/.test(pf) && /force: true/.test(pf));
+  check('⭐ وفيه فحص كل شوية والصفحة مفتوحة', /PFILE_WATCH_MS/.test(pf));
+  check('⭐ ومابيشتغلش والصفحة مخفية', /document\.hidden/.test(pf));
+
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();
 

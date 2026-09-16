@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.19.0"
+	version = "1.20.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -96,6 +96,15 @@ func setCORS(w http.ResponseWriter, origin string) {
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.Header().Set("Access-Control-Allow-Private-Network", "true")
+	// ⚠️⚠️ من غير السطر ده، الصفحة **مش بتشوف** أي ترويسة من عندنا
+	// غير الستة المعروفة (Content-Type وإخواتها). ده مش خطأ في
+	// المتصفح — ده الافتراضي في CORS.
+	//
+	// والعطل اللي طلّعه اتقاس في متصفح حقيقي: بصمة ملف الأصناف
+	// بتترجع في X-Tazweed-Fingerprint، والصفحة كانت بتقراها **فاضية**،
+	// فبتحفظ بصمة فاضية — ونفس الملف (47 ألف صنف، 24 كتابة) كان
+	// هيترفع من أول وجديد **كل مرة النظام يفتح**.
+	w.Header().Set("Access-Control-Expose-Headers", "X-Tazweed-Fingerprint")
 	w.Header().Set("Access-Control-Max-Age", "600")
 }
 
