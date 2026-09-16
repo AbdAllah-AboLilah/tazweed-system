@@ -661,9 +661,28 @@ function restockNotifyButtonHTML() {
   // حقيقي** — يعني يلخبط بيانات المحل عشان يختبر إشعار.
   //
   // ⚠️ بيظهر بس لما الإشعارات تبقى شغّالة فعلًا: قبل كده مالوش معنى.
+  // ============================================================
+  // 📤 والزرار التاني: ابعت الطلبات المعلّقة
+  // ============================================================
+  // اتطلب بالنص: "ممكن اصلا الزر اللي موجود دلوقتي يتقسم ل جزئين ...
+  // خيار تجربة الاشعارات و الخيار التاني ارسال الاشعارات اللي موجوده
+  // اللي هي الطلبات المعلقه".
+  //
+  // ⚠⚠ والفرق بينهم مكتوب تحتهم عن قصد: الأول بيبعت **لك انت**
+  // كلمة تجربة، والتاني بيبعت **لكل اللي بيزوّدوا** الطلبات الحقيقية.
+  // اللي مايعرفش الفرق ده ممكن يدوس التاني وهو عايز يجرّب، ويرن
+  // تليفون كل الموظفين.
   const testBtn =
     st === 'on'
-      ? `<button class="btn" id="restock-notify-test" style="margin-top:6px;">🧪 جرّب الإشعار</button>
+      ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
+           <button class="btn" id="restock-notify-test">🧪 جرّب الإشعار</button>
+           <button class="btn" id="restock-notify-pending">📤 ابعت الطلبات المعلّقة</button>
+         </div>
+         <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin-top:4px;">
+           🧪 التجربة بتوصلك <strong>انت بس</strong>.
+           <br>📤 والتانية بتبعت الطلبات المعلّقة دلوقتي
+           <strong>لكل اللي بيزوّدوا</strong> — للي إشعاره ضاع.
+         </div>
          <div id="restock-notify-test-out" style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin-top:4px;"></div>`
       : '';
   return `<button class="btn" id="restock-notify-btn">${label}</button>${note}${testBtn}`;
@@ -702,6 +721,55 @@ async function sendTestNotification() {
       // مش إن الإشعار مااتبعتش. والفرق ده مهم للي بيدوّر على السبب.
       say('⚠️ مافيش رد من السحابة. غالبًا دالة الإشعارات مش مرفوعة.');
     }, 15000);
+  } catch (err) {
+    say('⚠️ مانفعش نبعت: ' + ((err && err.message) || err));
+  }
+}
+
+// ============================================================
+// 📤 ابعت الطلبات المعلّقة دلوقتي
+// ============================================================
+// ⚠⚠ ده **مش** إشعار جديد — ده إعادة إرسال للي موجود فعلًا.
+// إشعار التزويد بيتبعت مرة واحدة لحظة الطلب، ولو ضاع ساعتها مافيش
+// حاجة بترجّعه: الطلب بيفضل معلّق في النظام والتليفون ساكت.
+//
+// ⚠️ نفس الباب بتاع التجربة (pushTests) بحقل kind — القواعد
+// بتقول خلاص "المستخدم يكتب لنفسه بس"، والسحابة هي اللي بتفحص
+// الصلاحية وبتقرا الطلبات وبتبعت.
+async function sendPendingNotification() {
+  const out = document.getElementById('restock-notify-test-out');
+  const say = (t) => { if (out) out.textContent = t; };
+  if (!state.user || !state.user.uid) return;
+
+  // ⚠⚠ تأكيد: ده بيرن تليفون **كل** اللي بيزوّدوا. الزرار جنب
+  // زرار التجربة، والدوسة بالغلط واردة جدًا.
+  if (!confirm(
+    'هتبعت الطلبات المعلّقة دلوقتي لكل اللي مفعّلين الإشعارات وبيزوّدوا.\n\n' +
+    'دي مش تجربة — تليفوناتهم هترن فعلًا.\n\nتمام؟'
+  )) return;
+
+  say('بيبعت...');
+  try {
+    const ref = await db.collection('pushTests').add({
+      uid: state.user.uid,
+      kind: 'pending',
+      at: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    let done = false;
+    const stop = ref.onSnapshot((snap) => {
+      const d = snap.data();
+      if (!d || !d.result) return;
+      done = true;
+      stop();
+      say((d.ok ? '✅ ' : '⚠️ ') + d.result);
+    });
+    setTimeout(() => {
+      if (done) return;
+      stop();
+      // ⚠️ نفس رسالة التجربة: السكوت معناه إن الدالة مش مرفوعة،
+      // مش إن الإشعار مااتبعتش.
+      say('⚠️ مافيش رد من السحابة. غالبًا دالة الإشعارات مش مرفوعة.');
+    }, 20000);
   } catch (err) {
     say('⚠️ مانفعش نبعت: ' + ((err && err.message) || err));
   }

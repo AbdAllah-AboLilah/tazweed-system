@@ -12,6 +12,11 @@ const {
   categoryTag,
   MAX_LISTED_GRADES,
   PUSH_TAG,
+  buildPendingMessage,
+  canSendPending,
+  pendingCooldownLeft,
+  PENDING_TAG,
+  PENDING_COOLDOWN_MS,
 } = require('./notify-core');
 
 const pass = [], fail = [];
@@ -248,6 +253,81 @@ check('⏳ وكل نداء إرسال بيستخدمه', () =>
 check('⏳ والأولوية عالية في كل نداء', () =>
   assert.strictEqual((indexSrc.match(/Urgency:\s*'high'/g) || []).length, sendCount));
 
+
+// ============================================================
+// 📤 ابعت الطلبات المعلّقة
+// ============================================================
+// اتطلب بالنص: "ارسال الاشعارات اللي موجوده اللي هي الطلبات المعلقه
+// ل الاجهزة اللي معاه تعديل في المخزن الرئيسي".
+//
+// ⚠⚠ ده **مش** إشعار جديد — إعادة إرسال للي موجود فعلًا، عشان
+// اللي إشعاره ضاع (تليفون كان مقفول، إذن كان مقفول، جهاز مااتسجّلش).
+
+// ⚠⚠⚠ أهم واحد: مافيش طلبات = **مافيش إشعار**. إشعار بيقول
+// "مافيش حاجة" هو نفسه إزعاج، واللي بيدوس الزرار غالبًا بيدوسه
+// وهو مش عارف فيه إيه.
+check('📤 مافيش طلبات معلّقة = مافيش إشعار خالص', () => {
+  assert.strictEqual(buildPendingMessage([]), null);
+  assert.strictEqual(buildPendingMessage(null), null);
+  assert.strictEqual(buildPendingMessage([{ categoryName: 'كريب', numbers: [] }]), null);
+});
+
+// فئة واحدة → نفس شكل الإشعار العادي، عشان مايبقاش شكل غريب
+check('📤 فئة واحدة بتطلع زي الإشعار العادي', () => {
+  const m = buildPendingMessage([{ categoryName: 'كريب سادة', numbers: [5, 6] }]);
+  assert.ok(m.body.includes('كريب سادة'), m.body);
+  assert.ok(m.body.includes('5') && m.body.includes('6'), m.body);
+});
+
+// ⚠️ العدد في العنوان: ده الفرق بين "فيه طلب" و"فيه تمنية مستنيين"
+check('📤 والعنوان بيقول العدد الكلي', () => {
+  const m = buildPendingMessage([
+    { categoryName: 'كريب', numbers: [1, 2] },
+    { categoryName: 'شيفون', numbers: [7] },
+  ]);
+  assert.ok(m.title.includes('3'), m.title);
+});
+
+// ⚠️ وبسقف على عدد الفئات: الإشعار بيتقص على التليفون
+check('📤 وكذا فئة بتتلمّ بسقف', () => {
+  const rows = ['أ', 'ب', 'ج', 'د', 'هـ'].map((n) => ({ categoryName: n, numbers: [1] }));
+  const m = buildPendingMessage(rows);
+  assert.ok(m.body.includes('غيرهم'), m.body);
+  assert.ok(m.body.length < 120, 'الجسم طويل أوي: ' + m.body);
+});
+
+// ⚠⚠ الوسم **لوحده**: لو اداناه وسم فئة كان هيمسح إشعارها، ولو
+// اداناه الوسم العام كان هيمسح الإشعار المحلي.
+check('📤 ووسمه لوحده مش وسم فئة ولا العام', () => {
+  assert.notStrictEqual(PENDING_TAG, PUSH_TAG);
+  assert.notStrictEqual(PENDING_TAG, categoryTag('c1'));
+  // ⚠️ بس لسه بيبدأ بالوسم العام — عشان المسح عند فتح النظام
+  // يلاقيه (بيدوّر على اللي بيبدأ بـtazweed-restock).
+  assert.ok(PENDING_TAG.startsWith(PUSH_TAG), PENDING_TAG);
+});
+
+// ⚠⚠ الصلاحية بتتفحص في السحابة: القواعد بتسمح لأي حد يكتب
+// المستند ده لنفسه، فالشاشة لوحدها مش حارس.
+check('📤 اللي صلاحيته مقفولة بالاسم مايبعتش', () => {
+  assert.strictEqual(canSendPending({ perms: { editMainQty: false } }), false);
+  assert.strictEqual(canSendPending(null), false);
+  assert.strictEqual(canSendPending({ perms: {} }), true);
+});
+
+// ⚠⚠ المهلة: دوسة متكررة معناها إن تليفون كل الموظفين يرن عشر مرات
+check('📤 ومهلة بين الإرسالتين', () => {
+  const now = 1000000;
+  assert.strictEqual(pendingCooldownLeft(0, now), 0, 'أول مرة مفيش مهلة');
+  assert.strictEqual(pendingCooldownLeft(now - PENDING_COOLDOWN_MS - 1, now), 0, 'بعد المهلة عادي');
+  assert.ok(pendingCooldownLeft(now - 1000, now) > 0, 'من ثانية = لسه في المهلة');
+});
+
+// ⚠️ والسحابة بتفحص الصلاحية فعلًا — مش بتكتفي بالشاشة
+check('📤 والدالة في السحابة بتنده canSendPending', () =>
+  assert.ok(indexSrc.includes('canSendPending(profile)'), 'مش بتفحص الصلاحية'));
+
+check('📤 وبتقرا الطلبات المعلّقة من كل الفئات', () =>
+  assert.ok(indexSrc.includes("collectionGroup('grades')"), 'مش بتلم الفئات'));
 
 console.log(fail.length ? `\n❌ فشل (${fail.length})` : `\n✅ نجح (${pass.length})`);
 process.exit(fail.length ? 1 : 0);
