@@ -541,24 +541,24 @@ function renderDesignPNG(cat, sizeOptions, design, hidePrice) {
       for (const e of design.elements) {
         if (!e || !e.kind) continue;
         // ============================================================
-        // ⚠️⚠️⚠️ السعر القديم بيترسم **جوّه صندوق السعر**، مش لوحده
+        // ⚠️⚠️ السعر والسعر القديم — **كل واحد في صندوقه**
         // ============================================================
-        // أول نسخة كانت بتحطه في صندوقه هو، والنتيجة على أول ملصق
-        // بسعرين من رقمين:
+        // قبل كده كانوا زوج متوسّط جوّه صندوق السعر، وصندوق القديم
+        // مالوش مكان حقيقي. واتبلّغ بالنص:
+        //   "السعر القديم اللي هو السعر قبل الخصم كان في الاول بيتحرك
+        //    لوحده دلوقتي مش بيتحرك من مكانه بقي مربوط بالسعر ...
+        //    والمفروض السعر اللي هو بعد الخصم يبقي علي اليمين وقبل
+        //    الخصم علي اليسار والاتنين يتحركوا لوحدهم"
         //
-        //     المفروض:  110 L.E  85 L.E       اللي طلع: 110L.E85 L.E
+        // ⚠️ والفخ اللي كان الزوج بيتفاداه لسه موجود ومتحل في مكان
+        // تاني: التصاميم القديمة صندوقيها فوق بعض (نفس X)، والرقمين
+        // كانوا هيتراكبوا — "110L.E85 L.E". البرنامج المساعد بيفصلهم
+        // مرة واحدة وقت القراية (شوف splitPrices في helper/design.go)،
+        // فاللي بيوصل هنا مفصول أصلًا.
         //
-        // الاتنين اتراكبوا فوق بعض، لأن صندوق السعر بيغطّي عرض
-        // الملصق كله وصندوق القديم جوّاه.
-        //
-        // والحل مش "ابعد الصندوقين": لو فصلناهم، الصنف اللي **مافيهوش
-        // خصم** سعره هيقع في نص الجزء اليمين بدل نص الملصق.
-        //
-        // فالاتنين بيترسموا **زوج متوسّط في صندوق السعر** — نفس اللي
-        // الشكل المحفور بيعمله بالظبط من v0.78. وصندوق السعر القديم
-        // بيقول حاجتين بس: مقاس خطه، وهل يظهر ولا لأ.
-        if (e.kind === elDesignOldPrice) continue;
-
+        // ⚠️ ونتيجة تانية لازم تتقال: الصنف اللي **مافيهوش خصم**
+        // سعره بيفضل في صندوقه هو، مش بيتوسّط الملصق. ودي النتيجة
+        // الطبيعية لإن المكان بقى بإيد اللي بيصمّم.
         const x = ox + mmToDots(e.x);
         const y = oy + mmToDots(e.y);
         const w = mmToDots(e.w);
@@ -584,64 +584,6 @@ function renderDesignPNG(cat, sizeOptions, design, hidePrice) {
               }
             }
           }
-          continue;
-        }
-
-        // ---- السعر: هو والقديم زوج واحد ----
-        if (e.kind === elDesignPrice) {
-          const sell = textOf(elDesignPrice);
-          if (!sell) continue;
-          const oldEl = design.elements.find((z) => z && z.kind === elDesignOldPrice);
-          const showOld = !!oldEl && hasDiscount && oldEl.show !== 'never';
-          const orig = showOld ? `${cat.originalPrice} L.E` : '';
-
-          const capPx = mmToDots(e.fontMm || 2.4);
-          const oldCap = oldEl && oldEl.fontMm ? mmToDots(oldEl.fontMm) : capPx * 0.8;
-          const gap = mmToDots(0.8);
-
-          // ⚠️ الاتنين بيتصغّروا **مع بعض** لو الزوج أوسع من الصندوق،
-          // عشان النسبة بينهم تفضل زي ما المستخدم ظبطها.
-          let sSize = capPx;
-          let oSize = Math.max(5, Math.round(oldCap));
-          for (let i = 0; i < 40; i++) {
-            ctx.font = `normal ${oSize}px ${FAMILY}`;
-            const ow = orig ? ctx.measureText(orig).width : 0;
-            ctx.font = `bold ${sSize}px ${FAMILY}`;
-            const sw = ctx.measureText(sell).width;
-            const total = ow + (orig ? gap : 0) + sw;
-            if (total <= w && sSize * 1.2 <= h) break;
-            sSize *= 0.96;
-            oSize *= 0.96;
-            if (sSize < 5) break;
-          }
-
-          const prevAlign2 = ctx.textAlign;
-          const prevDir2 = ctx.direction;
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'middle';
-          // ⚠️ السعر **إنجليزي** صراحةً: `85 L.E` بتتقلب لـ`L.E 85`
-          // لو الاتجاه بقى عربي. (نفس الحزام في الشكل المحفور)
-          ctx.direction = 'ltr';
-
-          ctx.font = `normal ${oSize}px ${FAMILY}`;
-          const ow = orig ? ctx.measureText(orig).width : 0;
-          ctx.font = `bold ${sSize}px ${FAMILY}`;
-          const sw = ctx.measureText(sell).width;
-          let px0 = x + (w - (ow + (orig ? gap : 0) + sw)) / 2;
-          const cy = y + h / 2;
-
-          if (orig) {
-            ctx.font = `normal ${oSize}px ${FAMILY}`;
-            ctx.fillText(orig, px0, cy);
-            // الشطب — الكانفاس مافيهوش text-decoration
-            ctx.fillRect(px0, cy - oSize * 0.03, ow, Math.max(1, Math.round(oSize * 0.07)));
-            px0 += ow + gap;
-          }
-          ctx.font = `bold ${sSize}px ${FAMILY}`;
-          ctx.fillText(sell, px0, cy);
-
-          ctx.textAlign = prevAlign2;
-          ctx.direction = prevDir2;
           continue;
         }
 
@@ -699,6 +641,21 @@ function renderDesignPNG(cat, sizeOptions, design, hidePrice) {
           ctx.textAlign = 'center';
         }
         fit.lines.forEach((line, i) => ctx.fillText(line, cx, top + lineH * (i + 0.5)));
+
+        // ⚠️ الشطب للسعر القديم — الكانفاس مافيهوش text-decoration،
+        // فالخط بيترسم بالإيد فوق نص السطر. ونفس الحسبة بالحرف اللي
+        // في معاينة المصمّم (drawFit)، وإلا الشاشة غير الورق.
+        if (e.kind === elDesignOldPrice) {
+          fit.lines.forEach((line, i) => {
+            const tw = ctx.measureText(line).width;
+            let sx = cx - tw / 2;
+            if (ctx.textAlign === 'left') sx = cx;
+            else if (ctx.textAlign === 'right') sx = cx - tw;
+            const yy = top + lineH * (i + 0.5);
+            ctx.fillRect(sx, yy - size * 0.03, tw, Math.max(1, Math.round(size * 0.07)));
+          });
+        }
+
         ctx.textAlign = prevAlign;
         ctx.direction = prevDir;
 

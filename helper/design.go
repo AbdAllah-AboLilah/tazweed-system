@@ -187,10 +187,17 @@ func defaultDesign() labelDesign {
 			{Kind: elCode, X: 12.5, Y: 5.9, W: 23.5, H: 2.9,
 				FontMm: 2.4, Lines: 1, Align: "center", Weight: "normal", Overflow: "shrink", Show: "always"},
 
-			{Kind: elPrice, X: 12.5, Y: 8.8, W: 23.5, H: 2.9,
+			// ⚠️⚠️ السعرين **كل واحد في صندوقه**، والسعر بعد الخصم
+			// على اليمين والقديم على الشمال. اتطلب بالنص:
+			//   "المفروض السعر اللي هو بعد الخصم يبقي علي اليمين
+			//    وقبل الخصم علي اليسار والاتنين يتحركوا لوحدهم"
+			//
+			// ⚠️ وX الأكبر = أبعد لليمين (الصناديق بتتحط بـleft).
+			// فالقديم 12.5→21.5 والسعر 22.0→36.0، وبينهم 0.5مم.
+			{Kind: elPrice, X: 22.0, Y: 8.8, W: 14.0, H: 2.9,
 				FontMm: 2.4, Lines: 1, Align: "center", Weight: "bold", Overflow: "shrink", Show: "always"},
 
-			// السعر القديم مشطوب جنب الجديد، ومابيظهرش إلا لو فيه خصم.
+			// السعر القديم مشطوب، ومابيظهرش إلا لو فيه خصم.
 			{Kind: elOldPrice, X: 12.5, Y: 8.8, W: 9.0, H: 2.9,
 				FontMm: 2.0, Lines: 1, Align: "center", Weight: "normal", Overflow: "shrink", Show: "ifDiscount"},
 		},
@@ -411,6 +418,79 @@ func arabicKind(k string) string {
 }
 
 // ============================================================
+// ⚠️⚠️ فصل صندوق السعر عن صندوق السعر القديم — مرة واحدة
+// ============================================================
+// قبل كده السعرين كانوا بيترسموا **زوج متوسّط جوّه صندوق السعر**،
+// وصندوق القديم مالوش مكان حقيقي: بيقول مقاس الخط وبس.
+//
+// اتبلّغ بالنص:
+//   "السعر القديم اللي هو السعر قبل الخصم كان في الاول بيتحرك لوحده
+//    دلوقتي مش بيتحرك من مكانه بقي مربوط بالسعر ... والمفروض السعر
+//    اللي هو بعد الخصم يبقي علي اليمين وقبل الخصم علي اليسار
+//    والاتنين يتحركوا لوحدهم"
+//
+// فبقى كل واحد في صندوقه. والمشكلة إن التصاميم **المحفوظة من قبل**
+// صندوقيها فوق بعض (نفس X) — ولو رسمناهم كده الرقمين هيتراكبوا على
+// الورق: "110L.E85 L.E". وده عطل حقيقي اتشاف على ملصق مطبوع.
+//
+// فبنفصلهم مرة واحدة وقت القراية: القديم على الشمال والسعر على
+// اليمين، جوّه نفس المساحة اللي كانت للسعر بالظبط — يعني مافيش حاجة
+// بتخرج من الملصق ولا بتاكل من الاسم.
+//
+// ⚠️ والدالة **مابتعملش حاجة** لو الصندوقين مفصولين أصلًا: يعني
+// تشتغل مرة، وبعد ما يحفظ ماتلمسش شغله تاني.
+func splitPrices(d labelDesign) labelDesign {
+	pi, oi := -1, -1
+	for i, e := range d.Elements {
+		switch e.Kind {
+		case elPrice:
+			pi = i
+		case elOldPrice:
+			oi = i
+		}
+	}
+	if pi < 0 || oi < 0 {
+		return d
+	}
+	p, o := d.Elements[pi], d.Elements[oi]
+
+	// متقاطعين فعلًا؟ (أفقيًا **و** رأسيًا). لو لأ، المستخدم فصلهم
+	// بإيده خلاص ومالناش دعوة.
+	if p.X+p.W <= o.X || o.X+o.W <= p.X {
+		return d
+	}
+	if p.Y+p.H <= o.Y || o.Y+o.H <= p.Y {
+		return d
+	}
+
+	left := math.Min(p.X, o.X)
+	right := math.Max(p.X+p.W, o.X+o.W)
+	total := right - left
+	const gapMm = 0.5
+
+	// عرض القديم: زي ما هو لو معقول، وإلا 40% من المساحة.
+	oldW := o.W
+	if oldW <= 0 || oldW > total*0.5 {
+		oldW = total * 0.4
+	}
+	priceW := total - oldW - gapMm
+	// ⚠️ مساحة مش كفاية للاتنين؟ نسيبها زي ما هي بدل ما نطلّع
+	// صندوق بعرض سالب — الزوج المتراكب أهون من ملصق فاضي.
+	if priceW < 1 || oldW < 1 {
+		return d
+	}
+
+	els := make([]designElement, len(d.Elements))
+	copy(els, d.Elements)
+	els[oi].X, els[oi].W = left, oldW
+	els[pi].X, els[pi].W = left+oldW+gapMm, priceW
+	// نفس السطر للاتنين — كانوا أصلًا كده لما كانوا زوج.
+	els[oi].Y, els[oi].H = p.Y, p.H
+	d.Elements = els
+	return d
+}
+
+// ============================================================
 // التصميم المستخدم — وده اللي النظام بيقراه
 // ============================================================
 func activeDesign() labelDesign {
@@ -420,12 +500,12 @@ func activeDesign() labelDesign {
 	}
 	for _, d := range s.Designs {
 		if d.Name == s.ActiveDesign {
-			return d
+			return splitPrices(d)
 		}
 	}
 	// ⚠️ الاسم المستخدم اتمسح؟ نرجّع أول واحد بدل ما نرجّع فاضي —
 	// الملصق لازم يطلع.
-	return s.Designs[0]
+	return splitPrices(s.Designs[0])
 }
 
 // ⚠⚠ كل دوال الحفظ بتمشي بنفس الطريقة: تقرا نسخة، تعدّل عليها،
@@ -482,6 +562,75 @@ func deleteDesign(name string) error {
 			s.ActiveDesign = out[0].Name
 		}
 	}
+	return saveSettings(s)
+}
+
+// ============================================================
+// ✏️ تغيير اسم تصميم — من غير ما يتعمل نسخة تانية
+// ============================================================
+// اتطلب بالنص: "وكان يبقي متاح اعدل اسم التصميم".
+//
+// ⚠️⚠️ وليه مسار مخصوص مش "احفظ بالاسم الجديد"؟ لأن الحفظ
+// بيلاقي الاسم مش موجود فبيضيف **تصميم تاني**، والقديم بيفضل مكانه:
+// تدوس احفظ مرة واحدة وتلاقي نسختين.
+//
+// ⚠️⚠️ والأخطر من كده: اللي بيشاور على الاسم القديم.
+// s.ActiveDesign وs.DesignRoles فيهم **أسماء**، مش أرقام. فلو غيّرنا
+// الاسم وسبناهم، الدور بيلاقي اسم مش موجود ويرجع للافتراضي **في
+// سكوت** — يعني تغيّر اسم تصميم فتلاقي الملصق اتغيّر شكله وانت
+// مش عارف ليه. فبيتحدّثوا هنا مع الاسم في نفس الحفظة.
+func renameDesign(from, to string) error {
+	from = strings.TrimSpace(from)
+	to = strings.TrimSpace(to)
+	if from == "" || to == "" {
+		return errors.New("الاسم مايصحّش يبقى فاضي")
+	}
+	if from == to {
+		return nil
+	}
+	s := getSettings()
+	if _, ok := designByName(s, to); ok {
+		return errors.New("فيه تصميم بالاسم ده خلاص — اختار اسم تاني")
+	}
+
+	s.Designs = copyDesigns(s.Designs)
+	found := false
+	for i := range s.Designs {
+		if s.Designs[i].Name == from {
+			s.Designs[i].Name = to
+			found = true
+			break
+		}
+	}
+	// ⚠️ التصاميم الافتراضية بتبان في القايمة وهي **لسه مااتحفظتش**
+	// (شوف handleDesignAll). فلو غيّر اسم واحد فيهم قبل ما يحفظه،
+	// مش هنلاقيه — بنحفظه بالاسم الجديد بدل ما نقول "مش موجود".
+	if !found {
+		for _, def := range []labelDesign{defaultDesign(), defaultQuarterDesign()} {
+			if def.Name == from {
+				def.Name = to
+				s.Designs = append(s.Designs, def)
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		return errors.New("مافيش تصميم بالاسم ده")
+	}
+
+	if s.ActiveDesign == from {
+		s.ActiveDesign = to
+	}
+	// نسخة جديدة من الخريطة — نفس سبب copyDesigns بالحرف.
+	roles := map[string]string{}
+	for k, v := range s.DesignRoles {
+		if v == from {
+			v = to
+		}
+		roles[k] = v
+	}
+	s.DesignRoles = roles
 	return saveSettings(s)
 }
 
@@ -548,7 +697,12 @@ func handleDesignAll(w http.ResponseWriter, r *http.Request) {
 	//
 	// ⚠️ وبنضيفهم **بالاسم**: أول ما يحفظ تعديل على "ملصق المحل"،
 	// المحفوظ بتاعه هو اللي بيبان مش الافتراضي بتاعنا.
+	// ⚠️ بالفصل: لو المصمّم عرض الصندوقين فوق بعض والطباعة
+	// بتفصلهم، الشاشة هتكذب. الشرح عند splitPrices.
 	list := copyDesigns(s.Designs)
+	for i := range list {
+		list[i] = splitPrices(list[i])
+	}
 	for _, def := range []labelDesign{defaultDesign(), defaultQuarterDesign()} {
 		if _, ok := designByName(s, def.Name); !ok {
 			list = append(list, def)
@@ -589,6 +743,28 @@ func handleDesignActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "active": in.Name})
+}
+
+// POST /design/rename  {"from":"...","to":"..."}
+func handleDesignRename(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"ok":false,"error":"الطريقة مش مدعومة"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&in); err != nil {
+		writeDesignErr(w, "مش قادر أقرا الطلب")
+		return
+	}
+	if err := renameDesign(in.From, in.To); err != nil {
+		writeDesignErr(w, err.Error())
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "name": strings.TrimSpace(in.To)})
 }
 
 func handleDesignDelete(w http.ResponseWriter, r *http.Request) {
@@ -662,7 +838,9 @@ func designByName(s settings, name string) (labelDesign, bool) {
 	}
 	for _, d := range s.Designs {
 		if d.Name == name {
-			return d, true
+			// ⚠️ الفصل هنا كمان: ده الباب اللي كل التصاميم المحفوظة
+			// بتخرج منه. الشرح عند splitPrices.
+			return splitPrices(d), true
 		}
 	}
 	return labelDesign{}, false
@@ -689,7 +867,7 @@ func designForRole(role string) labelDesign {
 		// من القايمة، الأقرب لنيته إنه هو ده مش الافتراضي بتاعنا.
 		for _, d := range s.Designs {
 			if d.Cols > 1 {
-				return d
+				return splitPrices(d)
 			}
 		}
 		return defaultQuarterDesign()

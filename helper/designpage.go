@@ -91,7 +91,14 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
 
  <div class="card">
   <div class="row">
-   <div style="flex:1;min-width:90px"><label>اسم التصميم</label><input id="dname"></div>
+   <!-- ⚠️ سطر النوع تحت الاسم. اتطلب بالنص: "عاوز في اسم التصميم
+        يبقي جنبه نوعه بمعني ملصق عادي مقسوم 4 بدون سعر". والفايدة
+        إنك تعرف التصميم اللي قدامك ده **بيتطبع في إيه** قبل ما
+        تعدّل فيه. -->
+   <div style="flex:1;min-width:170px">
+    <label>اسم التصميم</label><input id="dname">
+    <div id="dname-roles" style="font-size:10.5px;color:var(--mut);margin-top:3px;min-height:14px"></div>
+   </div>
    <div style="width:92px"><label>العرض (مم)</label><input id="dw" type="number" step="0.5" min="10" max="200"></div>
    <div style="width:92px"><label>الطول (مم)</label><input id="dh" type="number" step="0.5" min="5" max="200"></div>
    <div style="width:78px"><label>صفوف</label><select id="dhalves"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
@@ -156,13 +163,28 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
        ⚠️ والأزرار الجاهزة مش رفاهية: "اسم طويل" و"اسم قصير" هما
        الحالتين اللي بيفرّقوا في كل شكوى اتبلّغت عن الملصق. -->
   <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
-   <div style="font-size:13px;font-weight:600;margin-bottom:3px">&#129514; بيانات التجربة</div>
-   <div class="scale" style="margin-bottom:10px">اكتب اللي انت عايز تشوفه على الورق — المعاينة فوق بتتغيّر وانت بتكتب. البيانات دي <b>مابتتحفظش</b>، هي للتجربة بس.</div>
-   <div class="grid">
-    <div style="grid-column:1/-1"><label>اسم الصنف</label><input id="s-name"></div>
-    <div><label>رقم الباركود</label><input id="s-code" inputmode="numeric"></div>
-    <div><label>السعر</label><input id="s-price"></div>
-    <div><label>السعر قبل الخصم</label><input id="s-old" placeholder="سيبها فاضية = مافيش خصم"></div>
+   <!-- ⚠️ الخانات بتتطوي. اتطلب بالنص: "عاوزك تخلي في شاشة
+        التصميم خانة بيانات التجربة تبقي بتفتح وتقفل يعني ممكن اضغط
+        علي سهم يخفي الخانه كلهم".
+
+        ⚠️⚠️ والأزرار **بره** الطيّة عن قصد: "اطبع تجربة" و"اسم
+        طويل" هما اللي بتستعملهم كل شوية وانت بتظبط، فطيّهم معاهم
+        كان هيخلّي كل تجربة محتاجة فتحة زيادة. اللي بيتطوي هو
+        الخانات اللي بتكتب فيها مرة وتسيبها. -->
+   <button type="button" id="s-toggle" aria-expanded="true" aria-controls="s-body"
+     style="display:flex;align-items:center;justify-content:space-between;width:100%;
+            background:none;border:0;padding:0;margin:0 0 3px;cursor:pointer;color:inherit;font:inherit;text-align:right">
+    <span style="font-size:13px;font-weight:600">&#129514; بيانات التجربة</span>
+    <span id="s-chev" style="font-size:14px;color:var(--mut)">&#9662;</span>
+   </button>
+   <div id="s-body">
+    <div class="scale" style="margin-bottom:10px">اكتب اللي انت عايز تشوفه على الورق — المعاينة فوق بتتغيّر وانت بتكتب. البيانات دي <b>مابتتحفظش</b>، هي للتجربة بس.</div>
+    <div class="grid">
+     <div style="grid-column:1/-1"><label>اسم الصنف</label><input id="s-name"></div>
+     <div><label>رقم الباركود</label><input id="s-code" inputmode="numeric"></div>
+     <div><label>السعر</label><input id="s-price"></div>
+     <div><label>السعر قبل الخصم</label><input id="s-old" placeholder="سيبها فاضية = مافيش خصم"></div>
+    </div>
    </div>
    <div class="row" style="margin-top:10px">
     <button class="ghost" id="s-long">اسم طويل</button>
@@ -207,7 +229,24 @@ var SAMPLE = {
   oldPrice: '65 L.E'
 };
 var KIND_AR = {qr:'رمز QR', name:'اسم الصنف', code:'رقم الباركود', price:'السعر', oldPrice:'السعر القديم'};
+
+// ⚠️ الأدوار: أنهي تصميم بيتطبع في أنهي حالة. بتيجي محسوبة من
+// البرنامج (الفاضي معناه "اتصرّف")، فاللي بيتعرض هو **اللي هينفّذ
+// فعلًا** مش اللي اتكتب في الخانة.
+var ROLE_AR = {normal:'ملصق عادي', quarter:'مقسوم ٤', noPrice:'من غير سعر'};
+var ROLES = {};
+function rolesOf(name){
+  var out = [];
+  ['normal','quarter','noPrice'].forEach(function(k){ if (ROLES[k] === name) out.push(ROLE_AR[k]); });
+  return out;
+}
+function roleLabel(name){
+  var r = rolesOf(name);
+  return r.length ? r.join(' · ') : '';
+}
 var d = null, sel = 'name', designs = [], shrunk = [];
+// اسم التصميم زي ما اتحمّل — بيتقارن باللي في الخانة عند الحفظ.
+var origName = '';
 
 // ============================================================
 // 🔤 الخط — بيتقرا من البرنامج، والمعاينة بتستناه ينزل
@@ -284,25 +323,15 @@ var NOPRICE = false;
 // وفي الصورة اللي بتتبعت للطابعة — عشان مايبقاش فيه فرق بينهم.
 function elVisible(e){
   if (NOPRICE && (e.kind==='price' || e.kind==='oldPrice')) return false;
-  // ⚠️⚠️ السعر القديم **مابيترسمش لوحده**: بيترسم جنب السعر في نفس
-  // الصندوق (شوف priceHTML تحت). صندوقه بيقول حاجتين بس: مقاس خطه،
-  // وهل يظهر ولا لأ.
+  // ⚠️⚠️ السعر القديم بقى **في صندوقه هو**، بيتحرّك لوحده.
+  // اتطلب بالنص: "السعر القديم ... كان في الاول بيتحرك لوحده دلوقتي
+  // مش بيتحرك من مكانه بقي مربوط بالسعر ... والاتنين يتحركوا لوحدهم".
   //
-  // السبب اتقاس على صورة حقيقية: لو كل واحد في صندوقه، سعرين من
-  // رقمين بيتراكبوا (110 L.E و85 L.E فوق بعض). ولو فصلنا الصندوقين،
-  // الصنف اللي مافيهوش خصم سعره بيقع في نص الجزء اليمين بدل نص
-  // الملصق. الزوج المتوسّط بيحل الاتنين.
-  if (e.kind==='oldPrice') return false;
+  // ⚠️ ومابيظهرش من غير خصم — والخانة في بيانات التجربة هي اللي
+  // بتقرّر: سيبها فاضية (أو دوس "من غير خصم") = مافيش خصم، وساعتها
+  // الصندوق بيختفي من المعاينة زي ما هيختفي من الورق بالظبط.
+  if (e.kind==='oldPrice' && !SAMPLE.oldPrice) return false;
   return true;
-}
-
-function oldPriceEl(){
-  for (var i=0;i<d.elements.length;i++) if (d.elements[i].kind==='oldPrice') return d.elements[i];
-  return null;
-}
-function showOldPrice(){
-  var o = oldPriceEl();
-  return !!(o && SAMPLE.oldPrice && !NOPRICE);
 }
 
 // ============================================================
@@ -370,27 +399,6 @@ function draw(){
           box.style.background='repeating-linear-gradient(45deg,#333 0 2px,#fff 2px 4px)';
           box.style.border='1px solid #999';
         }
-      } else if (e.kind==='price' && showOldPrice()){
-        // الزوج: القديم مشطوب وأصغر، وبعده السعر عريض — متوسّطين سوا.
-        var o = oldPriceEl();
-        box.style.justifyContent='center';
-        box.style.gap=(0.8*K)+'px';
-        var so=document.createElement('span');
-        so.textContent=SAMPLE.oldPrice;
-        so.style.cssText='width:auto;white-space:nowrap;text-decoration:line-through;direction:ltr;font-weight:400;font-size:'+((o.fontMm||e.fontMm*0.8)*K)+'px';
-        var sp=document.createElement('span');
-        sp.textContent=SAMPLE.price;
-        sp.style.cssText='width:auto;white-space:nowrap;direction:ltr;font-weight:'+(e.weight==='bold'?'700':'400')+';font-size:'+(e.fontMm*K)+'px';
-        so.style.fontFamily=sp.style.fontFamily=fontStack();
-        box.appendChild(so); box.appendChild(sp);
-        sh.appendChild(box);
-        // تصغير الزوج مع بعض لو أوسع من الصندوق
-        var g=0, fo=parseFloat(so.style.fontSize), fp=parseFloat(sp.style.fontSize);
-        while (box.scrollWidth > box.clientWidth+1 && fp>2 && g++<60){
-          fo*=0.96; fp*=0.96; so.style.fontSize=fo+'px'; sp.style.fontSize=fp+'px';
-        }
-        box.onclick = (function(k){ return function(){ sel=k; render(); }; })(e.kind);
-        continue;
       } else {
         var s = document.createElement('span');
         s.textContent = SAMPLE[e.kind] || '';
@@ -565,8 +573,16 @@ function load(){
 function loadDesigns(){
   fetch('/design/all').then(function(r){return r.json();}).then(function(j){
     designs = j.designs || [];
+    ROLES = j.roles || {};
     var p=$('pick'); p.innerHTML='';
-    designs.forEach(function(x){ var o=document.createElement('option'); o.value=x.name; o.textContent=x.name; if(x.name===j.active)o.selected=true; p.appendChild(o); });
+    designs.forEach(function(x){
+      var o=document.createElement('option');
+      o.value=x.name;
+      var r = roleLabel(x.name);
+      o.textContent = x.name + (r ? ' \u2014 ' + r : '');
+      if(x.name===j.active)o.selected=true;
+      p.appendChild(o);
+    });
     use(j.active);
   }).catch(function(e){ say('مش قادر أقرا التصاميم: '+e, true); });
 }
@@ -575,7 +591,10 @@ function use(name){
   if(!d && designs.length) d=JSON.parse(JSON.stringify(designs[0]));
   if(!d) return;
   if (!d.cols) d.cols=1;
-  $('dname').value=d.name; $('dw').value=d.widthMm; $('dh').value=d.heightMm;
+  // ⚠️⚠️ الاسم الأصلي بيتسجّل هنا: من غيره مافيش طريقة نعرف
+  // إنه اتغيّر، والحفظ كان هيعمل نسخة تانية بدل ما يغيّر الاسم.
+  origName = d.name;
+  $('dname').value=d.name; showNameRoles(); $('dw').value=d.widthMm; $('dh').value=d.heightMm;
   $('dhalves').value=String(d.halves||1); $('dcols').value=String(d.cols);
   markPreset();
   if (!d.font) d.font='system';
@@ -598,7 +617,17 @@ $('dfont').onchange=function(){
   fontHint();
   ensureFont(draw);
 };
-$('dname').oninput=function(){ d.name=$('dname').value; };
+// ⚠️ الاسم مابقاش بيتطبّق وانت بتكتب: الحفظ محتاج يقارن القديم
+// بالجديد عشان يعرف ده تغيير اسم ولا تصميم جديد.
+$('dname').oninput=showNameRoles;
+
+function showNameRoles(){
+  var nm = ($('dname').value||'').trim();
+  var r = roleLabel(nm);
+  $('dname-roles').textContent = r
+    ? ('\ud83c\udff7\ufe0f بيتطبع في: ' + r)
+    : (nm && nm !== origName ? '\u270f\ufe0f هيتغيّر الاسم من «' + origName + '»' : '');
+}
 ['dw','dh','dhalves','dcols'].forEach(function(id){
   $(id).onchange=function(){ readShape(); draw(); };
 });
@@ -631,7 +660,10 @@ document.querySelectorAll('.preset').forEach(function(b){
 });
 $('newd').onclick=function(){
   d=JSON.parse(JSON.stringify(d)); d.name='تصميم جديد';
-  $('dname').value=d.name; say('اكتب اسم واحفظ.'); render();
+  // ⚠️ الاسم الأصلي بيتفضّى: ده تصميم **جديد**، مش تغيير اسم
+  // للي كان مفتوح — وإلا الحفظ كان هيغيّر اسم القديم ويمسحه.
+  origName = '';
+  $('dname').value=d.name; showNameRoles(); say('اكتب اسم واحفظ.'); render();
 };
 $('deld').onclick=function(){
   if(!confirm('تحذف التصميم «'+d.name+'»؟')) return;
@@ -644,17 +676,34 @@ $('reset').onclick=function(){
    .then(function(){ load(); say('رجع الافتراضي.'); });
 };
 $('save').onclick=function(){
-  d.name=$('dname').value;
+  var nm = ($('dname').value||'').trim();
+  if(!nm){ say('اكتب اسم للتصميم الأول.', true); return; }
+  d.name = nm;
   readShape();
   $('save').disabled=true;
-  fetch('/design',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+
+  // ⚠️⚠️ الاسم اتغيّر؟ **نغيّره الأول** بمسار مخصوص، مش نحفظ
+  // بالاسم الجديد. الحفظ بيلاقي الاسم مش موجود فبيضيف تصميم تاني
+  // والقديم بيفضل مكانه — دوسة واحدة وتلاقي نسختين.
+  // الشرح الكامل عند renameDesign في design.go.
+  var first = (origName && origName !== nm)
+    ? fetch('/design/rename',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({from:origName, to:nm})})
+       .then(function(r){return r.json();})
+       .then(function(j){ if(!j.ok) throw new Error(j.error||'مش قادر أغيّر الاسم'); })
+    : Promise.resolve();
+
+  first
+   .then(function(){
+     return fetch('/design',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+   })
    .then(function(r){return r.json();})
    .then(function(j){
      $('save').disabled=false;
      if(j.ok){ say('✅ اتحفظ. النظام هياخده أول ما تفتح مفتاح «اعتمد تصميم البرنامج المساعد».'); load(); }
      else say('⚠️ '+j.error, true);
    })
-   .catch(function(e){ $('save').disabled=false; say('مش قادر أحفظ: '+e, true); });
+   .catch(function(e){ $('save').disabled=false; say('مش قادر أحفظ: '+(e.message||e), true); });
 };
 
 // ============================================================
@@ -679,6 +728,24 @@ function writeSample(){
   $('s-old').value   = SAMPLE.oldPrice;
 }
 ['s-name','s-code','s-price','s-old'].forEach(function(id){ $(id).oninput = readSample; });
+
+// ============================================================
+// ▾ الخانات بتتطوي — والحالة بتتفكر
+// ============================================================
+// ⚠️ بتتفكر في المتصفح: لو طويتها، تفضل مطوية لما تفتح الصفحة
+// تاني. من غير كده كنت هتطويها كل مرة من أول وجديد.
+var SAMPLE_OPEN_KEY = 'tz_sample_open';
+function setSampleOpen(open){
+  $('s-body').hidden = !open;
+  $('s-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+  $('s-chev').innerHTML = open ? '&#9662;' : '&#9656;';
+}
+$('s-toggle').onclick = function(){
+  var open = !!$('s-body').hidden;
+  setSampleOpen(open);
+  try { localStorage.setItem(SAMPLE_OPEN_KEY, open ? '1' : '0'); } catch(e){}
+};
+try { if (localStorage.getItem(SAMPLE_OPEN_KEY) === '0') setSampleOpen(false); } catch(e){}
 $('s-long').onclick   = function(){ SAMPLE.name = LONG_NAME;  writeSample(); draw(); };
 $('s-short').onclick  = function(){ SAMPLE.name = SHORT_NAME; writeSample(); draw(); };
 $('s-nodisc').onclick = function(){ SAMPLE.oldPrice = '';     writeSample(); draw(); };
@@ -787,38 +854,6 @@ function drawFit(x, txt, X, Y, W, H, e){
   }
 }
 
-// ⚠️ السعر والقديم زوج متوسّط في صندوق السعر — **نفس** اللي النظام
-// بيعمله في renderDesignPNG بالحرف. أي فرق بينهم معناه إن الشاشة
-// بتوري حاجة والورق بيطلع حاجة تانية.
-function drawPricePair(x, X, Y, W, H, e){
-  var o = oldPriceEl();
-  var orig = SAMPLE.oldPrice, sell = SAMPLE.price;
-  var gap = 0.8*DPMM;
-  var sSize = e.fontMm*DPMM;
-  var oSize = ((o && o.fontMm) ? o.fontMm : e.fontMm*0.8)*DPMM;
-  for (var i=0;i<40;i++){
-    x.font = '400 '+oSize.toFixed(2)+'px '+fontStack();
-    var ow = x.measureText(orig).width;
-    x.font = '700 '+sSize.toFixed(2)+'px '+fontStack();
-    var sw = x.measureText(sell).width;
-    if (ow+gap+sw <= W && sSize*1.2 <= H) break;
-    sSize*=0.96; oSize*=0.96;
-    if (sSize < 4) break;
-  }
-  x.textAlign='left'; x.textBaseline='middle'; x.direction='ltr';
-  x.font = '400 '+oSize.toFixed(2)+'px '+fontStack();
-  var ow2 = x.measureText(orig).width;
-  x.font = '700 '+sSize.toFixed(2)+'px '+fontStack();
-  var sw2 = x.measureText(sell).width;
-  var px0 = X + (W - (ow2+gap+sw2))/2, cy = Y + H/2;
-  x.font = '400 '+oSize.toFixed(2)+'px '+fontStack();
-  x.fillText(orig, px0, cy);
-  x.fillRect(px0, cy - oSize*0.03, ow2, Math.max(1, Math.round(oSize*0.07)));
-  px0 += ow2 + gap;
-  x.font = '700 '+sSize.toFixed(2)+'px '+fontStack();
-  x.fillText(sell, px0, cy);
-}
-
 // بترسم الملصق كله وبترجّع وعد بـ PNG (base64 من غير الترويسة).
 function renderLabelPNG(){
   var W = Math.round(d.widthMm*DPMM), H = Math.round(d.heightMm*DPMM);
@@ -852,10 +887,6 @@ function renderLabelPNG(){
             im.src = u;
           });
         })(u,X,Y,Wb,Hb));
-        continue;
-      }
-      if (e.kind==='price' && showOldPrice()){
-        drawPricePair(x, X, Y, Wb, Hb, e);
         continue;
       }
       drawFit(x, sampleFor(e.kind), X, Y, Wb, Hb, e);

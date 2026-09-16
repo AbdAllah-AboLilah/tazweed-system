@@ -29,7 +29,10 @@ const DESIGN = {
     { kind: 'qr', x: 2.0, y: 1.5, w: 9.5, h: 9.5 },
     { kind: 'name', x: 12.5, y: 1.2, w: 23.5, h: 4.6, fontMm: 1.9, lines: 2, align: 'center', weight: 'normal', overflow: 'shrink', show: 'always' },
     { kind: 'code', x: 12.5, y: 5.9, w: 23.5, h: 2.9, fontMm: 2.4, lines: 1, align: 'center', weight: 'normal', overflow: 'shrink', show: 'always' },
-    { kind: 'price', x: 12.5, y: 8.8, w: 23.5, h: 2.9, fontMm: 2.4, lines: 1, align: 'center', weight: 'bold', overflow: 'shrink', show: 'always' },
+    // ⚠️ السعرين مفصولين: القديم على الشمال والسعر على اليمين.
+    // البرنامج المساعد بيفصلهم قبل ما يبعت (splitPrices)، فده شكل
+    // اللي بيوصل هنا فعلًا.
+    { kind: 'price', x: 22.0, y: 8.8, w: 14.0, h: 2.9, fontMm: 2.4, lines: 1, align: 'center', weight: 'bold', overflow: 'shrink', show: 'always' },
     { kind: 'oldPrice', x: 12.5, y: 8.8, w: 9.0, h: 2.9, fontMm: 2.0, lines: 1, align: 'center', weight: 'normal', overflow: 'shrink', show: 'ifDiscount' },
   ],
 };
@@ -216,6 +219,63 @@ const QUARTER = { ...DESIGN, name: 'مقسوم ٤', cols: 2 };
   check('⭐⭐⭐⭐ ورقم الباركود', dirOf('6221031490112') === 'ltr', dirs);
   // ⚠️ والاسم **عربي** — من غيرها `الCopy` بتتطبع `لاCopy`.
   check('⭐⭐⭐⭐⭐ واسم الصنف بيترسم عربي', dirOf('بونيه') === 'rtl', dirs);
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ كل سعر في صندوقه — والقديم على الشمال
+  // ============================================================
+  // اتطلب بالنص: "المفروض السعر اللي هو بعد الخصم يبقي علي اليمين
+  // وقبل الخصم علي اليسار والاتنين يتحركوا لوحدهم".
+  //
+  // ⚠️ الفحص على **مكان الرسم** مش على الصورة: الصورة بتفرق لأي
+  // سبب (خط، تصغير)، لكن إحداثي الرسم بيقول بالظبط كل رقم راح فين.
+  const spots = await p.evaluate((a) => {
+    const seen = [];
+    const bars = [];
+    const realGet = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (...args) {
+      const ctx = realGet.apply(this, args);
+      if (!ctx || ctx.__spied2) return ctx;
+      const realFill = ctx.fillText.bind(ctx);
+      const realRect = ctx.fillRect.bind(ctx);
+      ctx.fillText = (t, x, y) => { seen.push({ t: String(t), x, y }); return realFill(t, x, y); };
+      ctx.fillRect = (x, y, w, h) => { bars.push({ x, y, w, h }); return realRect(x, y, w, h); };
+      ctx.__spied2 = true;
+      return ctx;
+    };
+    try {
+      renderDesignPNG(a.cat, a.size, a.design, false);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = realGet;
+    }
+    return { seen, bars };
+  }, { cat: CAT, size: SIZE, design: DESIGN });
+
+  const at = (needle) => {
+    const row = spots.seen.find((r) => r.t.indexOf(needle) !== -1);
+    return row || null;
+  };
+  const sell = at('85 L.E');
+  const old = at('110 L.E');
+
+  check('⭐⭐⭐⭐⭐ السعر القديم بيترسم **على شمال** السعر، مش فوقه',
+    !!(sell && old) && old.x < sell.x, { old: old && old.x, sell: sell && sell.x });
+
+  // ⚠️⚠️ والأدق: كل واحد في **نص صندوقه هو**. النسبة بتشيل أي
+  // معامل تكبير في الكانفاس، فالفحص بيقيس المكان مش الوحدة.
+  //   القديم: 12.5 + 9.0/2  = 17.0مم
+  //   السعر:  22.0 + 14.0/2 = 29.0مم
+  const ratio = sell && old ? old.x / sell.x : 0;
+  check('⭐⭐⭐⭐⭐ وكل واحد في نص صندوقه هو (17.0مم و29.0مم)',
+    Math.abs(ratio - 17.0 / 29.0) < 0.02, { ratio, want: 17.0 / 29.0 });
+
+  // ⚠️ والقديم **بره** صندوق السعر تمامًا: ده اللي كان بيحصل قبل
+  // كده والرقمين كانوا بيتراكبوا — "110L.E85 L.E".
+  check('⭐⭐⭐⭐ والقديم بره صندوق السعر خالص',
+    ratio < 22.0 / 29.0, { ratio, edge: 22.0 / 29.0 });
+
+  // ⚠️ الشطب لسه موجود: من غيره القديم بيبان كأنه سعر تاني.
+  const near = spots.bars.filter((r) => old && Math.abs(r.x + r.w / 2 - old.x) < 6 && r.h <= 4);
+  check('⭐⭐⭐⭐ والسعر القديم لسه مشطوب', near.length >= 1, { bars: spots.bars.length, near: near.length });
 
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
