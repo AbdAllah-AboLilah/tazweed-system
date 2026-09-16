@@ -277,6 +277,104 @@ const QUARTER = { ...DESIGN, name: 'مقسوم ٤', cols: 2 };
   const near = spots.bars.filter((r) => old && Math.abs(r.x + r.w / 2 - old.x) < 6 && r.h <= 4);
   check('⭐⭐⭐⭐ والسعر القديم لسه مشطوب', near.length >= 1, { bars: spots.bars.length, near: near.length });
 
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ والمسار الكامل بينزّل الخط **قبل** ما يرسم
+  // ============================================================
+  // ⚠⚠ الكانفاس مابيطلبش الخط عشان انت كتبت اسمه — لازم حد
+  // ينزّله الأول. ولو رسمنا قبل ما ينزل، الملصق بيطلع بخط الجهاز
+  // **في سكوت** والمعاينة فاضلة صح.
+  //
+  // ⚠️ والفحص ده بيستخدم خط **مالمسوش حد في الملف ده** (تجوّل):
+  // أي خط اتحمّل فوق بيفضل محمّل في الصفحة، فالفحص كان هيعدّي حتى
+  // لو المسار مابينزّلش حاجة.
+  const hookFont = await p.evaluate(async (o) => {
+    setLabelFontId('system');
+    await ensureLabelFontReady();
+    window.__designs.normal = { ...window.__designs.normal, font: 'tajawal' };
+    clearHelperDesignCache();
+    window.__mode = 'ok';
+    setPrintTweak('helperDesign', true);
+
+    let fam = '';
+    const real = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (...args) {
+      const c = real.apply(this, args);
+      if (c && !c.__hookSpy) {
+        Object.defineProperty(c, 'font', {
+          set(v) { if (/px /.test(v) && !fam) fam = v.split('px ')[1]; this.__f = v; },
+          get() { return this.__f || '10px sans-serif'; },
+        });
+        c.__hookSpy = true;
+      }
+      return c;
+    };
+    try {
+      await buildItemLabel(o.cat, o.size, 1);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = real;
+    }
+    return fam;
+  }, { cat: CAT, size: SIZE });
+
+  check('⭐⭐⭐⭐⭐ المسار الكامل بينزّل خط التصميم قبل ما يرسم',
+    /TZ Tajawal/.test(hookFont), hookFont);
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ خط **التصميم** بيكسب على خط الإعدادات
+  // ============================================================
+  // ⚠⚠ اتبلّغ بالنص: "انا كنت معدل الخط في الملصق في البرنامج
+  // المساعد طلع ب الخط الافتراضي ليه عشان في الاعدادات بتاع النظام
+  // شغال علي الخط الافتراضي".
+  //
+  // التصميم شايل خط بتاعه، والمصمّم بيعرضه بيه وبيطبع تجربته بيه —
+  // وكان النظام بيتجاهله. فاللي في المصمّم غير اللي على الورق، وده
+  // بيفضّي المصمّم من معناه.
+  const fontUsed = await p.evaluate(async (a) => {
+    // ⚠️ إعدادات النظام على "خط الجهاز" — زي حالة اللي بلّغ بالظبط
+    setLabelFontId('system');
+    await ensureLabelFontReady();
+
+    const grab = async (fontId) => {
+      const d = JSON.parse(JSON.stringify(a.design));
+      d.font = fontId;
+      if (fontId) await ensureFontReadyById(fontId);
+      let fam = '';
+      const real = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (...args) {
+        const c = real.apply(this, args);
+        if (c && !c.__famSpy) {
+          Object.defineProperty(c, 'font', {
+            set(v) { if (/px /.test(v) && !fam) fam = v.split('px ')[1]; this.__f = v; },
+            get() { return this.__f || '10px sans-serif'; },
+          });
+          c.__famSpy = true;
+        }
+        return c;
+      };
+      try { renderDesignPNG(a.cat, a.size, d, false); } finally {
+        HTMLCanvasElement.prototype.getContext = real;
+      }
+      return fam;
+    };
+
+    const out = {
+      cairo: await grab('cairo'),
+      almarai: await grab('almarai'),
+      system: await grab('system'),
+    };
+    setLabelFontId('system');
+    return out;
+  }, { cat: CAT, size: SIZE, design: DESIGN });
+
+  check('⭐⭐⭐⭐⭐ خط التصميم بيترسم بيه فعلًا (والإعدادات على خط الجهاز)',
+    /TZ Cairo/.test(fontUsed.cairo), fontUsed);
+  check('⭐⭐⭐⭐ وتصميم تاني بخط تاني بياخد خطه هو',
+    /TZ Almarai/.test(fontUsed.almarai), fontUsed);
+  // ⚠⚠ والتصميم اللي على "خط الجهاز" **مايغيّرش حاجة**: اللي ظابط
+  // خط في الإعدادات ومعندهوش خط في التصميم لازم يفضل زي ما هو.
+  check('⭐⭐⭐⭐⭐ وتصميم على "خط الجهاز" بيرجع لإعداد النظام',
+    !/TZ /.test(fontUsed.system), fontUsed);
+
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();

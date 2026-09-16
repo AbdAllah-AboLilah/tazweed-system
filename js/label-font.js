@@ -249,6 +249,55 @@ async function ensureLabelFontReady() {
 }
 
 // ============================================================
+// 🎨 خط **التصميم** — غير خط الإعدادات
+// ============================================================
+// ⚠️⚠️ العطل اللي اتبلّغ بالنص: "انا كنت معدل الخط في الملصق في
+// البرنامج المساعد طلع ب الخط الافتراضي ليه عشان في الاعدادات بتاع
+// النظام شغال علي الخط الافتراضي".
+//
+// وهو محق. تصميم البرنامج المساعد شايل خط بتاعه (d.font)، والمصمّم
+// بيعرضه بيه وبيطبع تجربته بيه — لكن النظام كان بيرسم بخط
+// **الإعدادات** ويتجاهل خط التصميم. فاللي بتشوفه في المصمّم غير
+// اللي بيطلع على الورق.
+//
+// ⚠️ والقاعدة: خط التصميم بيكسب **لما يكون مختار فعلًا**. لو
+// التصميم على "خط الجهاز" بنرجع لإعداد النظام زي ما كان بالظبط —
+// عشان اللي ظابط خط في الإعدادات ومعندهوش خط في التصميم مايتغيّرش
+// عنده حاجة.
+async function ensureFontReadyById(id) {
+  const f = labelFontById(id);
+  if (!f || !f.family) return true; // خط الجهاز — مافيش حاجة تتحمّل
+  if (typeof document === 'undefined' || !document.fonts || !document.fonts.load) return false;
+  const probe = 'اختبار 0123';
+  const bold = f.boldWeight || 700;
+  try {
+    await Promise.all([
+      document.fonts.load(`400 100px "${f.family}"`, probe),
+      document.fonts.load(`${bold} 100px "${f.family}"`, probe),
+    ]);
+  } catch (err) {
+    console.warn('تعذّر تحميل خط التصميم:', err);
+    return false;
+  }
+  return (
+    document.fonts.check(`400 100px "${f.family}"`, probe) &&
+    document.fonts.check(`${bold} 100px "${f.family}"`, probe)
+  );
+}
+
+// ⚠️ بترجّع `base` لو الخط مش موجود أو لسه مانزلش — نفس حزام
+// labelFontStack بالحرف: خط نص محمّل بيطلّع ملصق نصّه بخطين.
+function designFontStack(id, base) {
+  const f = labelFontById(id);
+  if (!f || !f.family) return base;
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.check) {
+    const probe = 'اختبار 0123';
+    if (!document.fonts.check(`400 100px "${f.family}"`, probe)) return base;
+  }
+  return `'${f.family}', ${base}`;
+}
+
+// ============================================================
 // ⭐ الدالة اللي كل مكان في الملصق بيعدّي منها
 // ============================================================
 // `base` هو نص الخطوط اللي كان مكتوب في المكان ده **بالحرف** قبل

@@ -502,7 +502,23 @@ function renderDesignPNG(cat, sizeOptions, design, hidePrice) {
   const hi = makeHiResCanvas(W, H);
   if (!hi) return '';
   const ctx = hi.ctx;
-  const FAMILY = labelFontStack('Arial, Helvetica, Tahoma, sans-serif');
+  // ============================================================
+  // ⚠️⚠️ خط **التصميم** الأول، وبعدين خط الإعدادات
+  // ============================================================
+  // اتبلّغ بالنص: "انا كنت معدل الخط في الملصق في البرنامج المساعد
+  // طلع ب الخط الافتراضي ليه عشان في الاعدادات بتاع النظام شغال علي
+  // الخط الافتراضي".
+  //
+  // التصميم شايل خط بتاعه، والمصمّم بيعرضه بيه وبيطبع تجربته بيه —
+  // وكان النظام بيتجاهله ويرسم بخط الإعدادات. فاللي في المصمّم غير
+  // اللي على الورق، وده بيفضّي المصمّم من معناه.
+  //
+  // ⚠️ ولو التصميم على "خط الجهاز"، بنرجع لإعداد النظام زي ما كان
+  // بالظبط — عشان اللي ظابط خط في الإعدادات مايتغيّرش عنده حاجة.
+  const FAMILY =
+    design.font && typeof designFontStack === 'function'
+      ? designFontStack(design.font, labelFontStack('Arial, Helvetica, Tahoma, sans-serif'))
+      : labelFontStack('Arial, Helvetica, Tahoma, sans-serif');
 
   const cellW = mmToDots(design.widthMm / cols);
   const cellH = mmToDots(design.heightMm / rows);
@@ -1359,6 +1375,11 @@ async function buildQuarterLabel(cat, sizeOptions, copies) {
   if (typeof getHelperDesign === 'function') {
     try {
       const hd = await getHelperDesign('quarter');
+      // ⚠⚠ **قبل** الرسم: الكانفاس مابيطلبش الخط، ولو رسمنا قبل ما
+      // ينزل الملصق بيطلع بخط الجهاز في سكوت. الشرح عند designFontStack.
+      if (hd && hd.design && hd.design.font && typeof ensureFontReadyById === 'function') {
+        await ensureFontReadyById(hd.design.font);
+      }
       if (hd && typeof renderDesignPNG === 'function') {
         const png = renderDesignPNG(cat, sizeOptions, hd.design, hd.hidePrice);
         if (png) {
@@ -1924,6 +1945,11 @@ async function buildItemLabel(cat, sizeOptions, copies) {
   if (typeof getHelperDesign === 'function') {
     try {
       const hd = await getHelperDesign(sizeOptions.noPrice ? 'noPrice' : 'normal');
+      // ⚠⚠ **قبل** الرسم: الكانفاس مابيطلبش الخط، ولو رسمنا قبل ما
+      // ينزل الملصق بيطلع بخط الجهاز في سكوت. الشرح عند designFontStack.
+      if (hd && hd.design && hd.design.font && typeof ensureFontReadyById === 'function') {
+        await ensureFontReadyById(hd.design.font);
+      }
       if (hd && typeof renderDesignPNG === 'function') {
         const png = renderDesignPNG(cat, sizeOptions, hd.design, hd.hidePrice);
         if (png) {
