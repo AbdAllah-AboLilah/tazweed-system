@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.18.0"
+	version = "1.19.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -144,6 +144,10 @@ type statusReply struct {
 	// 🏷️ اسم الجهاز المكتوب في البرنامج — النظام بياخده كاسم افتراضي
 	// للماكينة، فالاسم بيبقى واحد على كل المتصفحات.
 	DeviceName string `json:"deviceName"`
+	// 📦 ملف الأصناف — النظام بيشوف من هنا إن الجهاز ده عليه ملف
+	// ومراقب، من غير ما يسأل على /products/file لوحده.
+	ProductsFile       string `json:"productsFile"`
+	ProductsAutoUpload bool   `json:"productsAutoUpload"`
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -165,6 +169,8 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		LabelFlip:            flip,
 		StopOnPrinterProblem: cur.StopOnPrinterProblem,
 		OpenSystemOnStart:    cur.OpenSystemOnStart,
+		ProductsFile:         cur.ProductsFile,
+		ProductsAutoUpload:   cur.ProductsAutoUpload,
 	})
 }
 
@@ -367,6 +373,16 @@ func newServer() *http.ServeMux {
 	mux.HandleFunc("/claim", guard(handleClaim))
 	// 🩺 حالة الطابعة — الحاجة اللي المتصفح مايقدرش عليها
 	mux.HandleFunc("/printer/status", guard(handlePrinterStatus))
+
+	// ============================================================
+	// 📦 ملف الأصناف — الشرح الكامل في productsfile.go
+	// ============================================================
+	// ⚠️ البرنامج بيراقب ويناول بس. النظام هو اللي بيقرا الإكسل
+	// ويرفع — عشان منطق قراءة أعمدة الـERP يفضل في مكان واحد.
+	mux.HandleFunc("/products/file", guard(handleProductsFile))
+	mux.HandleFunc("/products/file/raw", guard(handleProductsFileRaw))
+	// 🗂️ شاشة "اختار ملف" بتاعة الويندوز — المتصفح مايقدرش يدّي مسار
+	mux.HandleFunc("/products/file/pick", guard(handleProductsFilePick))
 
 	// 🎨 تصميم الملصق — النظام بيقرا /design والمصمّم بيكتب عليه.
 	mux.HandleFunc("/design", guard(handleDesign))

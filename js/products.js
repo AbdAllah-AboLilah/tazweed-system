@@ -265,7 +265,10 @@ function findProductByBarcode(value) {
 // ------------------------------------------------------------
 // حفظ الأصناف في السحابة (على قطع)
 // ------------------------------------------------------------
-async function saveProducts(list, onProgress) {
+// ⚠️ extraMeta: حقول زيادة بتتكتب في meta جنب العدد والتاريخ —
+// دلوقتي بصمة الملف اللي اترفع منه (شوف products-file.js). اتعملت
+// وسيط اختياري عشان الاستيراد بالإيد يفضل زي ما هو بالحرف.
+async function saveProducts(list, onProgress, extraMeta) {
   const chunks = [];
   for (let i = 0; i < list.length; i += PRODUCTS_CHUNK_SIZE) {
     chunks.push(list.slice(i, i + PRODUCTS_CHUNK_SIZE));
@@ -289,12 +292,17 @@ async function saveProducts(list, onProgress) {
   }
 
   const by = (state.profile && state.profile.name) || '';
-  await db.collection('products').doc('meta').set({
-    count: list.length,
-    chunks: chunks.length,
-    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-    updatedByName: by,
-  });
+  await db.collection('products').doc('meta').set(
+    Object.assign(
+      {
+        count: list.length,
+        chunks: chunks.length,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedByName: by,
+      },
+      extraMeta || {}
+    )
+  );
 
   productsCache = list;
   productsIndex = buildProductsIndex(list);
@@ -314,13 +322,19 @@ async function saveProducts(list, onProgress) {
   // ⚠️⚠️ و`updatedAt` بتفضل null عن قصد: productsStampOf بتقرا منها،
   // ولو حطّينا فيها تاريخ محلي هتتحسب بصمة **غلط** وكل الأجهزة تفضل
   // على نسخة قديمة. البصمة بتتحسب من السيرفر بس.
-  productsMeta = {
-    count: list.length,
-    chunks: chunks.length,
-    updatedAt: null,
-    updatedByName: by,
-    localUpdatedAt: new Date(),
-  };
+  // ⚠️ extraMeta هنا كمان مش بس في السحابة: من غيرها، البصمة اللي
+  // لسه اتكتبت مش هتبقى في الذاكرة — والفحص اللي بيجي بعد الرفع
+  // هيلاقي "مافيش بصمة" ويرفع نفس الملف تاني.
+  productsMeta = Object.assign(
+    {
+      count: list.length,
+      chunks: chunks.length,
+      updatedAt: null,
+      updatedByName: by,
+      localUpdatedAt: new Date(),
+    },
+    extraMeta || {}
+  );
   // ⚠️ البصمة القديمة بقت غلط دلوقتي. بنشيلها بدل ما نحاول نحسب الجديدة:
   // `serverTimestamp` لسه ماتأكدتش من السيرفر لحظة الكتابة، فأي بصمة
   // نحسبها هنا هتبقى ناقصة — والنتيجة إن الأجهزة تفضل على نسخة قديمة.
@@ -758,6 +772,8 @@ function productsScreenHTML() {
         </div>
       </div>
 
+      ${typeof productsFileBannerHTML === 'function' ? productsFileBannerHTML() : ''}
+
       ${
         results.length
           ? state.isNarrow
@@ -792,6 +808,8 @@ function productsScreenHTML() {
 }
 
 function attachProductsEvents() {
+  if (typeof attachProductsFileEvents === 'function') attachProductsFileEvents();
+
   const importBtn = document.getElementById('products-import-btn');
   if (importBtn) importBtn.addEventListener('click', () => openProductsImportDialog(() => render()));
 
