@@ -27,8 +27,13 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
     // سحابة مقلّدة بتسجّل نتايج الأوامر
     const q = {};
-    q.doc = () => ({
-      set: async (data) => { if (data.helperCmdResult) out.reports.push(data.helperCmdResult); },
+    out.sent = [];
+    q.doc = (docId) => ({
+      set: async (data) => {
+        if (data.helperCmdResult) out.reports.push(data.helperCmdResult);
+        // ⚠️ الأوامر المتبعتة لأجهزة تانية — ده قلب فحص التمرير (export)
+        if (data.helperCmd) out.sent.push({ to: docId, cmd: data.helperCmd });
+      },
       get: async () => ({ exists: false, data: () => ({}) }),
       update: async () => {}, delete: async () => {}, onSnapshot: () => () => {},
     });
@@ -124,6 +129,64 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     out.badReport = out.reports[0] || null;
     window.__importOk = true;
 
+    // ============================================================
+    // 📤 (9-13) التمرير: "يا جهاز كذا، وزّع إعداداتك"
+    // ============================================================
+    // ⚠️ ده اللي بيخلي الخطوة تشتغل من التليفون. التليفون مالوش
+    // مساعد يقرا منه، فبيطلب من كمبيوتر إنه يبقى هو المصدر.
+    window.getDeviceId = () => 'me-device';
+
+    // ---- (9) التمرير بيقرا محليًا وبيوزّع sync ----
+    reset();
+    helperCmdSeeded = true;
+    out.sent.length = 0;
+    handleHelperCommand({ helperCmd: { id: '777', kind: 'export', to: ['a', 'b'] } });
+    await wait(300);
+    out.expExports = out.calls.filter((c) => c.indexOf('/settings/export') !== -1).length;
+    out.expSent = out.sent.slice();
+    out.expReport = out.reports[0] || null;
+
+    // ---- (10) الجهاز نفسه بيتشال من القايمة ----
+    reset();
+    helperCmdSeeded = true;
+    out.sent.length = 0;
+    handleHelperCommand({ helperCmd: { id: '888', kind: 'export', to: ['a', 'me-device'] } });
+    await wait(300);
+    out.selfSent = out.sent.map((x) => x.to);
+
+    // ---- (11) من غير أجهزة = بيرد بالسبب ومابيقراش أصلًا ----
+    reset();
+    helperCmdSeeded = true;
+    out.sent.length = 0;
+    handleHelperCommand({ helperCmd: { id: '999', kind: 'export', to: [] } });
+    await wait(300);
+    out.emptyReport = out.reports[0] || null;
+    out.emptyExports = out.calls.filter((c) => c.indexOf('/settings/export') !== -1).length;
+    out.emptySent = out.sent.length;
+
+    // ---- (12) المساعد مقفول = مافيش توزيع خالص ----
+    reset();
+    helperCmdSeeded = true;
+    out.sent.length = 0;
+    window.__helperUp = false;
+    handleHelperCommand({ helperCmd: { id: 'aaa', kind: 'export', to: ['a'] } });
+    await wait(300);
+    out.expDownReport = out.reports[0] || null;
+    out.expDownSent = out.sent.length;
+    window.__helperUp = true;
+
+    // ---- (13) نفس أمر التمرير تاني = **مايتنفّذش** ----
+    reset();
+    helperCmdSeeded = true;
+    out.sent.length = 0;
+    handleHelperCommand({ helperCmd: { id: 'bbb', kind: 'export', to: ['a'] } });
+    await wait(300);
+    out.expFirst = out.sent.length;
+    out.sent.length = 0;
+    handleHelperCommand({ helperCmd: { id: 'bbb', kind: 'export', to: ['a'] } });
+    await wait(300);
+    out.expRepeat = out.sent.length;
+
     // ---- (8) حالة الطابعة ----
     printerStateCache = null; printerStateAt = 0;
     out.calls.length = 0;
@@ -169,6 +232,56 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   // ⚠️ متخزّنة: النبضة بتشتغل كل 45 ثانية، والنداء ده محلي بس
   // مايصحّش يتكرر مع كل قراية.
   check('⭐⭐⭐ ومتخزّنة (نداء واحد للاتنين)', r.pstateCalls === 1, r.pstateCalls);
+
+  // ============================================================
+  // 📤 التمرير من التليفون
+  // ============================================================
+  // اتطلب بالنص: "ينفع اعمل الخطوة دي من التليفون يعني اقول مثلا
+  // المساعد بتاع الجهاز الفلاني المتصل ده عاوز اعداداته ... تعمم".
+  check('⭐⭐⭐⭐⭐ التمرير بيقرا إعدادات المساعد المحلي مرة واحدة',
+    r.expExports === 1, r.expExports);
+  check('⭐⭐⭐⭐⭐ وبيبعت sync لكل جهاز في القايمة',
+    r.expSent.length === 2 && r.expSent.every((x) => x.cmd.kind === 'sync') &&
+    r.expSent.map((x) => x.to).sort().join(',') === 'a,b',
+    r.expSent);
+  // ⚠️ الإعدادات نفسها لازم تروح — أمر sync فاضي بيتجاهل عند
+  // المستقبِل ويرد "الأمر جه من غير إعدادات".
+  check('⭐⭐⭐⭐ والإعدادات نفسها بتتحط في الأمر',
+    r.expSent.length === 2 && r.expSent.every((x) => x.cmd.payload && x.cmd.payload.labelPrinter === 'P235'),
+    r.expSent[0] && r.expSent[0].cmd);
+  check('⭐⭐⭐ والمصدر بيرد بعدد اللي اتبعتلهم',
+    r.expReport && r.expReport.ok === true && /2/.test(r.expReport.msg), r.expReport);
+
+  // ⚠️ من غير ده الجهاز بيبعت لنفسه أمر توحيد — حلقة مالهاش لازمة
+  // وممكن تلخبط الردود.
+  check('⭐⭐⭐⭐ الجهاز المصدر مابيبعتش لنفسه',
+    r.selfSent.length === 1 && r.selfSent[0] === 'a', r.selfSent);
+
+  check('⭐⭐⭐⭐ أمر تمرير من غير أجهزة بيرد بالسبب ومابيقراش',
+    r.emptyReport && r.emptyReport.ok === false && r.emptyExports === 0 && r.emptySent === 0,
+    { rep: r.emptyReport, ex: r.emptyExports, sent: r.emptySent });
+
+  // ⚠️⚠️ الأخطر: المساعد مقفول على المصدر. لو وزّعنا برضه،
+  // هنكتب فوق إعدادات كل الأجهزة بحاجة فاضية.
+  check('⭐⭐⭐⭐⭐ المصدر اللي مساعده مقفول **مايوزّعش**',
+    r.expDownSent === 0 && r.expDownReport && r.expDownReport.ok === false,
+    { sent: r.expDownSent, rep: r.expDownReport });
+
+  check('⭐⭐⭐⭐⭐ ونفس أمر التمرير تاني مابيتنفّذش',
+    r.expFirst === 1 && r.expRepeat === 0, { first: r.expFirst, again: r.expRepeat });
+
+  // ============================================================
+  // ⚠️⚠️ الجهاز المقفول: بيتشال من الاستهداف، والنص بيقول كده
+  // ============================================================
+  // الأمر اللي بيتكتب لجهاز مقفول بيتلغي أول ما يفتح (أول لقطة =
+  // تسجيل وبس، وده متفحوص فوق). فالنص اللي كان بيقول "الجهاز المقفول
+  // بينفّذ أول ما يفتح" كان **بيوعد بحاجة مش بتحصل**.
+  const core = require('fs').readFileSync(require('path').join(__dirname, '..', 'js/print-core.js'), 'utf8');
+  check('⭐⭐⭐⭐⭐ النص مابيوعدش إن المقفول هينفّذ لما يفتح',
+    !/الجهاز المقفول بينفّذ/.test(core) && /الجهاز المقفول مش هيستلم/.test(core));
+  check('⭐⭐⭐⭐ والاستهداف على الفاتحين بس',
+    /const onlineOthers = \(\) => others\(\)\.filter\(\(x\) => isStationOnline\(x\)\);/.test(core) &&
+    /const targetsFor = \(src\) => onlineOthers\(\)/.test(core));
 
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 

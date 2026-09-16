@@ -40,6 +40,11 @@ const NOTIFY_ENABLED_KEY = 'notify_restock'; // مفتاح المستخدم (ت�
 const RESOUND_AFTER_MS = 5 * 60 * 1000;
 
 let notifyBaseline = null; // مفتاح كل درجة معلّقة وقت ما النظام فتح
+// ⚠️ أرقام الفئات اللي فيها طلب معلّق في آخر لقطة — بنقارن بيها
+// عشان نعرف إمتى فئة **خرجت** من المعلّق (يعني اتزوّدت أو اتلغت)،
+// فنقفل إشعارها لو كان لسه واقف. الشرح عند
+// clearSettledCategoryNotifications.
+let notifyPrevCats = null;
 let notifyPendingCount = 0; // كام طلب جديد لسه المستخدم مشافهوش
 let notifyLastSoundAt = 0;
 let notifyLastNames = [];
@@ -250,15 +255,73 @@ async function showRestockNotification(count, names, ring) {
   }
 }
 
-async function clearRestockNotification() {
+// ⚠️⚠️ بيدوّر في **كل** التسجيلات، مش واحد
+// ============================================================
+// النظام عنده service worker**ين**: sw.js (اللي بيرسم الإشعار المحلي)
+// وfirebase-messaging-sw.js بنطاق خاص بيه (اللي بيرسم الإشعار الجاي من
+// السحابة والنظام مقفول).
+//
+// getRegistration() من غير عنوان بترجّع **واحد** بس — اللي ماسك الصفحة،
+// يعني sw.js. فالإشعار الجاي من السحابة كان بره المسح تمامًا.
+async function ourNotifications() {
+  const out = [];
   try {
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg || !reg.getNotifications) return;
-    const list = await reg.getNotifications({ tag: NOTIFY_TAG });
-    list.forEach((n) => n.close());
+    if (!navigator.serviceWorker || !navigator.serviceWorker.getRegistrations) return out;
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const reg of regs) {
+      if (!reg || !reg.getNotifications) continue;
+      try {
+        const list = await reg.getNotifications();
+        list.forEach((n) => {
+          const tag = String((n && n.tag) || '');
+          // بتوعنا بس: الوسم المحلي، أو وسم فئة (الوسم + '-' + رقم الفئة)
+          if (tag === NOTIFY_TAG || tag.indexOf(NOTIFY_TAG + '-') === 0) out.push(n);
+        });
+      } catch (err) {
+        /* تسجيل مابيردّش — نكمّل على الباقي */
+      }
+    }
   } catch (err) {
     /* عادي */
   }
+  return out;
+}
+
+async function clearRestockNotification() {
+  const list = await ourNotifications();
+  list.forEach((n) => {
+    try { n.close(); } catch (err) { /* عادي */ }
+  });
+}
+
+// ============================================================
+// ⏰ الإشعار اللي وصل متأخّر والطلب خلاص اتزوّد
+// ============================================================
+// ⚠️⚠️ السؤال اللي اتسأل بالنص:
+//   "لو انت فاصل ... وفي طلب تزويد اتبعت وفتحت بعد ٣ ساعات كده هيجيلي
+//    إشعار طيب لو كان طلب التزويد خلاص اتزود او اتلغي هيجي بردوا ولا
+//    هيتاكد الاول انه لسه موجود"
+//
+// الإجابة الصريحة: الإشعار بيتكتب **لحظة الطلب** وبيتخزّن في جوجل زي
+// ما هو. لما التليفون يرجع، جوجل بتسلّمه الرسالة المحفوظة — مافيش حد
+// بيروح يسأل "الطلب ده لسه معلّق ولا لأ". فآه، بيجي حتى لو اتزوّد.
+//
+// وده **مش ممكن يتصلّح في الإشعار نفسه**: الجهاز وهو مقفول مالوش
+// اتصال بقاعدة البيانات يسأل بيه أصلًا.
+//
+// اللي ممكن — وهو اللي بيتعمل هنا: أول ما تفتح النظام، إحنا شايفين
+// المعلّق الحقيقي. فأي إشعار فئة مافيهاش أي طلب معلّق **بيتقفل
+// لوحده**. يعني الإشعار البايت بيختفي أول ما تبص على النظام، من غير ما
+// تقف تمسحه بإيدك، ومن غير ما تدوّر على طلب مش موجود.
+async function clearSettledCategoryNotifications(pendingCats) {
+  const list = await ourNotifications();
+  list.forEach((n) => {
+    const tag = String((n && n.tag) || '');
+    if (tag.indexOf(NOTIFY_TAG + '-') !== 0) return;   // الوسم المحلي مش من شغلنا هنا
+    const catId = tag.slice((NOTIFY_TAG + '-').length);
+    if (!catId || pendingCats.has(catId)) return;      // لسه فيها طلب معلّق = سيبه
+    try { n.close(); } catch (err) { /* عادي */ }
+  });
 }
 
 // ============================================================
@@ -283,6 +346,7 @@ function onGradesSnapshotForNotify(snap) {
   if (!snap || !snap.docs) return;
 
   const pendingNow = new Set();
+  const pendingCats = new Set();
   const fresh = [];
 
   snap.docs.forEach((d) => {
@@ -293,10 +357,24 @@ function onGradesSnapshotForNotify(snap) {
     if (!catId) return;
     const key = restockKeyOf(catId, d.id);
     pendingNow.add(key);
+    pendingCats.add(catId);
     // فخ (2): الكتابة دي لسه محليّة عندي = أنا اللي عملتها
     if (d.metadata && d.metadata.hasPendingWrites) return;
     if (notifyBaseline && !notifyBaseline.has(key)) fresh.push({ catId, id: d.id, g });
   });
+
+  // ⏰ الإشعار المتأخّر اللي طلبه خلص — الشرح الكامل عند
+  // clearSettledCategoryNotifications.
+  //
+  // ⚠️ بنمسح **بس** لما فئة تخرج من المعلّق (أو أول لقطة بعد الفتح،
+  // ودي بالظبط حالة "قفلت التليفون ٣ ساعات وفتحت"). من غير الشرط ده
+  // كنا هنسأل المتصفح عن الإشعارات مع **كل** لقطة — وده حِمل مجاني على
+  // كل جهاز في المحل مقابل لا حاجة.
+  const catsChanged =
+    !notifyPrevCats ||
+    [...notifyPrevCats].some((c) => !pendingCats.has(c));
+  notifyPrevCats = pendingCats;
+  if (catsChanged) clearSettledCategoryNotifications(pendingCats);
 
   // فخ (1): أول لقطة بتتسجّل خط أساس وبس
   if (!notifyBaseline) {
@@ -365,6 +443,9 @@ function resetRestockBurst() {
 // ترن على طلبات كانت موجودة قبل ما يدخل.
 function resetRestockNotifyState() {
   notifyBaseline = null;
+  // ⚠️ معاها: حساب جديد = أول لقطة تتحسب من الأول، فالمسح يشتغل
+  // تاني بدل ما يفضل فاكر فئات الحساب اللي قبله.
+  notifyPrevCats = null;
   notifyLastSoundAt = 0;
   resetRestockBurst();
 }
