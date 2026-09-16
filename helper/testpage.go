@@ -139,19 +139,67 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
     <input id="mm" type="number" value="250" min="20" max="1000"></div>
   </div>
   <div id="out"></div>
+
+  <!-- ============================================================
+       🩺 اسأل الطابعة
+       ============================================================
+       ⚠️⚠️ ده **تشخيص** مش ميزة جاهزة. اللي بيرجع جاي من تعريف
+       الطابعة، وتعريفات الطابعات الحرارية الرخيصة كتير منها بيرجّع
+       صفر دايمًا — يعني "مافيش مشكلة" حتى والرول خلص.
+
+       فقبل ما نبني عليه أي تصرّف، المستخدم بيجرّبه على ماكينته
+       **والرول خارج والغطا مفتوح** ويقولنا بيرجّع إيه. الرقم الخام
+       ظاهر عن قصد: هو اللي بيفرّق بين "بلّغ إن كله تمام" و"مابلّغش
+       حاجة أصلًا". -->
+  <hr class="hr">
+  <div style="font-size:12.5px;font-weight:600;margin-bottom:4px">&#129658; حالة الطابعة (تشخيص)</div>
+  <div class="note" style="margin-bottom:8px">
+   دوس الزرار وهو <b>شغّال عادي</b>، وبعدين <b>اطلع الرول</b> ودوس تاني،
+   وبعدين <b>افتح الغطا</b> ودوس تاني — وقولنا الرقم اتغيّر ولا لأ.
+   لو الرقم فضل زي ما هو في التلاتة، يبقى ماكينتك مابتبلّغش والمفتاح تحت
+   مش هينفع معاها.</div>
+  <div class="row">
+   <button class="ghost" id="pstat">&#129658; اسأل الطابعة</button>
+  </div>
+  <div id="pstat-out" style="font-size:13px;line-height:1.8;margin-top:8px;min-height:18px"></div>
+  <label class="chk" style="margin-top:8px"><input type="checkbox" id="stopbad">
+   <span>اوقف الطبعة لو الطابعة مبلّغة مشكلة
+    <small>&#9888; متفتحهاش غير لما تتأكد من التشخيص فوق. لو التعريف بيبلّغ غلط، الطباعة هتقف وانت مش عارف ليه.</small></span></label>
  </div>
 
  <div class="card">
   <div class="sec-title">&#9881;&#65039; البرنامج</div>
   <label class="chk"><input type="checkbox" id="auto">
    <span>يشتغل لوحده مع الويندوز<small>في الخلفية، من غير ما يفتح الصفحة دي.</small></span></label>
-  <div class="row" style="margin-top:8px">
+  <label class="chk"><input type="checkbox" id="opensys">
+   <span>ويفتح نظام التزويد كمان
+    <small>تفتح الكمبيوتر تلاقي النظام مفتوح ومستني. (محتاج المفتاح اللي فوق مفتوح.)</small></span></label>
+
+  <!-- ============================================================
+       📦 نقل الإعدادات
+       ============================================================
+       ⚠️ الهوية (معرّف الماكينة واسم الجهاز) **مابتتنقلش** — لو
+       اتنقلت، الجهازين هيبقوا جهاز واحد في النظام. -->
+  <div class="row" style="margin-top:12px">
+   <a class="ghost" href="/settings/export" download
+      style="padding:10px 14px;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--ink);font-size:14px;font-weight:500">&#128229; احفظ الإعدادات في ملف</a>
+   <button class="ghost" id="impbtn">&#128228; حمّل إعدادات من ملف</button>
+   <input type="file" id="impfile" accept=".json,application/json" style="display:none">
+  </div>
+  <div class="note" style="margin-top:8px">ظبّط كمبيوتر واحد وانقل الملف للباقيين — التصاميم والمقاسات والمعايرة بتتنقل، واسم الجهاز وهويته بيفضلوا بتوع كل جهاز.</div>
+  <div id="impout" style="font-size:13px;margin-top:8px;min-height:16px"></div>
+
+  <div class="row" style="margin-top:12px">
    <button class="ghost" id="up">&#128260; شوف لو فيه تحديث</button>
   </div>
   <div id="uout"></div>
  </div>
 
- <div class="card" style="position:sticky;bottom:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+ <!-- ⚠️⚠️ **مش** sticky. جرّبناها ثابتة تحت، والنتيجة إنها بتغطّي
+      اللي تحتها وانت بتنزّل — وفي الصورة كانت مغطّية مفتاح "اوقف
+      الطبعة لو الطابعة مبلّغة مشكلة" تمامًا. وشكوى الترتيب الأصلية
+      كانت من حاجة زي دي بالظبط، فمايصحّش نحلها بحاجة تعملها تاني. -->
+ <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <button id="save" style="flex:1;min-width:180px">&#128190; احفظ الإعدادات</button>
   <div id="sout" style="font-size:12.5px"></div>
  </div>
@@ -173,6 +221,8 @@ fetch('/status').then(r=>r.json()).then(s=>{
   document.getElementById('gap').value=(s.labelGapMm!==undefined?s.labelGapMm:2);
   document.getElementById('dir').value=String(s.labelDirection!==undefined?s.labelDirection:1);
   document.getElementById('flip').checked=!!s.labelFlip;
+  document.getElementById('stopbad').checked=!!s.stopOnPrinterProblem;
+  document.getElementById('opensys').checked=!!s.openSystemOnStart;
   // ⚠️ النسخة وعدد الطابعات فوق في الشريط مش في صندوق نتيجة الطباعة:
   // كانوا بيتكتبوا في #out، وأول ما تطبع تجربة بيتمسحوا — فالمعلومة
   // اللي المفروض تفضل قدامك كانت بتختفي.
@@ -238,6 +288,52 @@ document.getElementById('auto').onchange=async(e)=>{
   }catch(err){ sout.textContent='\u274c '+err; sout.className='bad'; e.target.checked=!on; }
 };
 
+// ⚠️ "يفتح النظام كمان" بيتحفظ **لوحده** زي "يشتغل مع الويندوز"
+// بالظبط: الاتنين في نفس القسم، ولو واحد بيتحفظ لوحده والتاني
+// مستني زرار الحفظ اللي في قسم تاني، المستخدم هيعلّم ويمشي ويفتكره
+// اتحفظ. (ودي نفس الحجة اللي خلّت autostart يتحفظ لوحده من الأصل.)
+document.getElementById('opensys').onchange=async(e)=>{
+  const o=document.getElementById('sout');
+  o.textContent='...'; o.className='';
+  try{
+    const r=await (await fetch('/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({openSystemOnStart:e.target.checked})})).json();
+    o.textContent=r.ok?(e.target.checked?'\u2705 النظام هيفتح مع الويندوز':'\u2705 النظام مش هيفتح لوحده'):'\u274c '+(r.error||'');
+    o.className=r.ok?'ok':'bad';
+  }catch(err){ o.textContent='\u274c '+err; o.className='bad'; e.target.checked=!e.target.checked; }
+};
+
+// 📦 تحميل ملف إعدادات
+document.getElementById('impbtn').onclick=()=>document.getElementById('impfile').click();
+document.getElementById('impfile').onchange=async(e)=>{
+  const f=e.target.files&&e.target.files[0]; if(!f) return;
+  const o=document.getElementById('impout');
+  o.textContent='بيحمّل...'; o.className='';
+  try{
+    const txt=await f.text();
+    const r=await (await fetch('/settings/import',{method:'POST',headers:{'Content-Type':'application/json'},body:txt})).json();
+    if(r.ok){
+      o.textContent='\u2705 اتحمّل — '+r.designs+' تصميم. اعمل ريفريش للصفحة.';
+      o.className='ok';
+    } else { o.textContent='\u274c '+(r.error||'مش عارف'); o.className='bad'; }
+  }catch(err){ o.textContent='\u274c '+err; o.className='bad'; }
+  e.target.value='';
+};
+
+// 🩺 التشخيص: بنوري الرقم الخام والكلام مع بعض.
+document.getElementById('pstat').onclick=async()=>{
+  const o=document.getElementById('pstat-out');
+  o.textContent='بيسأل...'; o.className='';
+  try{
+    const j=await (await fetch('/printer/status')).json();
+    if(j.error){ o.textContent='\u274c '+j.error; o.className='bad'; return; }
+    o.innerHTML='<b>'+j.summary+'</b>'
+      +'<br>الرقم الخام: <code>'+j.raw+'</code> — أوامر في الطابور: '+j.jobs
+      +'<br><span style="font-size:11.5px;color:var(--mut)">الطابعة: '+j.name+'</span>';
+    o.className=j.blocking?'bad':'ok';
+  }catch(e){ o.textContent='\u274c '+e; o.className='bad'; }
+};
+
 document.getElementById('save').onclick=async()=>{
   sout.textContent='بيحفظ...'; sout.className='';
   try{
@@ -246,7 +342,9 @@ document.getElementById('save').onclick=async()=>{
         deviceName:document.getElementById('devname').value.trim(),
         labelGapMm:+document.getElementById('gap').value,
         labelDirection:+document.getElementById('dir').value,
-        labelFlip:document.getElementById('flip').checked})})).json();
+        labelFlip:document.getElementById('flip').checked,
+        stopOnPrinterProblem:document.getElementById('stopbad').checked,
+        openSystemOnStart:document.getElementById('opensys').checked})})).json();
     sout.textContent=r.ok?'\u2705 اتحفظ':'\u274c '+(r.error||'مش عارف');
     sout.className=r.ok?'ok':'bad';
   }catch(e){ sout.textContent='\u274c '+e; sout.className='bad'; }
