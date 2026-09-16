@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.15.0"
+	version = "1.16.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -503,11 +503,20 @@ func newServer() *http.ServeMux {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})
 			return
 		}
-		if err := applyUpdate(); err != nil {
+		// ⚠️ إعادة التركيب بالإجبار — للنسخة اللي على الجهاز لو بايظة.
+		// الافتراضي **لأ**: الشرح عند applyUpdate.
+		force := r.URL.Query().Get("force") == "1"
+		updated, err := applyUpdate(force)
+		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": updated, "version": version})
+		// ⚠️⚠️ مافيش إعادة تشغيل لو مافيش تحديث: قفل البرنامج
+		// وفتحه من غير أي سبب هو نفسه العطل اللي اتبلّغ.
+		if !updated {
+			return
+		}
 		// ⚠️ الرد بيتبعت **قبل** إعادة التشغيل: لو قفلنا الأول،
 		// الصفحة مش هتعرف إن التحديث نجح.
 		go func() {

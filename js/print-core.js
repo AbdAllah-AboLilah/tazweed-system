@@ -2555,7 +2555,16 @@ async function runHelperCommand(cmd) {
     // ولو استنينا بعد القفل مكناش هنلاقي حد يرد علينا.
     const res = await fetch(HELPER_URL + '/update/apply', { method: 'POST' });
     const j = await res.json();
-    await reportHelperCmd(cmd.id, kind, !!j.ok, j.ok ? 'اتحدّث وبيقفل ويفتح' : (j.error || 'مش عارف'));
+    // ⚠️⚠️ الرد بيفرّق بين "اتحدّث" و"هو أصلًا على آخر نسخة".
+    // اتبلّغ بالنص: "لما بضغط علي تحديث المساعد بيرجع ينزل اخر نسخة
+    // حتي لو كانت علي الجهاز اخر نسخة" — فالبرنامج بقى مايحمّلش،
+    // والرسالة هنا لازم تقول الحقيقة بدل "اتحدّث وبيقفل ويفتح".
+    await reportHelperCmd(
+      cmd.id, kind, !!j.ok,
+      j.ok
+        ? (j.updated ? 'اتحدّث وبيقفل ويفتح' : `على آخر نسخة خلاص (${j.version || ''})`)
+        : (j.error || 'مش عارف')
+    );
   } catch (err) {
     await reportHelperCmd(cmd.id, kind, false, String(err && err.message ? err.message : err));
   }
