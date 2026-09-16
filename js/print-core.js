@@ -2571,21 +2571,46 @@ function handleHelperCommand(data) {
     try { localStorage.setItem(HELPER_CMD_SEEN_KEY, val); } catch (err) { /* التخزين مقفول */ }
   };
 
-  // ⚠️ أول لقطة بعد فتح الصفحة = تسجيل وبس. من غير ده، أي جهاز بيفتح
-  // بعد أمر قديم هينفّذه تاني — والتحديث مرتين مش مشكلة، بس توحيد
-  // الإعدادات بيرجّع اللي المستخدم غيّره بعدها.
-  if (!helperCmdSeeded) {
-    helperCmdSeeded = true;
-    remember();
-    return;
-  }
+  const first = !helperCmdSeeded;
+  helperCmdSeeded = true;
 
+  // ⚠️ اتنفّذ خلاص؟ مايتكررش مهما حصل.
   let seen = '';
   try { seen = localStorage.getItem(HELPER_CMD_SEEN_KEY) || ''; } catch (err) { /* تجاهل */ }
   if (val === seen) return;
 
   remember(); // ⚠️ قبل التنفيذ مش بعده — لو التنفيذ وقع، مايتكررش لوحده
+
+  // ============================================================
+  // ⚠️⚠️ أول لقطة: القديم بيتسجّل والطازة بينفّذ
+  // ============================================================
+  // الحارس الأصلي كان بيسجّل **أي** أمر في أول لقطة من غير تنفيذ،
+  // عشان جهاز بيفتح بعد أمر قديم مايعيدهوش — وتوحيد الإعدادات مرتين
+  // بيرجّع اللي المستخدم غيّره بينهم.
+  //
+  // ⚠⚠ بس الحارس ده كان بيبلع حالة حقيقية، اتبلّغت بالنص:
+  //   "انا فتحت جهاز وبعت تحديث مش راضي يروحله"
+  //
+  // لأن الجهاز اللي بيفتح **دلوقتي** أول لقطة عنده فيها الأمر اللي
+  // اتكتب من ثانيتين — فبيتسجّل كأنه قديم ويضيع.
+  //
+  // فالفرق بقى **عمر الأمر** مش ترتيب اللقطة: أقل من 3 دقايق = طازة
+  // وبينفّذ، أكتر = بيتسجّل وبس. وأمر قديم من غير طابع وقت (نسخة
+  // أقدم من النظام) بيتعامل كقديم — الأأمن.
+  if (first && !helperCmdIsFresh(cmd)) return;
+
   runHelperCommand(cmd);
+}
+
+// عمر الأمر — بيتحسب من الطابع اللي اللي باعته حطّه.
+const HELPER_CMD_FRESH_MS = 3 * 60 * 1000;
+function helperCmdIsFresh(cmd) {
+  const at = Number(cmd && cmd.at);
+  if (!at) return false;
+  const age = Date.now() - at;
+  // ⚠️ السالب برضه طازة: ساعة الجهازين ممكن تفرق بثواني، ولو
+  // رفضنا السالب هنرجع لنفس العطل على جهاز ساعته متقدّمة شوية.
+  return age < HELPER_CMD_FRESH_MS && age > -HELPER_CMD_FRESH_MS;
 }
 
 // بيبعت الأمر لأجهزة. بيرجّع عدد اللي وصلهم.
@@ -2595,7 +2620,7 @@ async function sendHelperCommand(deviceIds, kind, payload, extra) {
   // ⚠️ نفس المعرّف للكل في الطلب الواحد — عشان يبقى عملية واحدة
   // وتقدر تقارن الردود ببعض.
   const id = String(Date.now());
-  const cmd = { id, kind };
+  const cmd = { id, kind, at: Date.now() };
   if (payload) cmd.payload = payload;
   // ⚠️ حقول زيادة (زي `to` في أمر export) — بتتحط بالاسم، مش بنسخ
   // الكائن كله، عشان مايعديش حقل مش متوقّع للجهاز التاني.
@@ -5554,7 +5579,8 @@ async function openPrinterSettings() {
               الأمر بيتكتب في السحابة، وكل كمبيوتر فاتح النظام بيقراه ويودّيه
               للبرنامج المساعد اللي عنده.
               <br>⚠️ <strong>الجهاز المقفول مش هيستلم</strong> — الأوامر بتروح للفاتحين
-              دلوقتي بس. افتح الجهاز الأول وبعدين ابعت.
+              دلوقتي بس. افتح الجهاز الأول، استنى لحد ما يبان في القايمة، وبعدين ابعت.
+              <br>⏱️ والجهاز اللي لسه بيفتح وقت ما بعتّ هياخد الأمر برضه (خلال 3 دقايق).
               <br>⚠️ <strong>اسم الجهاز وهويته مابيتنقلوش</strong> — كل كمبيوتر بيفضل هو هو في النظام.
             </div>
             <!-- ⚠️⚠️ المصدر بقى **اختيار** مش "الجهاز اللي أنا عليه"
@@ -5965,25 +5991,60 @@ async function openPrinterSettings() {
     // ونقول له صراحةً مين اللي اتساب بره.
     const onlineOthers = () => others().filter((x) => isStationOnline(x));
 
+    // ============================================================
+    // ⚠️⚠️ الردود بتخص **الأمر اللي انت بعته دلوقتي** وبس
+    // ============================================================
+    // اتبلّغ بالنص: "الردود بتفضل محفوظه حتي بعد لما اقفل وافتح تاني
+    // بمعني ان لما ابعت تحديث واتبعتلي الرد المفروض لما يتحدث المساعد
+    // مرة تانيه او ادخل الشاشة ملقيش الرد القديم".
+    //
+    // وهو محق: helperCmdResult بيفضل في مستند الجهاز للأبد، فالشاشة
+    // كانت بتعرض رد من أمر من أسبوع كأنه رد على اللي لسه باعته.
+    //
+    // الحل: كل رد عليه معرّف الأمر بتاعه (r.id). فبنعرض اللي معرّفه
+    // **يطابق** اللي بعتناه من الشاشة دي، والباقي كأنه مش موجود.
+    // وأول ما تفتح الشاشة مافيش أمر متبعت — فمافيش ردود.
+    let cmdId = '';
+    let cmdTargets = [];
+
     const showResults = () => {
       const box = overlay.querySelector('#allhelp-results');
       if (!box) return;
-      const list = others();
-      if (!list.length) {
-        box.innerHTML = '<span style="color:var(--text-muted);">مافيش أجهزة تانية مسجّلة.</span>';
+      if (!cmdId) {
+        box.innerHTML =
+          '<span style="color:var(--text-muted);">مافيش أمر متبعت من الشاشة دي — ابعت واحد وهتلاقي رد كل جهاز هنا.</span>';
         return;
       }
-      box.innerHTML = list
-        .map((x) => {
+      const live = state.printStations || [];
+      box.innerHTML = cmdTargets
+        .map((t) => {
+          const x = live.find((s) => s.id === t.id) || t;
           const r = x.helperCmdResult;
-          const name = escapeHTML(x.deviceName || 'جهاز بدون اسم');
-          if (!r) return `<div>⚪ ${name} — <span style="color:var(--text-muted);">لسه مارَدّش</span></div>`;
+          const name = escapeHTML(x.deviceName || t.name || 'جهاز بدون اسم');
+          // ⚠️ رد من أمر تاني = مش رد. الشرح فوق.
+          if (!r || String(r.id || '') !== cmdId) {
+            return `<div>⚪ ${name} — <span style="color:var(--text-muted);">لسه مارَدّش</span></div>`;
+          }
           const icon = r.ok ? '✅' : '❌';
           const color = r.ok ? 'var(--ok)' : 'var(--warning-text)';
           return `<div>${icon} ${name} — <span style="color:${color};">${escapeHTML(r.msg || '')}</span></div>`;
         })
         .join('');
     };
+
+    // ⚠️ بعد الإرسال بنعيد القراية لوحدنا كام مرة: الردود بتوصل خلال
+    // ثواني، ومش منطقي إنه يفضل يدوس "شوف الردود".
+    const watchResults = () => {
+      [1500, 4000, 9000, 20000].forEach((ms) => setTimeout(showResults, ms));
+    };
+
+    const startCmd = (id, list) => {
+      cmdId = String(id || '');
+      cmdTargets = list.map((x) => ({ id: x.id, name: x.deviceName }));
+      showResults();
+      watchResults();
+    };
+
     showResults();
 
     const st = overlay.querySelector('#allhelp-status');
@@ -5994,7 +6055,9 @@ async function openPrinterSettings() {
     };
 
     const refreshBtn = overlay.querySelector('#allhelp-refresh');
-    if (refreshBtn) refreshBtn.addEventListener('click', showResults);
+    // ⚠️ بيحدّث **قايمة الأجهزة** كمان مش الردود بس: الجهاز اللي
+    // فتح بعد ما النافذة اتفتحت لازم يبان في قايمة المصدر.
+    if (refreshBtn) refreshBtn.addEventListener('click', () => { fillSrc(); showResults(); });
 
     // ============================================================
     // 📤 اختيار جهاز المصدر
@@ -6097,7 +6160,8 @@ async function openPrinterSettings() {
           }
           const id = await sendHelperCommand(list.map((x) => x.id), 'sync', payload);
           syncBtn.disabled = false;
-          say(id ? `📤 اتبعت لـ${list.length} جهاز — دوس "شوف الردود" بعد شوية.` : 'مش قادر أبعت.', !id);
+          if (id) startCmd(id, list);
+          say(id ? `📤 اتبعت لـ${list.length} جهاز — الردود هتبان تحت لوحدها.` : 'مش قادر أبعت.', !id);
           return;
         }
 
@@ -6105,9 +6169,13 @@ async function openPrinterSettings() {
         // ⚠️ ده اللي بيخلي الخطوة دي تشتغل من التليفون.
         const id = await sendHelperCommand([src], 'export', null, { to: list.map((x) => x.id) });
         syncBtn.disabled = false;
+        // ⚠️ المصدر هو اللي بيرد على أمر التمرير — الأجهزة التانية
+        // بترد على أمر sync اللي هو بعته (بمعرّف تاني)، فمابنستناش
+        // ردودها هنا.
+        if (id) startCmd(id, (state.printStations || []).filter((x) => x.id === src));
         say(
           id
-            ? `📤 اتبعت الطلب لـ"${srcName}" عشان يوزّع على ${list.length} جهاز — دوس "شوف الردود" بعد شوية.`
+            ? `📤 اتبعت الطلب لـ"${srcName}" عشان يوزّع على ${list.length} جهاز — رده هيبان تحت.`
             : 'مش قادر أبعت.',
           !id
         );
@@ -6129,7 +6197,8 @@ async function openPrinterSettings() {
         upBtn.disabled = true;
         const id = await sendHelperCommand(list.map((x) => x.id), 'update');
         upBtn.disabled = false;
-        say(id ? `🔄 اتبعت لـ${list.length} جهاز — دوس "شوف الردود" بعد شوية.` : 'مش قادر أبعت.', !id);
+        if (id) startCmd(id, list);
+        say(id ? `🔄 اتبعت لـ${list.length} جهاز — الردود هتبان تحت لوحدها.` : 'مش قادر أبعت.', !id);
       });
     }
   }

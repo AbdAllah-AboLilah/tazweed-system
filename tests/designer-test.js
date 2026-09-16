@@ -455,6 +455,47 @@ const DESIGN = {
     wrapCase.previewTxt.replace(/\s+/g, ' ').trim() === wrapCase.canvasTxt.replace(/\s+/g, ' ').trim(),
     { معاينة: wrapCase.previewTxt, ورق: wrapCase.canvasTxt });
 
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ اتجاه الكتابة — السطر اللي كان بيتقلب
+  // ============================================================
+  // ⚠⚠ اتبلّغ بالنص وبصورة: "هتلاقي فوق مكتوب مقاس 2XL-3XL مظبوطه
+  // فوق تحت خلفت في الكتابة".
+  //
+  //   المعاينة:  كم طويل مقاس 2XL-3xl
+  //   الصورة:    XL-3xlكم طويل مقاس 2      ← اتقلب
+  //
+  // السبب: الكانفاس المنفصل بيبدأ بـltr مهما كان اتجاه الصفحة، والسطر
+  // اللي فيه عربي وإنجليزي بيترتّب حسب اتجاه الفقرة.
+  //
+  // ⚠️ الفحص بيتجسّس على الكانفاس نفسه، فمافيش طريقة يعدّي من غير
+  // ما يبان — نفس أسلوب الفحص اللي في helper-design-test بالحرف.
+  const dirs = await p.evaluate(() => {
+    const seen = [];
+    const c = document.createElement('canvas');
+    c.width = 300; c.height = 200;
+    const x = c.getContext('2d');
+    const real = x.fillText.bind(x);
+    x.fillText = (t, xx, yy) => { seen.push({ t: String(t), dir: x.direction }); return real(t, xx, yy); };
+    const nm = d.elements.find((e) => e.kind === 'name');
+    const pr = d.elements.find((e) => e.kind === 'price');
+    const cd = d.elements.find((e) => e.kind === 'code');
+    drawFit(x, 'كارينا كوكيز كم طويل مقاس 2XL-3xl', 0, 0, 23.5 * DPMM, 4.6 * DPMM, nm);
+    drawFit(x, '45 L.E', 0, 0, 14 * DPMM, 2.9 * DPMM, pr);
+    drawFit(x, '7781430154445', 0, 0, 23.5 * DPMM, 2.9 * DPMM, cd);
+    return seen;
+  });
+  const dirOf = (needle) => {
+    const row = dirs.find((r) => r.t.indexOf(needle) !== -1);
+    return row ? row.dir : null;
+  };
+  // ⚠⚠ من غيرها السطر اللي فيه عربي وإنجليزي بيتقلب على الورق.
+  check('⭐⭐⭐⭐⭐ اسم الصنف بيترسم **عربي** (وإلا 2XL بتتزحلق لأول السطر)',
+    dirOf('كارينا') === 'rtl', dirs);
+  // ⚠️ والسعر إنجليزي — من غيرها 45 L.E بتبقى L.E 45
+  check('⭐⭐⭐⭐⭐ والسعر إنجليزي (وإلا 45 L.E بتتقلب)',
+    dirOf('45 L.E') === 'ltr', dirs);
+  check('⭐⭐⭐⭐ ورقم الباركود كمان', dirOf('778143') === 'ltr', dirs);
+
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();

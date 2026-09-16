@@ -68,6 +68,9 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
  .preset.on{background:var(--sage);color:#fff;border-color:var(--sage)}
  .el{position:absolute;overflow:hidden;display:flex;align-items:center;line-height:1.2}
  .el.sel{outline:1.5px solid var(--sage);outline-offset:1px;background:rgba(47,107,70,.07)}
+ /* ⚠️ الصندوق اللي خارج عن حد الأمان — box-shadow مش outline عشان
+    مايتخانقش مع تحديد العنصر فوق. */
+ .el.out{box-shadow:inset 0 0 0 1.5px #b02020;background:rgba(176,32,32,.08)}
  .el span{display:block;width:100%}
  .scale{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums;direction:ltr}
 
@@ -144,6 +147,12 @@ const designerPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="ut
    <div class="sheet" id="sheet"></div>
    <div class="scale">المعاينة بترسم بنفس خط الملصق الحقيقي وبتصغّر زيّه</div>
    <div class="scale bad" id="shrunk" style="min-height:16px"></div>
+   <!-- ⚠️⚠️ تحذير الحدود **قبل** الحفظ. اتبلّغ بالنص: "لما باجي
+        بحفظ التصميم بيكتبلي ⚠️ السعر: خارج من الملصق من تحت ... بالرغم
+        من ان اتطبع كويس وطلع في معاينة التجربة كويسه".
+        الرسالة كانت صح، بس مكانها غلط: بتظهر بعد ما يخلص شغل ويدوس
+        حفظ. دلوقتي بتبان وهو بيحرّك. -->
+   <div class="scale bad" id="outside" style="min-height:0"></div>
   </div>
 
   <!-- ============================================================
@@ -244,7 +253,10 @@ function roleLabel(name){
   var r = rolesOf(name);
   return r.length ? r.join(' · ') : '';
 }
-var d = null, sel = 'name', designs = [], shrunk = [];
+var d = null, sel = 'name', designs = [], shrunk = [], outside = [];
+// ⚠️ نفس الرقم اللي في البرنامج (safeEdgeMm في design.go). لو اتغيّر
+// هناك لازم يتغيّر هنا، وإلا الشاشة والحفظ هيختلفوا.
+var SAFE_MM = 0.7;
 // اسم التصميم زي ما اتحمّل — بيتقارن باللي في الخانة عند الحفظ.
 var origName = '';
 
@@ -351,6 +363,7 @@ function draw(){
   sh.innerHTML = '';
   $('scale').textContent = d.widthMm+' × '+d.heightMm+' mm  ·  ×'+K.toFixed(1);
   shrunk = [];
+  outside = [];
 
   var n = d.halves||1, nc = d.cols||1, ch = cellH(), cw = cellW();
   $('cellinfo').textContent = (n*nc) + ' لاصقة في الورقة — كل واحدة '
@@ -373,7 +386,23 @@ function draw(){
       // ⚠️ التحديد على أول لاصقة بس (أول صف وأول عمود) — لو حدّدنا
       // كلهم، الأربع صناديق بتتلوّن والمستخدم مش عارف بيعدّل في أنهي
       // واحدة. وهي أصلًا واحدة: العناصر بتتكرّر مش بتتعدّد.
-      box.className = 'el' + (e.kind===sel && h===0 && col===0 ? ' sel' : '');
+      // ============================================================
+      // ⚠️⚠️ حد الأمان — بيتفحص **وانت بتحرّك**، مش عند الحفظ
+      // ============================================================
+      // نفس الأرقام اللي في البرنامج بالحرف (safeEdgeMm = 0.7 في
+      // design.go). لو اختلفوا، الشاشة هتقول تمام والحفظ يرفض — وده
+      // بالظبط اللي كان بيحصل.
+      var bad = '';
+      if (e.x < SAFE_MM || e.y < SAFE_MM){
+        bad = 'لازق في الحرف';
+      } else if (e.x + e.w > cw - SAFE_MM){
+        bad = 'خارج من الجنب بـ' + (e.x + e.w - (cw - SAFE_MM)).toFixed(2) + 'مم';
+      } else if (e.y + e.h > ch - SAFE_MM){
+        bad = 'خارج من تحت بـ' + (e.y + e.h - (ch - SAFE_MM)).toFixed(2) + 'مم';
+      }
+      if (bad && h===0 && col===0) outside.push(KIND_AR[e.kind] + ' ← ' + bad);
+
+      box.className = 'el' + (e.kind===sel && h===0 && col===0 ? ' sel' : '') + (bad ? ' out' : '');
       box.style.left   = ((col*cw + e.x)*K)+'px';
       box.style.top    = ((h*ch + e.y)*K)+'px';
       box.style.width  = (e.w*K)+'px';
@@ -460,6 +489,12 @@ function draw(){
   // ⚠️ وبنقول صراحةً مين اللي مادخلش بالمقاس اللي طلبته — ده
   // **بيت القصيد**: النظام قبل كده كان بيصغّر في سكوت.
   $('shrunk').textContent = shrunk.length ? ('⚠️ مادخلش بالمقاس المطلوب واتصغّر: ' + shrunk.join(' · ')) : '';
+  // ⚠️⚠️ ونبرة مختلفة عن اللي فوق عن قصد: اللي فوق **معلومة**
+  // (اتصغّر وخلاص)، ودي **مانع** — الحفظ هيرفض. فالنص بيقول كده
+  // صراحةً بدل ما يكتشفه بعد ما يخلص شغل.
+  $('outside').textContent = outside.length
+    ? ('⛔ مش هيتحفظ كده — حد الأمان 0.7مم: ' + outside.join(' · '))
+    : '';
 }
 
 function tabs(){
@@ -899,6 +934,28 @@ function drawFit(x, txt, X, Y, W, H, e){
   var lh = size*1.2;
   var top = Y + (H - lines.length*lh)/2 + lh/2;
   x.textBaseline = 'middle';
+  // ============================================================
+  // ⚠️⚠️⚠️ اتجاه الكتابة — العطل اللي بيقلب نص السطر
+  // ============================================================
+  // اتبلّغ بالنص وبصورة: "في المعاينة اللي فوق وفي معاينة طباعة تجربة
+  // هتلاقي فوق مكتوب مقاس 2XL-3XL مظبوطه فوق تحت خلفت في الكتابة".
+  //
+  // المعاينة:  كم طويل مقاس 2XL-3xl
+  // الصورة:    XL-3xlكم طويل مقاس 2      ← اتقلب
+  //
+  // السبب: الكانفاس المنفصل بيبدأ بـdirection = 'ltr' **مهما كان**
+  // اتجاه الصفحة. والسطر اللي فيه عربي وإنجليزي مع بعض بيترتّب حسب
+  // اتجاه الفقرة — فاللاتيني بيتزحلق لأول السطر بدل آخره.
+  //
+  // والمعاينة مابيحصلهاش كده لأنها DOM جوّه صفحة rtl وبتحط
+  // direction على العنصر (شوف draw أعلاه). فالسطر ده بيخلّي الاتنين
+  // بنفس القاعدة بالحرف:
+  //     اسم الصنف              → rtl
+  //     الرقم والسعر والقديم   → ltr   (85 L.E بتتقلب من غيرها)
+  //
+  // ⚠️ ونفس القاعدة موجودة في النظام من زمان (renderDesignPNG في
+  // js/print-label.js) — الصفحة دي هي اللي كانت ناقصاها.
+  x.direction = (e.kind === 'name' ? 'rtl' : 'ltr');
   x.textAlign = (e.align==='right' ? 'right' : e.align==='left' ? 'left' : 'center');
   var ax = e.align==='right' ? X+W : e.align==='left' ? X : X+W/2;
   for (var j=0;j<lines.length;j++){

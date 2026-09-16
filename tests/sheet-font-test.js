@@ -65,13 +65,108 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐ بايتات الخط اتجهّزت', on.ready === true, on.ready);
   check('⭐⭐⭐⭐ ونص الخطوط بقى الخط المختار',
     /font-family: 'TZ Tajawal', Tahoma, Arial, sans-serif;/.test(on.html), null);
-  // ⚠️⚠️ **أهم سطر في الملف**: data: مش url لملف. لو ده اتغيّر لرابط،
-  // الورقة هتتقاس بخط وتترسم بخط تاني.
-  check('⭐⭐⭐⭐⭐ والخط متكتوب بالبايتات جوّه الورقة (data:)',
-    /src:url\(data:font\/woff2;base64,[A-Za-z0-9+/=]{500,}\)/.test(on.html), null);
-  check('⭐⭐⭐⭐⭐ ومافيش أي رابط لملف خط في الورقة',
-    !/url\(['"]?https?:/.test(on.html) && on.html.indexOf('/fonts/') === -1, null);
+  // ============================================================
+  // ⚠️⚠️⚠️ الورقة فيها **رابط**، والصورة فيها **البايتات**
+  // ============================================================
+  // ده اتغيّر في v1.5.0، والعطل اللي خلّاه يتغيّر اتبلّغ بالنص:
+  //   "لما غيرت الخط الي المراعي بيطبع كل مجموعة مع بعض بالرغم من اني
+  //    عامل الورقة كلها مرة واحده"
+  //
+  // القياس على فئة 57 درجة: الورقة بخط الجهاز 9.6 كيلو، وبالمراعي
+  // **140** — منها 130 للخط. وحد أمر الطباعة 44، فالورقة كانت بتتقسّم.
+  //
+  // فالبايتات اتنقلت للمكان الوحيد اللي محتاجها: الصورة (الشرح عند
+  // sheetFontFaceCSS و renderSheetImage).
+  check('⭐⭐⭐⭐⭐ الورقة فيها **رابط** للخط مش بايتات',
+    on.html.indexOf('data:font') === -1 && /src:url\('[^']*\/fonts\/[^']+\.woff2'\)/.test(on.html),
+    on.html.slice(on.html.indexOf('@font-face'), on.html.indexOf('@font-face') + 160));
   check('⭐⭐⭐ والوزنين موجودين', (on.html.match(/@font-face/g) || []).length >= 4, null);
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ الرابط **مطلق** — عشان الطباعة من التليفون
+  // ============================================================
+  // ⚠⚠ اتسأل بالنص: "عاوزك تتاكد من ارسال ورقة التزويد من الهاتف
+  // عند تغير الخط هتطلع مظبوطه ب الخط اللي اتغير في النظام مش خط
+  // الهاتف".
+  //
+  // الورقة بتتبني على **التليفون** وبتتبعت للكمبيوتر جاهزة. فالرابط
+  // اللي جوّاها لازم يكون مطلق: الرابط النسبي بيتحلّ على الجهاز اللي
+  // بيرسم، ولو مساره مختلف الخط مش هينزل والورقة تطلع بخط الجهاز.
+  const urls = [...on.html.matchAll(/src:url\('([^']+)'\)/g)].map((m) => m[1]);
+  check('⭐⭐⭐⭐⭐ وروابط الخط **مطلقة** (عشان الجهاز التاني يوصلها)',
+    urls.length >= 4 && urls.every((u) => /^https?:\/\//.test(u)), urls.slice(0, 2));
+
+  // ⚠️ والخط اللي بيتكتب في الورقة هو **المشترك** من السحابة، مش
+  // اللي محفوظ على التليفون. getSheetFontId بتقرا المشترك الأول.
+  const shared = await p.evaluate(() => {
+    const before = getSheetFontId();
+    window.__printFields = { sheetFont: 'cairo' };
+    const realRead = window.readPrintField;
+    window.readPrintField = (k) => (k === 'sheetFont' ? 'cairo' : realRead(k));
+    const got = getSheetFontId();
+    window.readPrintField = realRead;
+    return { before, got };
+  });
+  check('⭐⭐⭐⭐⭐ والخط بيتقرا من الإعداد **المشترك** مش من الجهاز',
+    shared.got === 'cairo', shared);
+
+  // ⚠️⚠️ وده اللي بيحرس العطل نفسه: حجم الورقة لازم يفضل تحت الحد
+  // مهما كان الخط، وإلا بتتقسّم لكل مجموعة لوحدها.
+  const sizes = await p.evaluate(async () => {
+    const out = [];
+    for (const id of ['system', 'almarai', 'cairo', 'tajawal', 'plex']) {
+      setSheetFontId(id);
+      await ensureSheetFontReady();
+      const html = buildRestockHTML(window.__cat, window.__grades, '', true, '');
+      out.push({ id, kb: +(new TextEncoder().encode(html).length / 1024).toFixed(1) });
+    }
+    setSheetFontId('tajawal');
+    await ensureSheetFontReady();
+    return { rows: out, limitKB: RESTOCK_SAFE_BYTES / 1024 };
+  });
+  const over = sizes.rows.filter((x) => x.kb > sizes.limitKB * 0.5);
+  check('⭐⭐⭐⭐⭐ وحجم الورقة بأي خط أقل من نص الحد (مابتتقسّمش)',
+    over.length === 0, { الحد: sizes.limitKB, المقاسات: sizes.rows });
+
+  // ⚠️ والبايتات لسه موجودة — بس في نسختها هي، اللي بتروح للصورة.
+  const inlineCSS = await p.evaluate(() => sheetFontFaceInlineCSS());
+  check('⭐⭐⭐⭐ والبايتات لسه متاحة للصورة',
+    /src:url\(data:font\/woff2;base64,[A-Za-z0-9+/=]{500,}\)/.test(inlineCSS), null);
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ والبايتات بتوصل **جوّه الصورة** فعلًا
+  // ============================================================
+  // ⚠️⚠️ ده أهم فحص في الملف بعد الحجم، والسبب اتقاس:
+  // لما شيلنا الحقن وجرّبنا، الصورة طلعت 28.2مم بدل 27.4 — يعني
+  // **القياس** حصل بالخط المختار (في الإطار، والرابط شغّال فيه)
+  // و**الرسم** حصل بخط الجهاز (في الصورة، والرابط مش شغّال). الفرق
+  // ده معناه ورقة بتتقص من تحت.
+  //
+  // ⚠️ والفحص بيتجسّس على التسلسل نفسه — يعني بيشوف اللي بيدخل
+  // الصورة بالظبط. مقارنة الصور ببعض **مش كفاية**: الصورتين بيختلفوا
+  // في الطول حتى لو الخط مانزلش، فالمقارنة بتعدّي وهي فاضية.
+  const inImage = await p.evaluate(async () => {
+    setSheetFontId('almarai');
+    await ensureSheetFontReady();
+    const html = buildRestockHTML(window.__cat, window.__grades, '', true, '');
+    let xml = '';
+    const real = XMLSerializer.prototype.serializeToString;
+    XMLSerializer.prototype.serializeToString = function (node) {
+      const out = real.call(this, node);
+      if (out.length > xml.length) xml = out;
+      return out;
+    };
+    try {
+      await renderSheetImage(html);
+    } finally {
+      XMLSerializer.prototype.serializeToString = real;
+    }
+    setSheetFontId('tajawal');
+    await ensureSheetFontReady();
+    return { hasBytes: xml.indexOf('data:font/woff2') !== -1, len: xml.length };
+  });
+  check('⭐⭐⭐⭐⭐ والبايتات بتوصل جوّه الصورة (وإلا الورقة تتقاس بخط وترسم بخط)',
+    inImage.hasBytes === true, inImage);
 
   // ============================================================
   // ⭐⭐⭐⭐⭐ والجدول **مايتغيّرش** — ده اللي اتسأل عنه بالنص

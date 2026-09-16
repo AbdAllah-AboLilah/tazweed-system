@@ -303,14 +303,16 @@ func validateDesign(d *labelDesign) error {
 		// ⚠️⚠️ **عرض الخلية** مش عرض الورقة. في مقسوم ٤ فيه خط قص
 		// رأسي في نص الورقة، والعنصر اللي بيعدّيه بيتقص نصين — وده
 		// نفس خطر خط القص الأفقي المكتوب تحت بالظبط.
-		if e.X+e.W > cellW-safeEdgeMm {
-			return errors.New(arabicKind(e.Kind) + ": خارج من الملصق من الجنب")
+		// ⚠️ الرسالة بتقول **كام** مش بس "خارج": اللي بيقراها واقف
+		// قدام خانات بالمليمتر، ومحتاج يعرف يقلّل كام لا يخمّن.
+		if over := e.X + e.W - (cellW - safeEdgeMm); over > 0 {
+			return fmt.Errorf("%s: خارج من الملصق من الجنب بـ%.2fمم — قلّل العرض أو زحلقه لليمين", arabicKind(e.Kind), over)
 		}
 		// ⚠️ الحد ده هو **خط القص** لما يكون في الورقة أكتر من ملصق،
 		// وهو أخطر حد: الماكينة بتحسّ الفراغ بين اللاصقات بحسّاس وفيه
 		// فرق بين ماكينة وماكينة.
-		if e.Y+e.H > cellH-safeEdgeMm {
-			return errors.New(arabicKind(e.Kind) + ": خارج من الملصق من تحت")
+		if over := e.Y + e.H - (cellH - safeEdgeMm); over > 0 {
+			return fmt.Errorf("%s: خارج من الملصق من تحت بـ%.2fمم — قلّل طوله أو طلّعه لفوق (وغالبًا لازم تصغّر اللي فوقه)", arabicKind(e.Kind), over)
 		}
 
 		if e.Kind == elQR {
