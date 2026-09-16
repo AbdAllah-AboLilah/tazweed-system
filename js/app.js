@@ -1062,6 +1062,11 @@ function openScreen(screen) {
     if (!productsCache) loadProducts().then(afterProductsLoaded).catch((err) => console.warn('تعذّر تحميل الأصناف:', err));
   }
   if (screen === 'users') subscribeUsers();
+  // 📦 ملف الأصناف: أول ما تفتح الشاشة بنسأل البرنامج المساعد لو الملف
+  // اتغيّر — الشرح في products-file.js.
+  if (screen === 'products' && typeof checkProductsFile === 'function') {
+    checkProductsFile({ force: true }).catch(() => {});
+  }
   // أرقام الحركة بتتقرا **مرة** أول ما الشاشة تتفتح — مافيش اشتراك دايم
   // على آلاف المستندات شغّال في الخلفية على الفاضي.
   if (screen === 'movement' && typeof loadMovementStats === 'function') {

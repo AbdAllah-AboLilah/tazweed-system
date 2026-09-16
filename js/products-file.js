@@ -109,7 +109,7 @@ async function parseProductsFileBuffer(buf) {
 //
 // ⚠️⚠️ والبصمة اللي بتتحفظ هي بتاعة **اللي اتنزّل فعلًا** (من ترويسة
 // الرد) مش اللي كانت في الحالة: الملف ممكن يتغيّر بين السؤال والتنزيل.
-async function uploadProductsFromHelper(onProgress) {
+async function uploadProductsFromHelper(onProgress, fallbackFingerprint) {
   const res = await fetch(HELPER_URL + '/products/file/raw');
   if (!res.ok) {
     let msg = 'مقدرتش أقرا الملف من البرنامج المساعد';
@@ -121,7 +121,14 @@ async function uploadProductsFromHelper(onProgress) {
     }
     throw new Error(msg);
   }
-  const fingerprint = res.headers.get('X-Tazweed-Fingerprint') || '';
+  // ⚠️⚠️ الترويسة ممكن ترجع **فاضية** والبرنامج قديم: المتصفح مابيسمحش
+  // للصفحة تقرا أي ترويسة من عندنا إلا لو البرنامج قال صراحةً إنها
+  // مكشوفة (Access-Control-Expose-Headers) — وده اتضاف في 1.20.0.
+  //
+  // والبصمة الفاضية معناها إن النظام مش هيعرف إن الملف اترفع خلاص،
+  // فهيرفع نفس الـ47 ألف صنف من أول وجديد **كل مرة يفتح**. فلو
+  // الترويسة ماوصلتش، بنرجع للبصمة اللي قراناها من الحالة.
+  const fingerprint = res.headers.get('X-Tazweed-Fingerprint') || fallbackFingerprint || '';
   const buf = await res.arrayBuffer();
   const list = await parseProductsFileBuffer(buf);
   // ⚠️ استبدال كامل — اتطلب بالنص: "وعاوز استبدال كامل لان انا ممكن
@@ -181,7 +188,7 @@ async function runProductsFileUpload(opts) {
   };
   paint();
   try {
-    const r = await uploadProductsFromHelper();
+    const r = await uploadProductsFromHelper(undefined, (pfileState && pfileState.fingerprint) || '');
     pfileDismissed = '';
     pfileNote = `✅ اترفع ملف الأصناف من الكمبيوتر — ${r.count} صنف.`;
   } catch (err) {
@@ -248,10 +255,47 @@ function attachProductsFileEvents() {
   }
 }
 
-// ⚠️ بيتنده بعد الدخول بشوية — مش وقت الدخول نفسه. الشرح فوق.
+// ============================================================
+// ⏰ الفحص بيتعاد — مش مرة واحدة وخلاص
+// ============================================================
+// ⚠️⚠️ العطل اللي بيتصلّح هنا، اتبلّغ بالنص:
+//
+//   "دلوقتي انا اخترت المكان وعملت تحديث تلقائي ومفيش اي حاجه بتتحدث"
+//
+// والسبب إن الفحص كان **بيحصل مرة واحدة بس**، بعد الدخول بـ6 ثواني.
+// والترتيب الطبيعي إن النظام بيبقى مفتوح **قبل** ما تروح تظبّط
+// البرنامج المساعد — فالفحص بيكون عدّى والبرنامج لسه مافيهوش ملف،
+// وبعد ما تظبّطه مافيش أي حاجة بترجع تسأل. والنتيجة: تظبّط كل حاجة
+// صح ومايحصلش أي حاجة لحد ما تعمل ريفريش.
+//
+// فدلوقتي بيتعاد في تلات حالات:
+//   ١) بعد الدخول بشوية (زي الأول)
+//   ٢) كل شوية والصفحة مفتوحة قدامك
+//   ٣) ⭐ أول ما ترجع للنظام بعد ما تكون سبته — ودي اللي بتمسك
+//      "روحت ظبّطت البرنامج ورجعت"، من غير أي انتظار
 const PFILE_BOOT_DELAY_MS = 6000;
+
+// ⚠️ 3 دقايق: النداء رايح لـ127.0.0.1 (نفس الجهاز، مابيعدّيش على النت)
+// ومهلته ثانية ونص — يعني تكلفته على سرعة النظام صفر عمليًا. وبرضه
+// مابيشتغلش والصفحة مخفية، عشان مايفضلش شغّال في تبويب منسي.
+const PFILE_WATCH_MS = 3 * 60 * 1000;
+let pfileWatchTimer = null;
+
 function scheduleProductsFileCheck() {
   setTimeout(() => {
     checkProductsFile({ silent: false }).catch(() => {});
   }, PFILE_BOOT_DELAY_MS);
+
+  if (pfileWatchTimer) return; // مرة واحدة لكل جلسة
+  pfileWatchTimer = setInterval(() => {
+    if (document.hidden) return;
+    checkProductsFile({}).catch(() => {});
+  }, PFILE_WATCH_MS);
+
+  // ⚠️ force: الحالة متخزّنة 30 ثانية، واللي رجع دلوقتي من البرنامج
+  // المساعد غالبًا غيّر حاجة فيه **في الـ30 ثانية دول بالظبط**.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    checkProductsFile({ force: true }).catch(() => {});
+  });
 }
