@@ -380,7 +380,8 @@ function buildRestockHTML(cat, grades, groupName, withBase, filterMode) {
       <style>
         @page { size: 80mm auto; margin: 0; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; box-sizing: border-box; }
-        body { font-family: Tahoma, Arial, sans-serif; font-size: 10px; padding: 1mm; margin: 0 auto; width: 66mm; }
+        ${typeof sheetFontFaceCSS === 'function' ? sheetFontFaceCSS() : ''}
+        body { font-family: ${typeof sheetFontStack === 'function' ? sheetFontStack('Tahoma, Arial, sans-serif') : 'Tahoma, Arial, sans-serif'}; font-size: 10px; padding: 1mm; margin: 0 auto; width: 66mm; }
         .header { text-align: center; margin-bottom: 8px; }
         .header .tab-name { font-weight: bold; font-size: 16px; }
         .header .item-name { font-size: 14px; font-weight: bold; color: #000; margin-top: 2px; }
@@ -1103,6 +1104,18 @@ function restockLogSpec(cat, groupName, papers, filterMode) {
 }
 
 async function printRestockPaper(cat, grades) {
+  // ============================================================
+  // ⚠️⚠️ بايتات الخط **قبل** ما نبني الورقة
+  // ============================================================
+  // الورقة بتترسم جوّه <img> (شوف renderSheetImage)، والصورة
+  // مايسمحلهاش تجيب ملف من بره — فبايتات الخط لازم تكون جاهزة عشان
+  // تتكتب جوّه الورقة نفسها.
+  //
+  // ⚠️ ولو ماجهزتش، sheetFontStack بترجّع خط الجهاز والورقة بتطلع
+  // زي ما كانت بالظبط. **مافيش نص حل**: يا الخط في القياس والرسم
+  // مع بعض، يا مش موجود في الاتنين — غير كده الورقة بتتقص.
+  if (typeof ensureSheetFontReady === 'function') await ensureSheetFontReady();
+
   // ⚠️ بنحمّل التواريخ **قبل** بناء الورقة، وبس لو الحساب بيشوفها —
   // الحساب اللي مش بيشوفها مابيدفعش ولا قراءة واحدة زيادة.
   if (canSeeRestockLastPrint()) await loadRestockPrintStamps();

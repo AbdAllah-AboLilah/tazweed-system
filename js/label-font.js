@@ -272,7 +272,24 @@ function labelFontStack(base) {
 //
 // ⚠️ وبترجّع نص فاضي على "خط الجهاز" — عشان المستند المطبوع يفضل
 // **متطابق بايت ببايت** مع اللي كان بيتبعت قبل المفتاح ده.
+// ============================================================
+// ⚠️⚠️ المجلد بيتحسب من **مكان ملف التنسيقات** مش من عنوان الصفحة
+// ============================================================
+// ملفات الخط عايشة جنب styles.css، مش جنب الصفحة اللي بتفتح.
+//
+// والفرق بان في الفحوص: صفحة الفحص في /tests/، فـ`./fonts/` المحسوبة
+// من عنوانها بتطلع `/tests/fonts/` — ومافيش حاجة هناك. الخط كان
+// بيفشل في صمت، والورقة بتطلع بخط الجهاز وإحنا فاكرينها اتغيّرت.
+//
+// ⚠️ وده مش "إصلاح للفحص": أي صفحة تتفتح من مسار فرعي كانت هتقع في
+// نفس الحفرة. الحساب من ملف التنسيقات صح في كل الحالات.
 function labelFontBase() {
+  try {
+    const link = document.querySelector('link[rel="stylesheet"][href*="styles.css"]');
+    if (link && link.href) return new URL('./fonts/', link.href).href;
+  } catch (err) {
+    /* نكمّل للطريقة التانية */
+  }
   try {
     return new URL('./fonts/', location.href).href;
   } catch (err) {
@@ -308,8 +325,161 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
   window.addEventListener('load', () => {
     try {
       ensureLabelFontReady();
+      ensureSheetFontReady();
     } catch (err) {
       /* تجاهل — الطباعة بتستنى الخط بنفسها */
     }
   });
+}
+
+// ============================================================
+// 📄 خط ورقة التزويد — حكاية تانية خالص عن الملصق
+// ============================================================
+// اتطلب بالنص: "هو احنا ممكن نغير خط ورقة التزويد من البرنامج المساعد
+// بدون م تأثر علي حجمها او شكلها او توزيع الجدول او شكله"، وبعدين:
+// "اعمل خط ورقة التزويد زي اقتراحك".
+//
+// ------------------------------------------------------------
+// ⚠️⚠️⚠️ ليه مش نفس كود الملصق — الفخ اللي اتمسك قبل ما يتكتب سطر
+// ------------------------------------------------------------
+// الملصق بيترسم على **كانفاس**: بننده document.fonts.load، الخط بينزل،
+// والكانفاس بيرسم بيه. تمام.
+//
+// ورقة التزويد لأ. بتترسم بطريقة تانية تمامًا (شوف renderSheetImage):
+// الورقة بتتسلسل XML وبتتحط جوّه <foreignObject> جوّه <svg>، والـsvg
+// بيتحمّل كـ<img>.
+//
+// و**الصورة مايسمحلهاش تجيب أي ملف من بره** — ده قانون في المتصفح
+// نفسه، مش إعداد. يعني @font-face بيشاور على /fonts/x.woff2 **مش
+// هيتحمّل خالص** جوّه الصورة.
+//
+// والنتيجة لو عملناها غلط أوحش من إن الخط مايتغيّرش:
+//   • القياس بيحصل في إطار حقيقي → الخط الجديد بينزل → ارتفاع كذا
+//   • الرسم بيحصل جوّه الصورة → الخط **مابينزلش** → ارتفاع مختلف
+//   • فالورقة بتتقص أو يفضل فيها فراغ في آخرها
+//
+// الحل: نحط بايتات الخط **جوّه الورقة نفسها** (data: URI). ساعتها
+// مافيش ملف بيتجاب من بره، والصورة بترسم بالخط الصح.
+//
+// ⚠️ والتمن ~50 كيلو بتتزوّد على الورقة وهي رايحة للطابعة. مقبول:
+// الورقة بتتبعت مرة، والبديل ورقة مقصوصة.
+const SHEET_FONT_KEY = 'tazweed_sheet_font';
+
+// بايتات الخطوط المتحوّلة لنص — بتتجاب مرة واحدة وتتخزّن.
+const sheetFontBytes = {};
+let sheetFontReadyId = '';
+
+function getSheetFontId() {
+  let remote;
+  try {
+    remote = typeof readPrintField === 'function' ? readPrintField('sheetFont') : undefined;
+  } catch (err) {
+    remote = undefined;
+  }
+  if (remote !== undefined && remote !== null && remote !== '' && labelFontById(remote)) {
+    return remote;
+  }
+  try {
+    const v = localStorage.getItem(SHEET_FONT_KEY);
+    if (v && labelFontById(v)) return v;
+  } catch (err) {
+    /* تجاهل */
+  }
+  return LABEL_FONT_DEFAULT;
+}
+
+function setSheetFontId(id) {
+  const font = labelFontById(id) ? id : LABEL_FONT_DEFAULT;
+  try {
+    localStorage.setItem(SHEET_FONT_KEY, font);
+  } catch (err) {
+    console.warn('تعذّر حفظ خط ورقة التزويد:', err);
+  }
+  try {
+    if (typeof saveMachineSetting === 'function') {
+      saveMachineSetting({ sheetFont: font }, 'خط ورقة التزويد');
+    }
+  } catch (err) {
+    console.warn('تعذّر حفظ خط ورقة التزويد المشترك:', err);
+  }
+  if (sheetFontReadyId !== font) sheetFontReadyId = '';
+  try {
+    ensureSheetFontReady();
+  } catch (err) {
+    /* تجاهل */
+  }
+}
+
+function activeSheetFont() {
+  const f = labelFontById(getSheetFontId());
+  return f && f.family ? f : null;
+}
+
+// ⚠️ نفس حارس الملصق: الخط اللي بايتاته مش جاهزة **مايتكتبش** في
+// الورقة. غير كده القياس والرسم بيختلفوا والورقة بتتقص.
+function sheetFontStack(base) {
+  const f = activeSheetFont();
+  if (!f || sheetFontReadyId !== f.id) return base;
+  return `'${f.family}', ${base}`;
+}
+
+// بتجيب ملفات الخط وتحوّلها لنص مرة واحدة.
+async function ensureSheetFontReady() {
+  const f = activeSheetFont();
+  if (!f) {
+    sheetFontReadyId = '';
+    return true;
+  }
+  if (sheetFontReadyId === f.id) return true;
+  try {
+    const base = labelFontBase();
+    const jobs = [];
+    f.files.forEach((row) => {
+      ['arabic', 'latin'].forEach((sub) => {
+        const name = row[sub];
+        if (!name || sheetFontBytes[name]) return;
+        jobs.push(
+          fetch(base + name)
+            .then((r) => (r.ok ? r.arrayBuffer() : null))
+            .then((buf) => {
+              if (!buf) throw new Error('مش قادر أجيب ' + name);
+              // ⚠️ التحويل على دفعات: النص الواحد الطويل بيوقّع
+              // String.fromCharCode على الملفات الكبيرة.
+              const bytes = new Uint8Array(buf);
+              let s = '';
+              for (let i = 0; i < bytes.length; i += 8192) {
+                s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+              }
+              sheetFontBytes[name] = btoa(s);
+            })
+        );
+      });
+    });
+    await Promise.all(jobs);
+  } catch (err) {
+    console.warn('تعذّر تجهيز خط ورقة التزويد:', err);
+    sheetFontReadyId = '';
+    return false;
+  }
+  sheetFontReadyId = f.id;
+  return true;
+}
+
+// @font-face بالبايتات جوّه الورقة — مافيش أي ملف بيتجاب من بره.
+function sheetFontFaceCSS() {
+  const f = activeSheetFont();
+  if (!f || sheetFontReadyId !== f.id) return '';
+  let css = '';
+  f.files.forEach((row) => {
+    const ar = sheetFontBytes[row.arabic];
+    const la = sheetFontBytes[row.latin];
+    if (!ar || !la) return;
+    css +=
+      `@font-face{font-family:'${f.family}';font-style:normal;font-weight:${row.weight};` +
+      `src:url(data:font/woff2;base64,${ar}) format('woff2');` +
+      `unicode-range:${LABEL_FONT_ARABIC_RANGE};}` +
+      `@font-face{font-family:'${f.family}';font-style:normal;font-weight:${row.weight};` +
+      `src:url(data:font/woff2;base64,${la}) format('woff2');}`;
+  });
+  return css;
 }

@@ -2201,6 +2201,9 @@ const PRINT_FIELDS = [
   // ⚠️ زي إخواته فوق: من غير السطر ده، `cleanPrintFields` بتشيل الحقل
   // في صمت — فتغيّر خط الملصق من التليفون ومايحصلش أي حاجة.
   { key: 'labelFont', label: 'خط الملصق' },
+  // ⚠️ نفس السبب: من غير السطر ده، تغيير خط الورقة من التليفون
+  // بيتشال في صمت.
+  { key: 'sheetFont', label: 'خط ورقة التزويد' },
 ];
 
 const PRINT_FIELD_KEYS = PRINT_FIELDS.map((f) => f.key);
@@ -5214,6 +5217,36 @@ async function openPrinterSettings() {
               <span id="pq-labelfont-status" style="font-size:11px; color:var(--text-muted);"></span>
             </div>
             <div id="pq-labelfont-hint" style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin-bottom:8px;"></div>
+
+            <!-- ============================================================
+                 📄 خط ورقة التزويد
+                 ============================================================
+                 اتطلب بالنص: "اعمل خط ورقة التزويد زي اقتراحك".
+
+                 ⚠️ جنب خط الملصق مش في صفحة تانية: الاتنين نفس نوع
+                 الإعداد ونفس قايمة الخطوط، والواحد بيقارنهم مع بعض.
+
+                 ⚠️⚠️ والورقة بتترسم في **المتصفح** مش في البرنامج
+                 المساعد، فالإعداد مكانه هنا مع أخوه. -->
+            <div style="border-top:1px solid var(--border); margin-top:10px; padding-top:10px;">
+              <div style="font-size:12px; font-weight:500; margin-bottom:4px;">📄 خط ورقة التزويد</div>
+              <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:8px;">
+                نفس قايمة الخطوط. الجدول وتوزيعه <strong>مايتغيّروش</strong> —
+                عرض الورقة 66مم وعدد الأعمدة ٤ ثابتين.
+                <br>اللي ممكن يفرق: خانة رقم الدرجة تعرض أو تضيق ١–٢مم،
+                وطول الورقة يزيد أو يقل شوية.
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
+                <select class="input" id="pq-sheetfont" style="padding:6px; width:230px;">
+                  ${LABEL_FONTS.map(
+                    (f) => `<option value="${escapeHTML(f.id)}">${escapeHTML(f.label)}</option>`
+                  ).join('')}
+                </select>
+                <button class="btn btn-primary" id="pq-sheetfont-save" style="padding:5px 14px; font-size:12px; min-height:32px;">احفظ</button>
+                <span id="pq-sheetfont-status" style="font-size:11px; color:var(--text-muted);"></span>
+              </div>
+              <div id="pq-sheetfont-hint" style="font-size:10.5px; color:var(--text-muted); line-height:1.7;"></div>
+            </div>
             <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7;
                         background:var(--surface-muted); padding:8px; border-radius:8px;">
               ⚠️ بعد ما تغيّر الخط، <strong>اطبع ملصق واحد وبُصّ عليه</strong> قبل
@@ -5598,6 +5631,40 @@ async function openPrinterSettings() {
         ? `✅ اتحفظ — الطبعة الكبيرة هتمشي على ${getPrintPaceMs()}مث للملصق.`
         : '✅ اتحفظ — من غير انتظار.';
     });
+  }
+
+  // 📄 خط ورقة التزويد — نفس منطق خط الملصق بالحرف
+  const pqSheetFont = overlay.querySelector('#pq-sheetfont');
+  const pqSheetFontSave = overlay.querySelector('#pq-sheetfont-save');
+  if (pqSheetFont) {
+    pqSheetFont.value = getSheetFontId();
+    const shHint = overlay.querySelector('#pq-sheetfont-hint');
+    const showSheetHint = () => {
+      const f = labelFontById(pqSheetFont.value);
+      if (!shHint || !f) return;
+      const fam = f.family ? `'${f.family}', ` : '';
+      shHint.innerHTML =
+        `${escapeHTML(f.hint)}` +
+        `<div style="margin-top:6px; padding:6px 8px; border:1px solid var(--border);` +
+        ` border-radius:6px; background:#fff; color:#000; font-size:13px; line-height:1.5;` +
+        ` font-family:${fam}Tahoma, Arial, sans-serif;">` +
+        `كريب سادة — بيجات<br>12 · 34 · 56 · 78</div>`;
+    };
+    pqSheetFont.addEventListener('change', showSheetHint);
+    showSheetHint();
+    if (pqSheetFontSave) {
+      pqSheetFontSave.addEventListener('click', () => {
+        setSheetFontId(pqSheetFont.value);
+        pqSheetFont.value = getSheetFontId();
+        showSheetHint();
+        const st = overlay.querySelector('#pq-sheetfont-status');
+        if (st) {
+          const f = labelFontById(getSheetFontId());
+          st.textContent = `✅ اتحفظ — ${f ? f.label : getSheetFontId()}`;
+          setTimeout(() => { st.textContent = ''; }, 3000);
+        }
+      });
+    }
   }
 
   const pqBatch = overlay.querySelector('#pq-batch');
