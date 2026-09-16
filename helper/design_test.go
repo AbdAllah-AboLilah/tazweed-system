@@ -545,3 +545,285 @@ func TestDesignListAlwaysOffersBothDefaults(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================
+// ⭐⭐⭐⭐⭐ السعر والسعر القديم — كل واحد في صندوقه
+// ============================================================
+// اتطلب بالنص:
+//
+//	"السعر القديم اللي هو السعر قبل الخصم كان في الاول بيتحرك لوحده
+//	 دلوقتي مش بيتحرك من مكانه بقي مربوط بالسعر لازم عشان احركه احرك
+//	 السعر والاتنين يتحركوا مع بعض والمفروض السعر اللي هو بعد الخصم
+//	 يبقي علي اليمين وقبل الخصم علي اليسار والاتنين يتحركوا لوحدهم"
+//
+// ⚠️⚠️ والخطر مش "بيتحرك ولا لأ" — الخطر إن التصاميم المحفوظة من قبل
+// صندوقيها **فوق بعض**، ولو رسمناهم كده الرقمين بيتراكبوا على الورق.
+func priceBoxes(d labelDesign) (p, o designElement, ok bool) {
+	var gotP, gotO bool
+	for _, e := range d.Elements {
+		switch e.Kind {
+		case elPrice:
+			p, gotP = e, true
+		case elOldPrice:
+			o, gotO = e, true
+		}
+	}
+	return p, o, gotP && gotO
+}
+
+func TestDefaultPriceBoxesDoNotOverlap(t *testing.T) {
+	p, o, ok := priceBoxes(defaultDesign())
+	if !ok {
+		t.Fatal("الافتراضي مافيهوش السعرين")
+	}
+	if o.X+o.W > p.X {
+		t.Fatalf("الصندوقين متراكبين: القديم %v→%v والسعر %v→%v",
+			o.X, o.X+o.W, p.X, p.X+p.W)
+	}
+	// ⚠️ السعر بعد الخصم على **اليمين** (X أكبر) والقديم على الشمال —
+	// ده اللي اتطلب بالحرف.
+	if p.X <= o.X {
+		t.Fatalf("السعر المفروض على اليمين: السعر X=%v والقديم X=%v", p.X, o.X)
+	}
+	// ولسه جوّه الملصق
+	if p.X+p.W > 36.0 {
+		t.Fatalf("صندوق السعر خارج المساحة الآمنة: بينتهي عند %v", p.X+p.W)
+	}
+}
+
+// ⚠️⚠️ ده الترحيل: تصميم محفوظ بالشكل القديم (نفس X للاتنين) لازم
+// يخرج مفصول — وإلا الرقمين هيتراكبوا: "110L.E85 L.E".
+func TestSplitPricesSeparatesOldSavedDesign(t *testing.T) {
+	d := labelDesign{
+		Name: "قديم", WidthMm: 38, HeightMm: 25, Halves: 2,
+		Elements: []designElement{
+			{Kind: elName, X: 12.5, Y: 1.2, W: 23.5, H: 4.6, FontMm: 1.9, Lines: 2},
+			{Kind: elPrice, X: 12.5, Y: 8.8, W: 23.5, H: 2.9, FontMm: 2.4, Lines: 1},
+			{Kind: elOldPrice, X: 12.5, Y: 8.8, W: 9.0, H: 2.9, FontMm: 2.0, Lines: 1},
+		},
+	}
+	got := splitPrices(d)
+	p, o, _ := priceBoxes(got)
+
+	if o.X+o.W > p.X {
+		t.Fatalf("لسه متراكبين: القديم %v→%v والسعر %v→%v", o.X, o.X+o.W, p.X, p.X+p.W)
+	}
+	if p.X <= o.X {
+		t.Fatalf("السعر المفروض على اليمين: %v مقابل %v", p.X, o.X)
+	}
+	// ⚠️ ومايخرجش عن المساحة اللي كانت للسعر: الفصل مش المفروض ياكل
+	// من الاسم ولا يطلع بره الملصق.
+	if o.X < 12.5 || p.X+p.W > 36.0+0.001 {
+		t.Fatalf("خرج عن المساحة: القديم من %v والسعر لحد %v", o.X, p.X+p.W)
+	}
+	// والتصميم الأصلي مااتلمسش (نسخة مش إشارة)
+	if d.Elements[1].X != 12.5 || d.Elements[1].W != 23.5 {
+		t.Fatalf("splitPrices عدّلت في الأصل: %v", d.Elements[1])
+	}
+}
+
+// ⚠️⚠️ الأهم: مفيش شغل بعد المرة الأولى. لو الدالة بتحرّك كل مرة،
+// الصندوق بيزحف مع كل قراية والتصميم بيضيع تحت إيد المستخدم.
+func TestSplitPricesIsIdempotent(t *testing.T) {
+	d := splitPrices(defaultDesign())
+	again := splitPrices(d)
+	p1, o1, _ := priceBoxes(d)
+	p2, o2, _ := priceBoxes(again)
+	if p1 != p2 || o1 != o2 {
+		t.Fatalf("اتغيّرت في المرة التانية:\n قبل: %v | %v\n بعد: %v | %v", p1, o1, p2, o2)
+	}
+}
+
+// اللي فصلهم بإيده مايتلمسش
+func TestSplitPricesLeavesSeparatedBoxesAlone(t *testing.T) {
+	d := labelDesign{Elements: []designElement{
+		{Kind: elPrice, X: 24.0, Y: 8.8, W: 12.0, H: 2.9},
+		{Kind: elOldPrice, X: 12.5, Y: 8.8, W: 9.0, H: 2.9},
+	}}
+	got := splitPrices(d)
+	p, o, _ := priceBoxes(got)
+	if p.X != 24.0 || p.W != 12.0 || o.X != 12.5 || o.W != 9.0 {
+		t.Fatalf("لمست تصميم مفصول أصلًا: %v | %v", p, o)
+	}
+}
+
+// ⚠️ ومقسوم ٤ مافيهوش سعر قديم خالص — الدالة لازم تعدّي من غير ما تقع
+func TestSplitPricesHandlesMissingOldPrice(t *testing.T) {
+	d := defaultQuarterDesign()
+	got := splitPrices(d)
+	if len(got.Elements) != len(d.Elements) {
+		t.Fatalf("عدد العناصر اتغيّر: %d → %d", len(d.Elements), len(got.Elements))
+	}
+}
+
+// ⚠️ مساحة مش كفاية = سيبها زي ما هي. الزوج المتراكب أهون من صندوق
+// بعرض سالب (اللي معناه ملصق فاضي).
+func TestSplitPricesRefusesWhenTooNarrow(t *testing.T) {
+	d := labelDesign{Elements: []designElement{
+		{Kind: elPrice, X: 10, Y: 8, W: 1.2, H: 2.9},
+		{Kind: elOldPrice, X: 10, Y: 8, W: 1.2, H: 2.9},
+	}}
+	got := splitPrices(d)
+	p, o, _ := priceBoxes(got)
+	if p.X != 10 || o.X != 10 {
+		t.Fatalf("فصلت في مساحة مش كفاية: %v | %v", p, o)
+	}
+}
+
+// ============================================================
+// ▾ خانات التجربة بتتطوي
+// ============================================================
+// اتطلب بالنص: "عاوزك تخلي في شاشة التصميم خانة بيانات التجربة تبقي
+// بتفتح وتقفل يعني ممكن اضغط علي سهم يخفي الخانه كلهم".
+func TestSampleFieldsCollapse(t *testing.T) {
+	for _, want := range []string{
+		`id="s-toggle"`, `id="s-body"`, `id="s-chev"`,
+		`aria-expanded`, `aria-controls="s-body"`,
+		"tz_sample_open", // بتتفكر
+	} {
+		if !strings.Contains(designerPage, want) {
+			t.Fatalf("الطيّة ناقصة: %s", want)
+		}
+	}
+	// ⚠️⚠️ وزرار «اطبع تجربة» **بره** الطيّة: لو اتطوى معاهم، كل
+	// تجربة هتحتاج فتحة زيادة.
+	body := designerPage[strings.Index(designerPage, `id="s-body"`):]
+	end := strings.Index(body, `id="s-print"`)
+	closeTag := strings.Index(body, `</div>
+   <div class="row"`)
+	if end < 0 || closeTag < 0 || closeTag > end {
+		t.Fatal("زرار «اطبع تجربة» جوّه الطيّة — المفروض بره")
+	}
+}
+
+// ⚠️ والمعاينة مابقتش بترسم الزوج: لو فضل الكود القديم موجود، الشاشة
+// هتوري زوج متوسّط والورق هيطلع صندوقين.
+func TestDesignerDroppedThePricePair(t *testing.T) {
+	for _, gone := range []string{"drawPricePair", "showOldPrice"} {
+		if strings.Contains(designerPage, gone) {
+			t.Fatalf("لسه فيه %s — المعاينة هتخالف الورق", gone)
+		}
+	}
+}
+
+// ============================================================
+// ✏️ تغيير اسم تصميم
+// ============================================================
+// اتطلب بالنص: "وكان يبقي متاح اعدل اسم التصميم".
+//
+// ⚠️⚠️ والخطر مش "بيتغيّر ولا لأ" — الخطر إن اللي بيشاور على الاسم
+// القديم (التصميم المستخدم، والأدوار) يفضل مكانه، فالملصق يتغيّر
+// شكله في سكوت.
+func TestRenameKeepsOneDesignNotTwo(t *testing.T) {
+	withTempSettings(t)
+	d := defaultDesign()
+	d.Name = "ملصق الفرع"
+	if err := saveDesign(d); err != nil {
+		t.Fatalf("الحفظ فشل: %v", err)
+	}
+	if err := renameDesign("ملصق الفرع", "ملصق المخزن"); err != nil {
+		t.Fatalf("تغيير الاسم فشل: %v", err)
+	}
+	s := getSettings()
+	if len(s.Designs) != 1 {
+		names := []string{}
+		for _, x := range s.Designs {
+			names = append(names, x.Name)
+		}
+		t.Fatalf("المفروض تصميم واحد، لقيت %d: %v", len(s.Designs), names)
+	}
+	if s.Designs[0].Name != "ملصق المخزن" {
+		t.Fatalf("الاسم مااتغيّرش: %s", s.Designs[0].Name)
+	}
+}
+
+// ⚠️⚠️ أهم فحص في الملف ده: الدور بيشاور على **اسم**. لو سبناه على
+// القديم، الدور بيلاقي اسم مش موجود ويرجع للافتراضي من غير ما حد
+// يعرف — يعني تغيّر الاسم فتلاقي الملصق اتغيّر.
+func TestRenameFollowsRolesAndActive(t *testing.T) {
+	withTempSettings(t)
+	d := defaultQuarterDesign()
+	d.Name = "ربع قديم"
+	if err := saveDesign(d); err != nil {
+		t.Fatalf("الحفظ فشل: %v", err)
+	}
+	if err := setDesignRole(roleQuarter, "ربع قديم"); err != nil {
+		t.Fatalf("الدور فشل: %v", err)
+	}
+	if err := renameDesign("ربع قديم", "ربع جديد"); err != nil {
+		t.Fatalf("تغيير الاسم فشل: %v", err)
+	}
+	if got := designForRole(roleQuarter).Name; got != "ربع جديد" {
+		t.Fatalf("الدور راح لـ%q بدل «ربع جديد»", got)
+	}
+	if got := activeDesign().Name; got != "ربع جديد" {
+		t.Fatalf("المستخدم راح لـ%q بدل «ربع جديد»", got)
+	}
+}
+
+// ⚠️ الافتراضي بيبان في القايمة وهو لسه مااتحفظش. تغيير اسمه لازم
+// يشتغل، مش يقول "مافيش تصميم بالاسم ده".
+func TestRenameWorksOnUnsavedDefault(t *testing.T) {
+	withTempSettings(t)
+	if err := renameDesign(defaultDesign().Name, "ملصق بتاعي"); err != nil {
+		t.Fatalf("تغيير اسم الافتراضي فشل: %v", err)
+	}
+	if got := activeDesign().Name; got != "ملصق بتاعي" {
+		t.Fatalf("المستخدم %q", got)
+	}
+}
+
+func TestRenameRefusesDuplicateAndEmpty(t *testing.T) {
+	withTempSettings(t)
+	a, b := defaultDesign(), defaultDesign()
+	a.Name, b.Name = "واحد", "اتنين"
+	if err := saveDesign(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveDesign(b); err != nil {
+		t.Fatal(err)
+	}
+	if err := renameDesign("واحد", "اتنين"); err == nil {
+		t.Fatal("قبل اسم مكرر — كان هيخلّي تصميمين بنفس الاسم")
+	}
+	if err := renameDesign("واحد", "   "); err == nil {
+		t.Fatal("قبل اسم فاضي")
+	}
+	if len(getSettings().Designs) != 2 {
+		t.Fatalf("العدد اتغيّر: %d", len(getSettings().Designs))
+	}
+}
+
+// ============================================================
+// 🏷️ نوع التصميم جنب اسمه
+// ============================================================
+// اتطلب بالنص: "عاوز في اسم التصميم يبقي جنبه نوعه بمعني ملصق عادي
+// مقسوم 4 بدون سعر".
+func TestDesignerShowsRoleNextToName(t *testing.T) {
+	for _, want := range []string{
+		"ROLE_AR", "ملصق عادي", "مقسوم ٤", "من غير سعر",
+		`id="dname-roles"`, "roleLabel", "showNameRoles",
+		"/design/rename", "origName",
+	} {
+		if !strings.Contains(designerPage, want) {
+			t.Fatalf("المصمّم مافيهوش: %s", want)
+		}
+	}
+}
+
+// ⚠️ الإعدادات في الذاكرة ومشتركة بين الفحوص. الحارس ده بيبدأ من
+// صفحة بيضا وبيرجّع اللي كان بعد الفحص، عشان فحص مايكسرش اللي بعده.
+func withTempSettings(t *testing.T) {
+	t.Helper()
+	setMu.RLock()
+	prev := setData
+	setMu.RUnlock()
+	setMu.Lock()
+	setData = settings{}
+	setMu.Unlock()
+	t.Cleanup(func() {
+		setMu.Lock()
+		setData = prev
+		setMu.Unlock()
+	})
+}

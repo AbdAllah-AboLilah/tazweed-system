@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.12.0"
+	version = "1.13.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -369,6 +369,8 @@ func newServer() *http.ServeMux {
 	mux.HandleFunc("/design/all", guard(handleDesignAll))
 	mux.HandleFunc("/design/active", guard(handleDesignActive))
 	mux.HandleFunc("/design/delete", guard(handleDesignDelete))
+	// ✏️ تغيير اسم تصميم — الشرح عند renameDesign في design.go
+	mux.HandleFunc("/design/rename", guard(handleDesignRename))
 	// 🎭 أنهي تصميم لأنهي نوع ملصق (عادي / مقسوم ٤ / من غير سعر)
 	mux.HandleFunc("/design/for", guard(handleDesignFor))
 	mux.HandleFunc("/design/role", guard(handleDesignRole))

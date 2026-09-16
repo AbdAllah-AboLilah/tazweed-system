@@ -77,7 +77,9 @@ const DESIGN = {
     { kind: 'qr', x: 2.0, y: 1.5, w: 9.5, h: 9.5 },
     { kind: 'name', x: 12.5, y: 1.2, w: 23.5, h: 4.6, fontMm: 1.9, lines: 2, align: 'center', weight: 'normal', overflow: 'shrink', show: 'always' },
     { kind: 'code', x: 12.5, y: 5.9, w: 23.5, h: 2.9, fontMm: 2.4, lines: 1, align: 'center', weight: 'normal', overflow: 'shrink', show: 'always' },
-    { kind: 'price', x: 12.5, y: 8.8, w: 23.5, h: 2.9, fontMm: 2.4, lines: 1, align: 'center', weight: 'bold', overflow: 'shrink', show: 'always' },
+    // ⚠️ السعرين مفصولين زي ما البرنامج بيرجّعهم (splitPrices):
+    // القديم 12.5→21.5 والسعر 22.0→36.0.
+    { kind: 'price', x: 22.0, y: 8.8, w: 14.0, h: 2.9, fontMm: 2.4, lines: 1, align: 'center', weight: 'bold', overflow: 'shrink', show: 'always' },
     { kind: 'oldPrice', x: 12.5, y: 8.8, w: 9.0, h: 2.9, fontMm: 2.0, lines: 1, align: 'center', weight: 'normal', overflow: 'shrink', show: 'ifDiscount' },
   ],
 };
@@ -164,24 +166,25 @@ const DESIGN = {
     typed.txt.includes('طرحة قطن') && typed.txt.includes('6221031490112') && typed.txt.includes('120 L.E'), typed.txt);
 
   // ============================================================
-  // ⭐⭐⭐⭐ السعر القديم بيترسم **جنب** السعر مش في صندوقه
+  // ⭐⭐⭐⭐⭐ كل سعر في صندوقه — والقديم على الشمال
   // ============================================================
-  // ⚠️⚠️ الشكل ده اتغيّر في v0.98.0 بعد ما الصورة أثبتت إن الصندوقين
-  // بيتراكبوا: سعرين من رقمين (110 L.E و85 L.E) طلعوا فوق بعض.
-  // ولو فصلنا الصندوقين، الصنف اللي مافيهوش خصم سعره بيقع في نص
-  // الجزء اليمين بدل نص الملصق. الزوج المتوسّط بيحل الاتنين.
-  //
-  // فالفحص بقى على **النص اللي جوّه صندوق السعر**، مش على عدد
-  // الصناديق — لأن الصندوق واحد في الحالتين.
-  const priceBox = () => p.evaluate(() => {
-    const boxes = [...document.querySelectorAll('#sheet .el')];
-    const b = boxes.find((x) => (x.textContent || '').indexOf(SAMPLE.price) !== -1);
-    if (!b) return null;
-    const spans = [...b.querySelectorAll('span')];
-    return {
-      txt: spans.map((s) => s.textContent),
-      struck: spans.filter((s) => /line-through/.test(s.style.textDecoration)).map((s) => s.textContent),
-    };
+  // ⚠️⚠️ اتغيّر مرتين، والتاني هو اللي شغّال:
+  //   v0.98.0 — بقوا **زوج متوسّط** في صندوق السعر، لأن الصورة
+  //             أثبتت إن الصندوقين كانوا متراكبين (نفس X).
+  //   v1.3.0  — رجعوا **صندوقين منفصلين**، اتطلب بالنص: "السعر القديم
+  //             ... كان في الاول بيتحرك لوحده دلوقتي مش بيتحرك ...
+  //             والاتنين يتحركوا لوحدهم". والتراكب اتحل من جذره:
+  //             البرنامج بيفصل الصندوقين وقت القراية (splitPrices).
+  const boxesNow = () => p.evaluate(() => {
+    const rows = [...document.querySelectorAll('#sheet .el')].map((b) => {
+      const sp = b.querySelector('span');
+      return {
+        txt: (sp && sp.textContent) || '',
+        left: parseFloat(b.style.left) || 0,
+        struck: !!(sp && /line-through/.test(sp.style.textDecoration)),
+      };
+    });
+    return { rows, price: SAMPLE.price, old: SAMPLE.oldPrice };
   });
   const setOld = (v) => p.evaluate((val) => {
     const e = document.getElementById('s-old');
@@ -190,18 +193,24 @@ const DESIGN = {
   }, v);
 
   await setOld('99 L.E');
-  const withOld = await priceBox();
-  check('⭐⭐⭐⭐ السعر والقديم في **نفس** الصندوق',
-    withOld && withOld.txt.length === 2 && withOld.txt.indexOf('99 L.E') !== -1, withOld);
-  check('⭐⭐⭐ والقديم مشطوب', withOld && withOld.struck.join() === '99 L.E', withOld);
+  const withOld = await boxesNow();
+  const rowOf = (r, t) => r.rows.find((x) => x.txt === t);
+  const pRow = rowOf(withOld, withOld.price);
+  const oRow = rowOf(withOld, '99 L.E');
+
+  check('⭐⭐⭐⭐⭐ كل سعر في صندوق لوحده',
+    !!pRow && !!oRow && pRow !== oRow, withOld.rows);
+  // ⚠️ على الشمال = left أقل. ودي اللي اتطلبت بالحرف.
+  check('⭐⭐⭐⭐⭐ والقديم على **شمال** السعر',
+    !!pRow && !!oRow && oRow.left < pRow.left, { old: oRow && oRow.left, price: pRow && pRow.left });
+  check('⭐⭐⭐ والقديم مشطوب', !!oRow && oRow.struck === true, oRow);
 
   await setOld('');
-  const noOld = await priceBox();
+  const noOld = await boxesNow();
   // ⚠️ بنقارن بـSAMPLE.price مش برقم مكتوب: فحوص فوق بتغيّر السعر،
   // والرقم المحفور كان بيوقّع الفحص على حاجة مالهاش علاقة.
-  const curPrice = await p.evaluate(() => SAMPLE.price);
-  check('⭐⭐⭐⭐ و"من غير خصم" بيسيب السعر لوحده متوسّط',
-    noOld && noOld.txt.length === 1 && noOld.txt[0] === curPrice, { noOld, curPrice });
+  check('⭐⭐⭐⭐ و"من غير خصم" بيخفي صندوق القديم خالص',
+    !!rowOf(noOld, noOld.price) && !noOld.rows.some((x) => x.struck), noOld.rows);
 
   // ============================================================
   // ⭐⭐⭐⭐⭐ رمز QR حقيقي من الرقم اللي في الخانة
