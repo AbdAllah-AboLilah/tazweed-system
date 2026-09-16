@@ -176,6 +176,40 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
     <small>&#9888; متفتحهاش غير لما تتأكد من التشخيص فوق. لو التعريف بيبلّغ غلط، الطباعة هتقف وانت مش عارف ليه.</small></span></label>
  </div>
 
+ <!-- ============================================================
+      &#128230; ملف الأصناف
+      ============================================================
+      اتطلب بالنص: "حط خانة في المساعد ... وانا اختار مكان الملف ولو
+      عوزت اغيره اغيره عادي وكمان حط تحت شيك بوكس الرفع التلقائي".
+
+      ⚠️ مكانه هنا مش فوق: الشاشة مرتّبة من فوق لتحت بالأهمية —
+      الطابعات (اللي من غيرها مافيش حاجة تشتغل)، الملصق، التجربة،
+      وبعدين اللي بيتظبّط مرة وينسى. وده بيتظبّط مرة واحدة. -->
+ <div class="card">
+  <div class="sec-title">&#128230; ملف الأصناف</div>
+  <div class="sec-sub">الملف اللي بيطلع من الـERP. البرنامج بيراقبه، والنظام بيقراه ويرفع الأصناف.</div>
+
+  <div class="row">
+   <button class="ghost" id="pf-pick" style="flex:1;min-width:190px">&#128449;&#65039; اختار الملف من الكمبيوتر</button>
+  </div>
+  <!-- ⚠️⚠️ الخانة دي مش بديل مكرّر للزرار: هي **اللي بتوريك المسار
+       المحفوظ فعلًا**، وهي الطريقة الوحيدة لو البرنامج شغّال على
+       جهاز مش ويندوز أو شاشة الاختيار ماردّتش. -->
+  <div style="margin-top:10px"><label>أو الزق المسار هنا</label>
+   <input id="pf-path" type="text" dir="ltr" placeholder="C:\Users\...\List.xlsx" style="font-size:13px"></div>
+  <div class="row" style="margin-top:9px">
+   <button class="ghost" id="pf-check">&#9989; تأكد من الملف</button>
+  </div>
+  <div id="pf-out" style="font-size:13px;line-height:1.9;margin-top:9px;min-height:18px"></div>
+
+  <label class="chk" style="margin-top:10px"><input type="checkbox" id="pf-auto">
+   <span>ارفع لوحدك أول ما الملف يتغيّر
+    <small>&#9888; الرفع بيستبدل قايمة الأصناف كلها باللي في الملف — اللي متشال من الملف بيتشال من النظام.</small></span></label>
+  <div class="note" style="margin-top:9px">
+   لو المفتاح ده <b>مقفول</b>، الملف لما يتغيّر مش هيترفع لوحده — هييجي لصاحب النظام
+   إشعار على التليفون وتنبيه في شاشة الأصناف يسأله يرفع ولا لأ.</div>
+ </div>
+
  <div class="card">
   <div class="sec-title">&#9881;&#65039; البرنامج</div>
   <label class="chk"><input type="checkbox" id="auto">
@@ -489,5 +523,85 @@ up.onclick=async()=>{
     }
   }catch(e){ uo.textContent='\u274c '+e; uo.className='bad'; }
   up.disabled=false;
+};
+// ============================================================
+// 📦 ملف الأصناف
+// ============================================================
+// ⚠️⚠️ ليه الزرار بيفتح شاشة من **البرنامج** مش من الصفحة:
+// خانة الملف في المتصفح (input type=file) مابتديش المسار — بترجّع
+// C:\fakepath وده حاجز أمان في كل المتصفحات ومالوش لف. وإحنا
+// محتاجين المسار الحقيقي عشان نفضل نراقب الملف بعد ما الصفحة تتقفل.
+const pfPath=document.getElementById('pf-path'), pfOut=document.getElementById('pf-out'),
+      pfAuto=document.getElementById('pf-auto'), pfPick=document.getElementById('pf-pick'),
+      pfCheck=document.getElementById('pf-check');
+
+function pfWhen(ms){
+  if(!ms) return '';
+  try{ return new Date(ms).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'}); }
+  catch(e){ return new Date(ms).toLocaleString(); }
+}
+function pfSize(b){
+  if(!b) return '';
+  return b>=1048576 ? (b/1048576).toFixed(1)+' ميجا' : Math.round(b/1024)+' كيلو';
+}
+function pfShow(st,quiet){
+  if(!st) return;
+  if(typeof st.path==='string' && document.activeElement!==pfPath) pfPath.value=st.path;
+  pfAuto.checked=!!st.autoUpload;
+  if(!st.path){ if(!quiet){ pfOut.textContent='مافيش ملف متظبّط لسه.'; pfOut.className=''; } return; }
+  if(st.error){ pfOut.textContent='\u274c '+st.error; pfOut.className='bad'; return; }
+  if(st.exists){
+    pfOut.innerHTML='\u2705 الملف موجود &mdash; <b>'+pfSize(st.size)+'</b>'
+      +'<br>آخر تعديل: '+pfWhen(st.modifiedMs);
+    pfOut.className='ok';
+  }
+}
+function pfLoad(quiet){
+  fetch('/products/file').then(r=>r.json()).then(j=>pfShow(j,quiet)).catch(()=>{});
+}
+pfLoad(true);
+
+// ⚠️ الشاشة بتفتح على **الكمبيوتر** — ولو صاحب المحل داخل من
+// التليفون، هو مش شايفها. فالنص بيقول له يبص على الشاشة، مش بيسيبه
+// مستني دوسة مالهاش رد.
+pfPick.onclick=async()=>{
+  pfPick.disabled=true;
+  pfOut.textContent='افتح شاشة الكمبيوتر — شاشة اختيار الملف مفتوحة عليها.'; pfOut.className='';
+  try{
+    const j=await (await fetch('/products/file/pick',{method:'POST'})).json();
+    if(j.error){ pfOut.textContent='\u274c '+j.error; pfOut.className='bad'; }
+    else if(j.canceled){ pfOut.textContent='مااختارتش حاجة — المسار القديم زي ما هو.'; pfOut.className=''; pfShow(j.state,true); }
+    else pfShow(j.state);
+  }catch(e){ pfOut.textContent='\u274c '+e; pfOut.className='bad'; }
+  pfPick.disabled=false;
+};
+
+// ⚠️ المسار بيتحفظ لوحده زي "يشتغل مع الويندوز" — مش مربوط بزرار
+// الحفظ اللي في قسم تاني، عشان محدش يكتب ويمشي ويفتكره اتحفظ.
+async function pfSave(body){
+  const j=await (await fetch('/products/file',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  return j;
+}
+pfPath.onchange=async()=>{
+  pfOut.textContent='بيحفظ...'; pfOut.className='';
+  try{ pfShow(await pfSave({path:pfPath.value})); }
+  catch(e){ pfOut.textContent='\u274c '+e; pfOut.className='bad'; }
+};
+pfCheck.onclick=async()=>{
+  pfCheck.disabled=true;
+  pfOut.textContent='بيشوف...'; pfOut.className='';
+  try{ pfShow(await pfSave({path:pfPath.value})); }
+  catch(e){ pfOut.textContent='\u274c '+e; pfOut.className='bad'; }
+  pfCheck.disabled=false;
+};
+pfAuto.onchange=async(e)=>{
+  const on=e.target.checked;
+  try{
+    const st=await pfSave({autoUpload:on});
+    pfShow(st,true);
+    pfOut.textContent=on?'\u2705 هيترفع لوحده أول ما الملف يتغيّر':'\u2705 مش هيترفع لوحده — هييجيلك سؤال';
+    pfOut.className='ok';
+  }catch(err){ pfOut.textContent='\u274c '+err; pfOut.className='bad'; e.target.checked=!on; }
 };
 </script></html>`

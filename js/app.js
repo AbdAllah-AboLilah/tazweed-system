@@ -2332,7 +2332,7 @@ const LOG_KINDS = [
   { key: 'print',   icon: '🖨️', label: 'طباعة',    actions: ['print'] },
   // ⚠️ العمليتين دول كانوا **مالهمش قسم ولا نص** — فكانوا بيطلعوا في
   // السجل ككارت فاضي فيه الاسم والوقت وبس، ومحدش يقدر يخفيهم.
-  { key: 'admin',   icon: '👥', label: 'الإدارة',   actions: ['edit_user', 'import_products'] },
+  { key: 'admin',   icon: '👥', label: 'الإدارة',   actions: ['edit_user', 'import_products', 'import_products_file'] },
 ];
 
 const LOG_KIND_OF = {};
@@ -2561,6 +2561,13 @@ function activityEntryParts(entry) {
   } else if (entry.action === 'import_products') {
     itemLabel = '';
     detailLabel = `📁 تحديث ملف الأصناف — ${escapeHTML(Number(entry.newValue) || 0)} صنف`;
+  } else if (entry.action === 'import_products_file') {
+    // ⚠️ مكتوب إنه من البرنامج المساعد عن قصد: اتطلب بالنص "عاوز
+    // العملية دي تبان كامله في السجل بمعني انها تظهر ان المساعد رفع
+    // الملف في كذا ووقت كذا". من غير الجملة دي، السطر مايفرقش عن
+    // الاستيراد بالإيد وصاحب المحل مش هيعرف مين رفع.
+    itemLabel = '';
+    detailLabel = `📦 ملف الأصناف اترفع من البرنامج المساعد — ${escapeHTML(Number(entry.newValue) || 0)} صنف`;
   } else if (entry.action === 'edit_user') {
     itemLabel = escapeHTML(entry.categoryName || '');
     const r = ROLE_LABELS_AR[entry.newValue] || entry.newValue || '';
@@ -6657,6 +6664,16 @@ function init() {
       // ⚠️ ومابيأخّرش الدخول أكتر من مهلة الفحص (1.2 ثانية)، والجهاز
       // اللي مافيهوش البرنامج بيعدّي على طول من غير أي انتظار زيادة.
       adoptMachineId().catch(() => {}).then(() => {
+
+      // ============================================================
+      // 📦 ملف الأصناف — بيتشاف أول ما النظام يفتح
+      // ============================================================
+      // اتطلب بالنص: "يرفع أول ما تفتح النظام".
+      //
+      // ⚠️ بعد الدخول بشوية مش وقته: النداء بيروح لـ127.0.0.1 ومهلته
+      // ثانية ونص، والجهاز اللي مافيهوش البرنامج بيعدّي على طول —
+      // فالدخول مابيتأخّرش خالص.
+      if (typeof scheduleProductsFileCheck === 'function') scheduleProductsFileCheck();
 
       // موظف الطباعة مايحتاجش اشتراكات المخزن (فئات/نواقص/سجل) — شاشته
       // بتقرا الأصناف بس. لكنه محتاج أجهزة الطباعة عشان يقدر يبعت للكاشير.
