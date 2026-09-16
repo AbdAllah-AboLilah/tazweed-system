@@ -5270,6 +5270,17 @@ async function registerPrintStation() {
           // 🔤 خط الملصق — عشان نافذة "إرسال إعدادات الطابعة" تعرف
           // الجهاز ده شغّال بأنهي خط فعلًا، مش تخمّن.
           labelFont: typeof getLabelFontId === 'function' ? getLabelFontId() : '',
+          // ============================================================
+          // 📏 مقاسات الخط التلاتة — كانوا ناقصين
+          // ============================================================
+          // ⚠️ نافذة "إرسال إعدادات الطابعة" بتقرا الأرقام دي من هنا
+          // (شوف currentFor في js/print-screen.js). ومن غيرها كانت
+          // بتوري **الافتراضي** لكل جهاز مهما كان اللي عليه — يعني
+          // تفتح النافذة من التليفون تلاقي 1.9 والجهاز شغّال على 2.6،
+          // وتفتكر إن الرقم اللي ظبطته ضاع.
+          nameMm: typeof getPrintNameMm === 'function' ? getPrintNameMm() : null,
+          codeMm: typeof getPrintCodeMm === 'function' ? getPrintCodeMm() : null,
+          priceMm: typeof getPrintPriceMm === 'function' ? getPrintPriceMm() : null,
         },
         lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
         updatedByUid: state.user.uid,

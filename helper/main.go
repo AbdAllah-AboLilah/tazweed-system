@@ -31,12 +31,16 @@ import (
 )
 
 const (
-	version = "1.11.0"
+	version = "1.12.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
 	maxBody = 12 << 20
 )
+
+// ⚠️ عنوان النظام — نفس المصدر المسموح تحت. مكتوب مرة واحدة عشان
+// مايختلفش بين الحارس وبين اللي بيفتح.
+const systemURL = "https://abdallah-abolilah.github.io/tazweed-system/"
 
 // المصادر المسموح لها تنده. أي حاجة غيرها بتترفض.
 var allowedOrigins = map[string]bool{
@@ -126,6 +130,9 @@ type statusReply struct {
 	LabelGapMm     float64 `json:"labelGapMm"`
 	LabelDirection int     `json:"labelDirection"`
 	LabelFlip      bool    `json:"labelFlip"`
+	// 🩺 مفتاح "اوقف الطبعة لو الطابعة مبلّغة مشكلة"
+	StopOnPrinterProblem bool `json:"stopOnPrinterProblem"`
+	OpenSystemOnStart    bool `json:"openSystemOnStart"`
 	// 🆔 معرّف الماكينة — الشرح الكامل عند MachineID في settings.go.
 	// باختصار: النظام بياخد منه رقم ثابت للكمبيوتر بدل الرقم العشوائي
 	// اللي كل متصفح بيولّده لنفسه، فالجهاز يتحسب **مرة واحدة**.
@@ -148,10 +155,12 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		MachineID:      machineID(),
 		DeviceName:     cur.DeviceName,
 		RestockPrinter: cur.RestockPrinter, LabelPrinter: cur.LabelPrinter,
-		Autostart:      autostartEnabled(),
-		LabelGapMm:     gapMm,
-		LabelDirection: direction,
-		LabelFlip:      flip,
+		Autostart:            autostartEnabled(),
+		LabelGapMm:           gapMm,
+		LabelDirection:       direction,
+		LabelFlip:            flip,
+		StopOnPrinterProblem: cur.StopOnPrinterProblem,
+		OpenSystemOnStart:    cur.OpenSystemOnStart,
 	})
 }
 
@@ -290,6 +299,23 @@ func handleLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ============================================================
+	// 🩺 الحارس: نوقف قبل ما نضيّع رول
+	// ============================================================
+	// ⚠️⚠️ **مقفول افتراضيًا** عن قصد. اللي بيرجع من التعريف مش
+	// مضمون: تعريف بيكدب ويقول "الورق خلص" وهو مافيش هيوقف الطباعة
+	// خالص — وده أسوأ بكتير من إننا مانعرفش.
+	//
+	// فالمستخدم بيجرّب التشخيص الأول من الصفحة (والرول خارج)، ولما
+	// يتأكد إن ماكينته بتبلّغ صح، يفتح المفتاح.
+	if getSettings().StopOnPrinterProblem {
+		if st := readPrinterState(printer); st.Blocking {
+			log.Println("الطبعة اتوقفت:", st.Summary())
+			writeJSON(w, http.StatusOK, labelReply{Error: st.Summary() + " — الطبعة اتوقفت قبل ما تضيّع ورق."})
+			return
+		}
+	}
+
 	jobName := req.Name
 	if jobName == "" {
 		jobName = "ملصقات"
@@ -335,6 +361,8 @@ func newServer() *http.ServeMux {
 	mux.HandleFunc("/label", guard(handleLabel))
 	// 🔒 حجز الطلب — الشرح الكامل في claim.go
 	mux.HandleFunc("/claim", guard(handleClaim))
+	// 🩺 حالة الطابعة — الحاجة اللي المتصفح مايقدرش عليها
+	mux.HandleFunc("/printer/status", guard(handlePrinterStatus))
 
 	// 🎨 تصميم الملصق — النظام بيقرا /design والمصمّم بيكتب عليه.
 	mux.HandleFunc("/design", guard(handleDesign))
@@ -364,18 +392,28 @@ func newServer() *http.ServeMux {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})
 			return
 		}
-		var in settings
+		// ============================================================
+		// ⚠️⚠️⚠️ بنبدأ من **المحفوظ** مش من كائن فاضي — عطل حقيقي
+		// ============================================================
+		// الحفظ هنا بيستبدل الملف كله بالكائن اللي جاي، والصفحة
+		// بتبعت الحقول اللي فيها بس (الطابعتين والاسم والمعايرة).
+		//
+		// فأول ما اتخزّنت حاجات تانية في نفس الملف — **التصاميم**
+		// واختيار كل نوع ملصق — بقت كل دوسة على "احفظ الإعدادات"
+		// بتمسحها كلها في سكوت. تظبط تصميمك بالمليمتر، تروح تغيّر
+		// اسم الجهاز، يرجع الافتراضي.
+		//
+		// وكان فيه سطر واحد بيعالج نفس الحاجة لمعرّف الماكينة
+		// (`if in.MachineID == ""`) — علاج لحالة واحدة بدل القاعدة،
+		// فأول ما اتضاف حقل جديد وقع في نفس الحفرة.
+		//
+		// القاعدة الصح: ابدأ من اللي محفوظ، والـJSON يكتب فوق اللي
+		// بعته بس. كل حقل جديد بقى محمي تلقائيًا من غير ما حد يفتكر.
+		in := getSettings()
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "الطلب مش مفهوم"})
 			return
 		}
-		// ============================================================
-		// ⚠️⚠️ معرّف الماكينة **مايتمسحش** من الصفحة
-		// ============================================================
-		// الحفظ هنا بيستبدل الملف كله بالكائن اللي جاي. والصفحة
-		// مابتبعتش المعرّف (ولا المفروض تبعته)، فمن غير السطر ده كل
-		// دوسة "حفظ" كانت هتمسحه — والكمبيوتر ياخد هوية جديدة، وده
-		// بالظبط العطل اللي المعرّف ده اتعمل عشانه.
 		if in.MachineID == "" {
 			in.MachineID = machineID()
 		}
@@ -384,6 +422,52 @@ func newServer() *http.ServeMux {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}))
+	// ============================================================
+	// 📦 نقل الإعدادات لجهاز تاني
+	// ============================================================
+	// ⚠️ الفايدة: تظبط كمبيوتر واحد (التصاميم، المقاسات، المعايرة)
+	// وتنقله للباقيين بملف بدل ما تعيد الشغل على كل جهاز.
+	mux.HandleFunc("/settings/export", guard(func(w http.ResponseWriter, r *http.Request) {
+		s := getSettings()
+		// ⚠️⚠️ معرّف الماكينة **مايتصدّرش**: هو هوية الكمبيوتر ده
+		// بالذات. لو اتنقل، الجهازين هيبقوا جهاز واحد في النظام —
+		// وده بالظبط العطل اللي المعرّف اتعمل عشان يمنعه.
+		s.MachineID = ""
+		// ⚠️ واسم الجهاز كمان: "كمبيوتر الكاشير" على جهازين = لخبطة.
+		s.DeviceName = ""
+		b, err := json.MarshalIndent(s, "", "  ")
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="tazweed-settings.json"`)
+		w.Write(b)
+	}))
+	mux.HandleFunc("/settings/import", guard(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"ok": false, "error": "POST بس"})
+			return
+		}
+		// ⚠️ بنبدأ من المحفوظ زي /settings بالظبط: الملف المستورد
+		// ممكن يكون من نسخة أقدم وناقص حقول، ومايصحّش يمسحها.
+		in := getSettings()
+		keepID, keepName := in.MachineID, in.DeviceName
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "الملف مش مفهوم"})
+			return
+		}
+		// ⚠️⚠️ الهوية بتفضل **بتاعة الجهاز ده** مهما كان في الملف.
+		in.MachineID, in.DeviceName = keepID, keepName
+		if in.MachineID == "" {
+			in.MachineID = machineID()
+		}
+		if err := saveSettings(in); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "designs": len(in.Designs)})
 	}))
 	mux.HandleFunc("/autostart", guard(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -471,6 +555,17 @@ func main() {
 	}
 	if !silent {
 		openBrowser("http://" + addr)
+	} else if getSettings().OpenSystemOnStart {
+		// ============================================================
+		// 🚀 يفتح النظام لوحده مع الويندوز
+		// ============================================================
+		// ⚠️ **النظام** مش صفحة البرنامج: اللي بيفتح الكمبيوتر الصبح
+		// عايز يشتغل على طول، مش يلاقي صفحة إعدادات.
+		//
+		// ⚠️⚠️ ومقفول افتراضيًا: فتح نافذة في وش المستخدم من غير ما
+		// يطلب حاجة مزعج، وده بالظبط اللي `--startup` اتعملت عشان
+		// تمنعه. الفرق إنه دلوقتي **باختياره**.
+		openBrowser(systemURL)
 	}
 	log.SetFlags(log.Ltime)
 

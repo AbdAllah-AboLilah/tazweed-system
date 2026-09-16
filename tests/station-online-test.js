@@ -73,6 +73,12 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     await registerPrintStation();
     out.helperOnlyWrites = writes;
     out.helperOnlyPrinters = last ? (last.printers || []).length : 0;
+    // ⚠️ اللي الجهاز بينشره عن نفسه — نافذة "إرسال إعدادات الطابعة"
+    // في التليفون بتقرا منه.
+    out.setup = last && last.printSetup ? Object.keys(last.printSetup).sort() : [];
+    out.setupSizes = last && last.printSetup
+      ? [last.printSetup.nameMm, last.printSetup.codeMm, last.printSetup.priceMm]
+      : [];
 
     // ============================================================
     // ⭐⭐⭐⭐ والعكس: QZ شغّال والمساعد مقفول — زي زمان
@@ -109,6 +115,21 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
 
   check('⭐⭐⭐⭐⭐ QZ مقفول والمساعد شغّال → الجهاز **بيسجّل نفسه**',
     r.helperOnlyWrites === 1, r.helperOnlyWrites);
+
+  // ============================================================
+  // ⭐⭐⭐⭐ الجهاز بينشر مقاسات الخط اللي شغّال بيها فعلًا
+  // ============================================================
+  // ⚠️⚠️ من غير كده، نافذة "إرسال إعدادات الطابعة" من التليفون بتوري
+  // **الأرقام الافتراضية** لكل جهاز مهما كان اللي عليه (شوف currentFor
+  // في js/print-screen.js: `ps.nameMm ?? PRINT_NAME_MM_DEFAULT`).
+  // يعني تفتح النافذة وتلاقي 1.9 والجهاز شغّال على 2.6 — وتفتكر إن
+  // الرقم اللي ظبطته ضاع.
+  check('⭐⭐⭐⭐ الجهاز بينشر مقاسات الخط التلاتة',
+    ['nameMm', 'codeMm', 'priceMm'].every((k) => r.setup.indexOf(k) !== -1), r.setup);
+  check('⭐⭐⭐ والأرقام حقيقية مش فاضية',
+    r.setupSizes.every((v) => typeof v === 'number' && v > 0), r.setupSizes);
+  // ⚠️ والخط كمان — نفس السبب بالظبط.
+  check('⭐⭐⭐ وبينشر خط الملصق', r.setup.indexOf('labelFont') !== -1, r.setup);
   check('⭐⭐⭐⭐ وبيبعت طابعات المساعد معاه',
     r.helperOnlyPrinters === 2, r.helperOnlyPrinters);
   check('⭐⭐⭐⭐ وQZ شغّال والمساعد مقفول → بيسجّل زي زمان',
