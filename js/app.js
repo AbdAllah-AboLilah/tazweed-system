@@ -2427,10 +2427,31 @@ function setLogDays(n) {
 // ⚠️ الوصف ده كان مكتوب **جوّه** بنّاء الجدول. لما بقى فيه شكلين (جدول
 // على الكمبيوتر وكارتس على الموبايل) كان لازم يتنقل بره، وإلا التلاتين
 // حالة دول يتكتبوا مرتين ويفترقوا مع أول تعديل.
+// ============================================================
+// 📛 اسم المجموعة مع **كل** عملية على درجة
+// ============================================================
+// ⚠️⚠️ اتبلّغ مرتين. أول مرة ضفتها في "طلب تزويد" بس، ورجع قال:
+// "وبردوا السجل مش جايب اسم المجموعة" — وكان صح: أغلب اللي في السجل
+// **تعديل كميات** مش طلبات تزويد، وديه مكانتش بتسجّل المجموعة خالص.
+//
+// والفرق مش شكلي: الفئة الواحدة فيها نفس رقم الدرجة في أكتر من
+// مجموعة (بيجات / بندانة / ...)، فسطر "بونيه حجاب — درجة 9" مابيقولش
+// أنهي 9 من التلاتة.
+//
+// ⚠️ ودي دالة واحدة بدل ما كل نداء يكتب السطر بنفسه: فيه فحص
+// (log-where-test) بيقرا الملف ده ويتأكد إن **كل** نداء فيه
+// gradeNumber فيه gradeGroup كمان — فأي عملية جديدة تتنسي هتقع.
+function gradeGroupOf(data) {
+  return String((data && data.group) || '').slice(0, 60);
+}
+
 function activityEntryParts(entry) {
   const when = entry.timestamp && entry.timestamp.toDate ? entry.timestamp.toDate().toLocaleString('ar-EG') : '—';
   const cat = escapeHTML(entry.categoryName || '');
-  const grade = `${cat} — درجة ${escapeHTML(entry.gradeNumber)}`;
+  // ⚠️ المجموعة جنب الفئة — والعمليات القديمة (قبل التحديث) مافيهاش
+  // الحقل ده فبتفضل زي ما هي بالحرف.
+  const grp = entry.gradeGroup ? ` · ${escapeHTML(entry.gradeGroup)}` : '';
+  const grade = `${cat}${grp} — درجة ${escapeHTML(entry.gradeNumber)}`;
   let itemLabel = '';
   let detailLabel = '';
 
@@ -2455,10 +2476,9 @@ function activityEntryParts(entry) {
     detailLabel = `تعديل بيانات الصنف (باركود: ${escapeHTML(entry.barcodeNumber || '—')})`;
   } else if (entry.action === 'request_shortage') {
     itemLabel = grade;
-    // ⚠️ المجموعة جنب الطلب: "طلب تزويد (بيجات)" بيفرّق فعلًا لما
-    // نفس رقم الدرجة موجود في أكتر من مجموعة في نفس الفئة.
-    detailLabel =
-      'طلب تزويد (خلصت من الفرع)' + (entry.gradeGroup ? ` — ${escapeHTML(entry.gradeGroup)}` : '');
+    // ⚠️ المجموعة بقت في **عنوان** السطر (شوف grade فوق) — فمش
+    // بتتكرر هنا. التكرار كان هيطوّل السطر على الموبايل من غير فايدة.
+    detailLabel = 'طلب تزويد (خلصت من الفرع)';
   } else if (entry.action === 'cancel_shortage') {
     itemLabel = grade;
     detailLabel = 'إلغاء طلب التزويد';
@@ -4211,6 +4231,7 @@ async function addGrade(categoryId, data) {
     categoryName,
     gradeId: ref.id,
     gradeNumber: data.name || data.number,
+    gradeGroup: gradeGroupOf(data),
   });
 }
 
@@ -5686,17 +5707,8 @@ async function requestShortage(gradeId, qty) {
     categoryName,
     gradeId,
     gradeNumber: data.number,
+    gradeGroup: gradeGroupOf(data),
     requestedQty: want,
-    // ============================================================
-    // ⚠️⚠️ اسم المجموعة — كان ناقص
-    // ============================================================
-    // اتبلّغ بالنص: "لو طالب من مجموعة معينه في فئة معينه مش بيجيلي
-    // اسمها وبردوا مش بيظهر في سجل العمليات".
-    //
-    // والفئة الواحدة ممكن يكون فيها نفس رقم الدرجة في أكتر من
-    // مجموعة (بيجات / بندانة / ...) — فالسجل كان بيقول "كريب — 56"
-    // وانت مش عارف 56 بتاعة مين.
-    gradeGroup: (data.group || '').slice(0, 60),
   });
 }
 
@@ -5756,6 +5768,7 @@ async function cancelShortage(gradeId) {
     categoryName,
     gradeId,
     gradeNumber: data.number,
+    gradeGroup: gradeGroupOf(data),
   });
 }
 
@@ -5789,6 +5802,7 @@ async function fulfillShortage(gradeId, qty) {
     categoryName,
     gradeId,
     gradeNumber: data.number,
+    gradeGroup: gradeGroupOf(data),
     transferredQty: transferQty,
   });
 
@@ -5825,6 +5839,7 @@ async function markOutOfStock(gradeId) {
     categoryName,
     gradeId,
     gradeNumber: data.number,
+    gradeGroup: gradeGroupOf(data),
   });
 }
 
@@ -5848,6 +5863,7 @@ async function resetOutOfStock(gradeId) {
     categoryName,
     gradeId,
     gradeNumber: data.number,
+    gradeGroup: gradeGroupOf(data),
   });
 
   // "رجّعها متاحة" برضه رجوع بعد خلاص → دورة جديدة (نفس قاعدة الكميات)
@@ -6237,6 +6253,7 @@ async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldVal
     categoryName,
     gradeId,
     gradeNumber: data.number,
+    gradeGroup: gradeGroupOf(data),
     field,
     oldValue,
     newValue,
@@ -6281,6 +6298,7 @@ async function applyQuantityChange(categoryId, gradeId, gradeData, field, oldVal
       categoryName,
       gradeId,
       gradeNumber: data.name || data.number,
+      gradeGroup: gradeGroupOf(data),
       auto: true,
     });
   }

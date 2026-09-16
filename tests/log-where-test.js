@@ -104,14 +104,44 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   // ============================================================
   // ⭐⭐⭐⭐⭐ المجموعة: في السجل وفي الإشعار
   // ============================================================
-  const g = await p.evaluate(() => ({
-    withGroup: activityEntryParts({ action: 'request_shortage', gradeNumber: '56', gradeGroup: 'بيجات' }).detailLabel,
-    without: activityEntryParts({ action: 'request_shortage', gradeNumber: '56' }).detailLabel,
-  }));
-  check('⭐⭐⭐⭐⭐ سطر طلب التزويد بيقول المجموعة', /بيجات/.test(g.withGroup), g.withGroup);
-  // ⚠️ والدرجة اللي مالهاش مجموعة مايتزودش عليها شرطة فاضية.
-  check('⭐⭐⭐ واللي مالهاش مجموعة زي ما هي',
-    g.without === 'طلب تزويد (خلصت من الفرع)', g.without);
+  // ⚠️⚠️ اتبلّغ **مرتين**. أول مرة ضفتها في "طلب تزويد" بس، ورجع قال
+  // "وبردوا السجل مش جايب اسم المجموعة" — وكان صح: أغلب اللي في السجل
+  // **تعديل كميات** مش طلبات تزويد. فالمجموعة بقت في **عنوان** السطر،
+  // يعني كل عملية على درجة بتورّيها.
+  const g = await p.evaluate(() => {
+    const mk = (extra) => activityEntryParts({
+      categoryName: 'بونيه حجاب', gradeNumber: '9', ...extra,
+    });
+    return {
+      edit: mk({ action: 'edit', field: 'branchQty', oldValue: 0, newValue: 1, gradeGroup: 'بيجات' }).itemLabel,
+      editNoGroup: mk({ action: 'edit', field: 'branchQty', oldValue: 0, newValue: 1 }).itemLabel,
+      request: mk({ action: 'request_shortage', gradeGroup: 'بيجات' }).itemLabel,
+      fulfill: mk({ action: 'fulfill_shortage', transferredQty: 3, gradeGroup: 'بندانة' }).itemLabel,
+    };
+  });
+  // ⚠️ ده اللي في صورته بالظبط: "بونيه حجاب — درجة 9" من غير مجموعة.
+  check('⭐⭐⭐⭐⭐ تعديل الكمية بيقول المجموعة كمان',
+    g.edit === 'بونيه حجاب · بيجات — درجة 9', g.edit);
+  check('⭐⭐⭐⭐ وطلب التزويد', g.request === 'بونيه حجاب · بيجات — درجة 9', g.request);
+  check('⭐⭐⭐⭐ والتزويد', g.fulfill === 'بونيه حجاب · بندانة — درجة 9', g.fulfill);
+  // ⚠️ والعمليات القديمة (مافيهاش الحقل) زي ما هي بالحرف.
+  check('⭐⭐⭐⭐ واللي مالهاش مجموعة زي ما هي بالحرف',
+    g.editNoGroup === 'بونيه حجاب — درجة 9', g.editNoGroup);
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ الحارس الحقيقي: **كل** نداء فيه درجة فيه مجموعة
+  // ============================================================
+  // ⚠️⚠️ ده اللي منع التكرار: أول إصلاح غطّى نداء واحد بس من تمانية،
+  // والباقي فضل ناقص. الفحص ده بيقرا js/app.js ويتأكد إن كل نداء
+  // logActivity فيه gradeNumber فيه gradeGroup كمان — فأي عملية
+  // جديدة تتنسي هتقع هنا مش على المستخدم.
+  const src = await p.evaluate(async () => (await (await fetch('/js/app.js')).text()));
+  const calls = src.match(/logActivity\(\{[\s\S]*?\n\s*\}\)/g) || [];
+  const withGrade = calls.filter((c) => /gradeNumber:/.test(c));
+  const missing = withGrade.filter((c) => !/gradeGroup:/.test(c));
+  check('⭐⭐⭐⭐⭐ كل عملية على درجة بتسجّل المجموعة',
+    withGrade.length >= 8 && missing.length === 0,
+    { total: withGrade.length, missing: missing.map((c) => (c.match(/action: '([^']+)'/) || [])[1]) });
 
   // ⚠️⚠️ والإشعار: "كريب 56" مابتقولش المكان. "كريب بيجات 56" بتقول.
   const notif = await p.evaluate(() => {
@@ -131,9 +161,9 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐ واللي من غير مجموعة زي ما كان', notif.plain === 'كريب 56', notif);
 
   // ⚠️ والحارس الحقيقي: الكود اللي في notify.js نفسه بيحط المجموعة.
-  const src = await p.evaluate(async () => (await (await fetch('/js/notify.js')).text()));
+  const notifySrc = await p.evaluate(async () => (await (await fetch('/js/notify.js')).text()));
   check('⭐⭐⭐⭐⭐ وnotify.js فعلًا بيقرا g.group',
-    /group \? group \+ ' ' : ''/.test(src), null);
+    /group \? group \+ ' ' : ''/.test(notifySrc), null);
 
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
