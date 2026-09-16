@@ -827,3 +827,66 @@ func withTempSettings(t *testing.T) {
 		setMu.Unlock()
 	})
 }
+
+// ============================================================
+// 🤫 التحديث في صمت + المعاينة بتتطوي
+// ============================================================
+// اتطلب بالنص: "لما اضغط علي تحديث النظام المساعد من الهاتف ميفتحش
+// الواجهة بعد ما البرنامج المساعد يتحدث يعني يتحدث في صمت في الخلفيه".
+//
+// ⚠️⚠️ من غير العلم ده، النسخة الجديدة بتشتغل من غير أي أمر — يعني
+// زي ما المستخدم فتحها بإيده — فبتفتح صفحة البرنامج في المتصفح على
+// كمبيوتر المحل، لأن حد دوس زرار من تليفونه.
+func TestRestartAfterUpdateIsSilent(t *testing.T) {
+	src, err := os.ReadFile("update_windows.go")
+	if err != nil {
+		t.Fatalf("مش قادر أقرا: %v", err)
+	}
+	if !strings.Contains(string(src), "exec.Command(exe, updatedFlag)") {
+		t.Fatal("إعادة التشغيل مش بتبعت العلم — النسخة الجديدة هتفتح المتصفح")
+	}
+
+	m, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("مش قادر أقرا: %v", err)
+	}
+	ms := string(m)
+	if !strings.Contains(ms, `updatedFlag = "--updated"`) {
+		t.Fatal("العلم مش متعرّف")
+	}
+	// ⚠️ ولازم يتقرا **ويوقف الفتح**: العلم اللي مافيش حد بيقراه مالوش
+	// أي أثر، والفحص لازم يمسك ده مش يكتفي بوجود الاسم.
+	if !strings.Contains(ms, "afterUpdate = true") {
+		t.Fatal("العلم مش بيتقرا في main")
+	}
+	if !strings.Contains(ms, "if afterUpdate {") {
+		t.Fatal("العلم بيتقرا بس مش بيمنع الفتح")
+	}
+	// ⚠️⚠️ والأهم: الفحص لازم يتأكد إن الشرط **قبل** الفتح، مش بعده.
+	iAfter := strings.Index(ms, "if afterUpdate {")
+	iOpen := strings.Index(ms, `openBrowser("http://" + addr)`)
+	if iAfter < 0 || iOpen < 0 || iAfter > iOpen {
+		t.Fatalf("شرط ما-بعد-التحديث مش قبل الفتح: %d مقابل %d", iAfter, iOpen)
+	}
+}
+
+// اتطلب بالنص: "لما اضغط اطبع تجربة لما يظهر معاينه المعاينه تدخل
+// بردوا جوه حقل بيانات التجربة بمعني لما اطوي الحقل او اخفيه تختفي
+// جواه معاهم".
+func TestSentPreviewFoldsWithSampleFields(t *testing.T) {
+	for _, want := range []string{
+		"var sampleOpen = true, hasSent = false;",
+		"function syncSent(){ $('sent-wrap').hidden = !(hasSent && sampleOpen); }",
+		"hasSent = true;",
+	} {
+		if !strings.Contains(designerPage, want) {
+			t.Fatalf("المصمّم مافيهوش: %s", want)
+		}
+	}
+	// ⚠️ والطيّ لازم ينده syncSent، وإلا الصورة بتفضل ظاهرة بعد الطي
+	i := strings.Index(designerPage, "function setSampleOpen(open){")
+	j := strings.Index(designerPage[i:], "}")
+	if i < 0 || !strings.Contains(designerPage[i:i+j], "syncSent();") {
+		t.Fatal("الطيّ مش بيحدّث الصورة")
+	}
+}

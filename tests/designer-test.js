@@ -397,6 +397,64 @@ const DESIGN = {
   check('⭐⭐⭐⭐ الصورة المبعوتة بتتغيّر لما الخط يتغيّر',
     sent2 !== null && fontPng !== '' && sent2.labels[0].png !== (sent ? sent.labels[0].png : ''), null);
 
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ المعاينة = الورق — الكلام مايتقصّش في سكوت
+  // ============================================================
+  // ⚠⚠ اتبلّغ بالنص وبصورة: "المعاينه فوق جايبه ان الاسم ده يدخل
+  // في سطرين عادي لما بضغط علي طباعة تجربة بقيت الاسم بيتاكل مش
+  // بيطلع زي المعاينه فوق".
+  //
+  // والقياس أكّده: 12 كلمة في المعاينة، و**8** في الصورة اللي راحت
+  // للطابعة. وكانوا بيكذبوا في **الاتجاهين**:
+  //   الورق    → بيقص الزيادة (wrapCanvas كانت بترميها)
+  //   المعاينة → بتوري 3 سطور والعنصر مكتوب عليه سطرين
+  const LONG = 'كارينا كوكيز تيشرت رقبة دائرية كم طويل مقاس 2xl-3xl dsada adsa sad';
+  const wrapCase = await p.evaluate((NAME) => {
+    const nm = d.elements.find((e) => e.kind === 'name');
+    nm.w = 24.8; nm.h = 6.3; nm.fontMm = 2.4; nm.lines = 2; nm.align = 'center'; nm.weight = 'bold';
+    SAMPLE.name = NAME;
+    writeSample(); draw();
+
+    const sp = [...document.querySelectorAll('#sheet .el span')]
+      .find((x) => x.textContent.indexOf('كارينا') !== -1);
+    const f = sp ? parseFloat(sp.style.fontSize) : 0;
+
+    // الصورة اللي بتروح للطابعة — بنتجسّس على كل سطر بيترسم
+    const drawn = [];
+    const c = document.createElement('canvas');
+    c.width = Math.round(d.widthMm * DPMM); c.height = Math.round(d.heightMm * DPMM);
+    const x = c.getContext('2d');
+    const real = x.fillText.bind(x);
+    x.fillText = (t, xx, yy) => { drawn.push(String(t)); return real(t, xx, yy); };
+    drawFit(x, NAME, 0, 0, 24.8 * DPMM, 6.3 * DPMM, nm);
+
+    return {
+      previewTxt: sp ? sp.textContent : '',
+      previewLines: sp ? Math.round(sp.scrollHeight / (f * 1.2)) : 0,
+      canvasLines: drawn.length,
+      canvasTxt: drawn.join(' '),
+      wantWords: NAME.split(/\s+/).length,
+      gotWords: drawn.join(' ').split(/\s+/).filter(Boolean).length,
+    };
+  }, LONG);
+
+  // ⚠⚠ الأهم: ولا كلمة تضيع.
+  check('⭐⭐⭐⭐⭐ الصورة اللي بتروح للطابعة فيها **كل** الكلام',
+    wrapCase.gotWords === wrapCase.wantWords,
+    { المطلوب: wrapCase.wantWords, اللياترسم: wrapCase.gotWords, النص: wrapCase.canvasTxt });
+
+  // ⚠⚠ والمعاينة بتحترم "أقصى سطور" — مش بتوري كلام عمره ما هيتطبع.
+  check('⭐⭐⭐⭐⭐ والمعاينة مابتزوّدش على أقصى سطور',
+    wrapCase.previewLines === 2, { سطور: wrapCase.previewLines });
+
+  check('⭐⭐⭐⭐ والورق كمان في العدد المسموح',
+    wrapCase.canvasLines === 2, { سطور: wrapCase.canvasLines });
+
+  // ⚠️ والاتنين على نفس الكلام بالحرف
+  check('⭐⭐⭐⭐⭐ والمعاينة والورق على نفس الكلام',
+    wrapCase.previewTxt.replace(/\s+/g, ' ').trim() === wrapCase.canvasTxt.replace(/\s+/g, ' ').trim(),
+    { معاينة: wrapCase.previewTxt, ورق: wrapCase.canvasTxt });
+
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();
