@@ -201,5 +201,54 @@ if (RUNTIME_END[effective]) {
 
 pass.forEach((n) => console.log('   ✓ ' + n));
 fail.forEach((n) => console.log('   ✗ ' + n));
+
+// ============================================================
+// ⏳ عمر الإشعار عند جوجل (TTL)
+// ============================================================
+// ⚠️⚠️ اتبلّغ بالنص: "ساعات بحس ان الاشعارات بتتاخر او مش بتوصل ...
+// اكد علي المعلومة دي ممكن يطلع مجرد احساس".
+//
+// وماكانش إحساس: الـTTL كان **١٠ دقايق**. الـTTL هو المدة اللي جوجل
+// بتحتفظ فيها بالإشعار لو التليفون مش موصول (نت مقطوع، شاشة مقفولة
+// من ساعات، أندرويد مدخّل التطبيق في توفير الطاقة). بعدها الإشعار
+// **بيتمسح ومابيوصلش أبدًا** — مافيش محاولة تانية ومافيش أي أثر.
+//
+// الفحص ده بيحرس الرقم: أي حد يرجّعه صغير تاني لازم يشوف السبب.
+const fsTTL = require('fs');
+const pathTTL = require('path');
+const indexSrc = fsTTL.readFileSync(pathTTL.join(__dirname, 'index.js'), 'utf8');
+
+check('⏳ عمر الإشعار متعرّف في مكان واحد', () =>
+  assert.ok(/const PUSH_TTL_SECONDS\s*=/.test(indexSrc), 'مش لاقي PUSH_TTL_SECONDS'));
+
+const ttlMatch = indexSrc.match(/const PUSH_TTL_SECONDS\s*=\s*([^;]+);/);
+const ttlValue = ttlMatch ? Function('return (' + ttlMatch[1] + ')')() : 0;
+
+// ⚠️ ساعة على الأقل: التليفون المقفول في الجيب بيعدّي الـ١٠ دقايق
+// بسهولة، وطلب التزويد بيفضل مطلوب.
+check('⏳ ومش أقل من ساعة', () =>
+  assert.ok(ttlValue >= 3600, 'الـTTL ' + ttlValue + ' ثانية — قصير أوي'));
+
+// ⚠️ ومش أكتر من يوم: إشعار عمره يوم ممكن يكون الطلب اتنفّذ خلاص،
+// فيرن على الفاضي.
+check('⏳ ومش أكتر من يوم', () =>
+  assert.ok(ttlValue <= 86400, 'الـTTL ' + ttlValue + ' ثانية — طويل أوي'));
+
+// ⚠️⚠️ ولا نداء إرسال يفضل على رقم مكتوب بالإيد — ده اللي خلّى الرقم
+// القديم يعيش في مكانين من غير ما حد ياخد باله.
+check('⏳ ومافيش رقم مكتوب بالإيد في أي نداء', () =>
+  assert.strictEqual((indexSrc.match(/TTL:\s*'\d+'/g) || []).length, 0));
+
+const sendCount = (indexSrc.match(/sendEachForMulticast/g) || []).length;
+check('⏳ وكل نداء إرسال بيستخدمه', () =>
+  assert.strictEqual((indexSrc.match(/PUSH_TTL_SECONDS/g) || []).length, sendCount + 1));
+
+// ⚠️ والأولوية عالية لازم تفضل: من غيرها أندرويد بيأجّل الإشعار لحد
+// ما يصحّى الجهاز لأي سبب تاني.
+check('⏳ والأولوية عالية في كل نداء', () =>
+  assert.strictEqual((indexSrc.match(/Urgency:\s*'high'/g) || []).length, sendCount));
+
+
 console.log(fail.length ? `\n❌ فشل (${fail.length})` : `\n✅ نجح (${pass.length})`);
 process.exit(fail.length ? 1 : 0);
+

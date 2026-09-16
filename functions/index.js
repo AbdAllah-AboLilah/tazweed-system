@@ -31,6 +31,28 @@ admin.initializeApp();
 // حصل شيء غير متوقع.
 setGlobalOptions({ region: 'europe-west1', maxInstances: 3 });
 
+// ============================================================
+// ⏳ عمر الإشعار عند جوجل — كان **١٠ دقايق** وده قصير أوي
+// ============================================================
+// اتبلّغ بالنص: "ساعات بحس ان الاشعارات بتتاخر او مش بتوصل ... اكد
+// علي المعلومة دي ممكن يطلع مجرد احساس".
+//
+// ⚠️⚠️ **مش إحساس.** الـTTL هو المدة اللي جوجل بتحتفظ فيها بالإشعار
+// لو التليفون مش موصول (النت مقطوع، الشاشة مقفولة من ساعات، أندرويد
+// مدخّل التطبيق في وضع توفير الطاقة). بعد المدة دي الإشعار **بيتمسح
+// ومابيوصلش أبدًا** — مافيش محاولة تانية ومافيش أي أثر.
+//
+// وكانت 600 ثانية = ١٠ دقايق بس. يعني طلب تزويد اتعمل والتليفون في
+// جيبه مقفول ربع ساعة = الإشعار راح.
+//
+// والرقم الجديد ٤ ساعات، والمنطق بسيط: **طلب التزويد بيفضل مطلوب**.
+// إشعار بيوصل بعد ساعة لسه مفيد — البضاعة لسه ناقصة في الفرع. مش
+// زي إشعار "فيه حد بيكلمك دلوقتي" اللي بيبوظ لو اتأخر.
+//
+// ⚠️ ومش أكتر من كده عن قصد: إشعار عمره يوم ممكن يكون الطلب اتنفّذ
+// خلاص، فيرن على الفاضي.
+const PUSH_TTL_SECONDS = 4 * 60 * 60;
+
 const db = admin.firestore();
 
 exports.notifyRestock = onDocumentWritten('categories/{categoryId}/grades/{gradeId}', async (event) => {
@@ -108,7 +130,7 @@ exports.notifyRestock = onDocumentWritten('categories/{categoryId}/grades/{grade
     // ⚠️ الوسم **لكل فئة على حدة**: ده اللي بيخلي إشعار الفئة يتحدّث
     // مكانه بدل ما يتكوّم، ومايمسحش إشعار فئة تانية.
     data: { title: msg.title, body: msg.body, tag: categoryTag(categoryId) },
-    webpush: { headers: { Urgency: 'high', TTL: '600' } },
+    webpush: { headers: { Urgency: 'high', TTL: String(PUSH_TTL_SECONDS) } },
   });
 
   // ============================================================
@@ -162,7 +184,7 @@ exports.notifyTest = onDocumentCreated('pushTests/{testId}', async (event) => {
       // ⚠️ وسم لوحده: عشان مايمسحش إشعار تزويد حقيقي مستني.
       tag: 'tazweed-test',
     },
-    webpush: { headers: { Urgency: 'high', TTL: '600' } },
+    webpush: { headers: { Urgency: 'high', TTL: String(PUSH_TTL_SECONDS) } },
   });
 
   const failed = res.responses.filter((r) => !r.success).length;

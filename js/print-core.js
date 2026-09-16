@@ -44,12 +44,47 @@ function summarizeNames(names, keep, maxLen) {
   return out.length > cap ? out.slice(0, cap - 1) + '…' : out;
 }
 
-function logPrintJob(type, spec, sizeOptions) {
+// ============================================================
+// 🖨️ الطبعة راحت **لأنهي جهاز وأنهي طابعة**
+// ============================================================
+// اتطلب بالنص: "في سجل العمليات انا عاوز لما حد يطبع يكتب هو طبع
+// علي انهي طابعة يعني انهي جهاز تم ارسال اليه امر الطباعة".
+//
+// ⚠️⚠️ والسؤال ده مالوش إجابة من غير السطور دي: السجل كان بيقول
+// "طبع ملصق صنف" وخلاص. في محل فيه تلات كمبيوترات، الورقة اللي مش
+// لاقيها ممكن تكون خرجت على ماكينة تانية خالص — ومافيش أي أثر يقول.
+//
+// ⚠️ بنسجّل **الجهاز اللي الأمر اتبعتله**، مش الطريق (مساعد/QZ):
+// الطريق بيتقرّر بعد التسجيل، والمستخدم أصلًا بيدوّر على الماكينة
+// مش على البروتوكول.
+function printTargetInfo(type, target) {
+  const kind = type === 'restock' ? 'restock' : 'label';
+  if (!target || target === 'local') {
+    return {
+      printDevice: (typeof getDeviceName === 'function' ? getDeviceName() : '') || 'الجهاز ده',
+      printPrinter: (typeof getSavedPrinter === 'function' ? getSavedPrinter(kind) : '') || '',
+      printRemote: false,
+    };
+  }
+  // ⚠️ اسم الطابعة بييجي من نبضة الجهاز نفسه (شوف registerPrintStation)
+  // — يعني اللي **عليه فعلًا** مش تخميننا.
+  const st = ((typeof state === 'object' && state.printStations) || []).find((x) => x.id === target) || {};
+  return {
+    printDevice: st.deviceName || 'جهاز تاني',
+    printPrinter: (kind === 'restock' ? st.restockPrinter : st.labelPrinter) || '',
+    printRemote: true,
+  };
+}
+
+function logPrintJob(type, spec, sizeOptions, target) {
   if (typeof logActivity !== 'function') return;
   // ⚠️ ورقة التزويد بتتنده من غير spec — لازم تتسجّل برضه.
   if (!spec) {
     if (type !== 'restock') return;
-    logActivity({ action: 'print', printKind: 'restock', printLabel: 'ورقة تزويد', newValue: 1 });
+    logActivity({
+      action: 'print', printKind: 'restock', printLabel: 'ورقة تزويد', newValue: 1,
+      ...printTargetInfo(type, target),
+    });
     return;
   }
   // ============================================================
@@ -76,6 +111,7 @@ function logPrintJob(type, spec, sizeOptions) {
       newValue: Math.max(1, parseInt(spec.copies, 10) || 1),
       categoryId: (spec.cat && spec.cat.id) || null,
       categoryName: (spec.cat && spec.cat.name) || '',
+      ...printTargetInfo(type, target),
     });
     return;
   }
@@ -112,6 +148,7 @@ function logPrintJob(type, spec, sizeOptions) {
     newValue: count,
     categoryId: (spec.cat && spec.cat.id) || null,
     categoryName: (spec.cat && spec.cat.name) || '',
+    ...printTargetInfo(type, target),
   });
 }
 
@@ -618,7 +655,8 @@ async function deliverPrint(type, html, sizeOptions, winFeatures, browserHTML, s
   if (target === null) return false;
 
   // ⭐ بعد اختيار الجهاز = الطباعة اتأكدت فعلًا
-  logPrintJob(type, spec, sizeOptions);
+  // ⚠️ و`target` بيتبعت عشان السجل يعرف راحت لمين.
+  logPrintJob(type, spec, sizeOptions, target);
 
   if (target !== 'local') {
     await sendPrintJob(type, target, html, sizeOptions, browserHTML, spec);

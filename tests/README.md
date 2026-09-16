@@ -199,6 +199,7 @@ node tests/station-online-test.js
 node tests/designer-test.js
 node tests/label-font-test.js
 node tests/helper-design-test.js
+node tests/log-where-test.js
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js

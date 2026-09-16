@@ -2455,7 +2455,10 @@ function activityEntryParts(entry) {
     detailLabel = `تعديل بيانات الصنف (باركود: ${escapeHTML(entry.barcodeNumber || '—')})`;
   } else if (entry.action === 'request_shortage') {
     itemLabel = grade;
-    detailLabel = 'طلب تزويد (خلصت من الفرع)';
+    // ⚠️ المجموعة جنب الطلب: "طلب تزويد (بيجات)" بيفرّق فعلًا لما
+    // نفس رقم الدرجة موجود في أكتر من مجموعة في نفس الفئة.
+    detailLabel =
+      'طلب تزويد (خلصت من الفرع)' + (entry.gradeGroup ? ` — ${escapeHTML(entry.gradeGroup)}` : '');
   } else if (entry.action === 'cancel_shortage') {
     itemLabel = grade;
     detailLabel = 'إلغاء طلب التزويد';
@@ -2480,7 +2483,19 @@ function activityEntryParts(entry) {
   } else if (entry.action === 'print') {
     itemLabel = escapeHTML(entry.itemName || cat || '');
     const n = Number(entry.newValue) || 0;
-    detailLabel = `${escapeHTML(entry.printLabel || 'طباعة')}${n > 1 ? ` — ${escapeHTML(n)} ملصق` : ''}`;
+    // ============================================================
+    // 🖨️ راحت لأنهي جهاز وأنهي طابعة
+    // ============================================================
+    // اتطلب بالنص: "عاوز لما حد يطبع يكتب هو طبع علي انهي طابعة يعني
+    // انهي جهاز تم ارسال اليه امر الطباعة".
+    //
+    // ⚠️ السهم (←) بيوضّح إنها **اتبعتت لجهاز تاني**، والعمليات
+    // القديمة (قبل التحديث ده) مافيهاش الحقول دي فبتفضل زي ما هي
+    // من غير أي زيادة — مش "غير معروف".
+    const where = [entry.printDevice, entry.printPrinter].filter(Boolean).map(escapeHTML).join(' · ');
+    detailLabel =
+      `${escapeHTML(entry.printLabel || 'طباعة')}${n > 1 ? ` — ${escapeHTML(n)} ملصق` : ''}` +
+      (where ? ` ${entry.printRemote ? '←' : '·'} ${where}` : '');
   } else if (entry.action === 'import_products') {
     itemLabel = '';
     detailLabel = `📁 تحديث ملف الأصناف — ${escapeHTML(Number(entry.newValue) || 0)} صنف`;
@@ -5672,6 +5687,16 @@ async function requestShortage(gradeId, qty) {
     gradeId,
     gradeNumber: data.number,
     requestedQty: want,
+    // ============================================================
+    // ⚠️⚠️ اسم المجموعة — كان ناقص
+    // ============================================================
+    // اتبلّغ بالنص: "لو طالب من مجموعة معينه في فئة معينه مش بيجيلي
+    // اسمها وبردوا مش بيظهر في سجل العمليات".
+    //
+    // والفئة الواحدة ممكن يكون فيها نفس رقم الدرجة في أكتر من
+    // مجموعة (بيجات / بندانة / ...) — فالسجل كان بيقول "كريب — 56"
+    // وانت مش عارف 56 بتاعة مين.
+    gradeGroup: (data.group || '').slice(0, 60),
   });
 }
 
