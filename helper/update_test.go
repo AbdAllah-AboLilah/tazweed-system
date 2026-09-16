@@ -16,8 +16,12 @@ package main
 // البرنامج نفسه. الفحوص دي على الاكتشاف ده.
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,4 +106,83 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// ============================================================
+// 📦 مايحمّلش وهو أصلًا على آخر نسخة
+// ============================================================
+// اتبلّغ بالنص: "لما بضغط علي تحديث المساعد بيرجع ينزل اخر نسخة حتي
+// لو كانت علي الجهاز اخر نسخة بردوا يعني متحدثه".
+//
+// ⚠️⚠️ والتكلفة مش التنزيل بس: البرنامج كان بيقفل ويفتح على **كل**
+// جهاز مقابل لا حاجة. تلات أجهزة كلهم على آخر نسخة = 21 ميجا وتلات
+// برامج بتعيد التشغيل في وسط يوم شغل.
+func withFakeGitHub(t *testing.T, latest string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/VERSION") {
+			fmt.Fprintf(w, "%s\n%s\n", latest, strings.Repeat("a", 64))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	oldInfo := updateInfoURL
+	updateInfoURL = srv.URL + "/VERSION"
+	t.Cleanup(func() {
+		updateInfoURL = oldInfo
+		srv.Close()
+	})
+}
+
+func TestUpdateSkipsWhenAlreadyLatest(t *testing.T) {
+	withFakeGitHub(t, version)
+	want, _, err := shouldDownload(false)
+	if err != nil {
+		t.Fatalf("رجّع خطأ: %v", err)
+	}
+	if want {
+		t.Fatal("قرر ينزّل وهو على آخر نسخة — ده العطل اللي اتبلّغ")
+	}
+}
+
+// ⚠️ وفيه نسخة أحدث = بينزّل عادي (مانكسرناش التحديث وإحنا بنمنع
+// التكرار).
+func TestUpdateStillRunsWhenNewer(t *testing.T) {
+	withFakeGitHub(t, "99.0.0")
+	want, _, err := shouldDownload(false)
+	if err != nil {
+		t.Fatalf("رجّع خطأ: %v", err)
+	}
+	if !want {
+		t.Fatal("مانزّلش وفيه نسخة أحدث")
+	}
+}
+
+// ⚠️ وإعادة التركيب بالإجبار لازم تفضل شغّالة: من غيرها اللي نسخته
+// بايظة وهو على آخر رقم مالوش أي طريقة يصلّح بيها.
+func TestForceReinstallStillDownloads(t *testing.T) {
+	withFakeGitHub(t, version)
+	want, _, err := shouldDownload(true)
+	if err != nil {
+		t.Fatalf("رجّع خطأ: %v", err)
+	}
+	if !want {
+		t.Fatal("الإجبار مانزّلش")
+	}
+}
+
+// ⚠️ والرد بيقول **هل اتحدّث فعلًا** — الواجهة بتقرا منه، ولو
+// مابيقولش، هتكتب "اتحدّث وبيقفل ويفتح" وهو مانزّلش حاجة.
+func TestApplyReplySaysWhetherItUpdated(t *testing.T) {
+	m, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(m)
+	if !strings.Contains(s, `"updated": updated`) {
+		t.Fatal("الرد مش بيقول اتحدّث ولا لأ")
+	}
+	if !strings.Contains(s, "if !updated {") {
+		t.Fatal("بيعيد التشغيل حتى لو مانزّلش حاجة")
+	}
 }

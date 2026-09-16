@@ -760,6 +760,23 @@ function openPrintSettingsDialog(preselectDeviceId) {
             ).join('')}
           </select>
         </div>
+        <!-- ⚠️⚠️ خط ورقة التزويد — كان ناقص، واتبلّغ بالنص:
+             "لما نضيف اعداد جديد يضاف في الارسال من الهاتف بمعني
+              دلوقتي احنا خطينا خطوط ل ورقة التزويد مش ظاهره علي التليفون"
+
+             القاعدة: أي إعداد جديد محتاج **تلات حتت** عشان يشتغل من
+             التليفون — PRINT_FIELDS في print-core (وإلا بيتشال في
+             صمت)، والنشر في نبضة الجهاز في app.js (وإلا مش هنعرف
+             الجهاز شغّال بإيه)، والخانة دي. -->
+        <div class="field" style="width:260px; margin-bottom:0;">
+          <label style="font-size:11px;">📄 خط ورقة التزويد</label>
+          <select class="input" id="ps-sheetfont" style="padding:6px;">
+            <option value="">زي ما هي</option>
+            ${LABEL_FONTS.map(
+              (f) => `<option value="${escapeHTML(f.id)}">${escapeHTML(f.label)}</option>`
+            ).join('')}
+          </select>
+        </div>
       </div>
       <div style="font-size:10.5px; color:var(--text-muted); line-height:1.7; margin:0 0 10px;">
         📏 التلاتة دول بيشتغلوا مع مفتاح <strong>"اسم الصنف بمقاس ثابت"</strong>
@@ -876,6 +893,7 @@ function openPrintSettingsDialog(preselectDeviceId) {
         codeMm: has(sh.codeMm) ? sh.codeMm : PRINT_CODE_MM_DEFAULT,
         priceMm: has(sh.priceMm) ? sh.priceMm : PRINT_PRICE_MM_DEFAULT,
         labelFont: has(sh.labelFont) ? sh.labelFont : LABEL_FONT_DEFAULT,
+        sheetFont: has(sh.sheetFont) ? sh.sheetFont : LABEL_FONT_DEFAULT,
         x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
         tweaks: sh.tweaks || {},
         fromDefault,
@@ -896,6 +914,7 @@ function openPrintSettingsDialog(preselectDeviceId) {
       // ⚠️ الجهاز بينشر ده مع كل نبضة (شوف printSetup في js/app.js)،
       // فدي الحقيقة اللي عليه مش تخميننا.
       labelFont: ps.labelFont || LABEL_FONT_DEFAULT,
+      sheetFont: ps.sheetFont || LABEL_FONT_DEFAULT,
       x: a.x || 0, y: a.y || 0, shrink: a.shrink || 0,
       tweaks: ps.tweaks || {},
     };
@@ -935,6 +954,7 @@ function openPrintSettingsDialog(preselectDeviceId) {
       // ⚠️ فاضية = "زي ما هي"، زي باقي الخانات بالظبط — و`cleanPrintFields`
       // بتشيل الفاضي فمابيتبعتش أصلًا.
       labelFont: pick('ps-labelfont'),
+      sheetFont: pick('ps-sheetfont'),
       align: Object.keys(align).length ? align : undefined,
       tweaks: Object.keys(tweaks).length ? tweaks : undefined,
       labelPrinter: pick('ps-label-printer'),
@@ -961,11 +981,13 @@ function openPrintSettingsDialog(preselectDeviceId) {
     ph('ps-pricemm', cur.priceMm);
     // 🔤 خط الملصق: قايمة مش خانة، فأول خيار فيها هو اللي بيقول
     // "زي ما هي" وبيتكتب جنبه الخط الشغّال دلوقتي.
-    const lfSel = overlay.querySelector('#ps-labelfont');
-    if (lfSel && lfSel.options.length) {
-      const f = typeof labelFontById === 'function' ? labelFontById(cur.labelFont) : null;
-      lfSel.options[0].textContent = `زي ما هي (${f ? f.label : cur.labelFont})`;
-    }
+    const fontNow = (sel, id) => {
+      if (!sel || !sel.options.length) return;
+      const f = typeof labelFontById === 'function' ? labelFontById(id) : null;
+      sel.options[0].textContent = `زي ما هي (${f ? f.label : id})`;
+    };
+    fontNow(overlay.querySelector('#ps-labelfont'), cur.labelFont);
+    fontNow(overlay.querySelector('#ps-sheetfont'), cur.sheetFont);
     ph('ps-x', cur.x);
     ph('ps-y', cur.y);
     ph('ps-shrink', cur.shrink);

@@ -432,7 +432,9 @@ up.onclick=async()=>{
         try{
           const r=await (await fetch('/update/apply',{method:'POST'})).json();
           uo.innerHTML = r.ok
-            ? '\u2705 اتحدّث. البرنامج بيقفل ويفتح تاني — استنى ثانيتين واعمل ريفريش للصفحة.'
+            ? (r.updated
+                ? '\u2705 اتحدّث. البرنامج بيقفل ويفتح تاني — استنى ثانيتين واعمل ريفريش للصفحة.'
+                : '\u2705 انت على آخر نسخة خلاص — مانزّلش حاجة.')
             : '\u274c '+(r.error||'مش عارف');
           uo.className = r.ok?'ok':'bad';
         }catch(e){ uo.textContent='\u274c '+e; uo.className='bad'; }

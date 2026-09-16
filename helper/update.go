@@ -27,11 +27,17 @@ import (
 )
 
 const (
-	updateBase   = "https://raw.githubusercontent.com/AbdAllah-AboLilah/tazweed-system/main/helper/dist/"
-	updateInfo   = updateBase + "VERSION"
-	updateBinary = updateBase + "tazweed-helper.exe"
+	updateBase = "https://raw.githubusercontent.com/AbdAllah-AboLilah/tazweed-system/main/helper/dist/"
 	// ⚠️ سقف للتنزيل: من غيره رد غلط (صفحة خطأ مثلًا) ممكن يملا القرص.
 	maxDownload = 40 << 20
+)
+
+// ⚠️ متغيّرات مش ثوابت عشان الفحص يقدر يوجّهها لسيرفر مقلّد —
+// من غير كده مافيش طريقة نفحص "مايحمّلش وهو على آخر نسخة" من غير ما
+// ننزّل 7 ميجا من الإنترنت في كل فحص.
+var (
+	updateInfoURL   = updateBase + "VERSION"
+	updateBinaryURL = updateBase + "tazweed-helper.exe"
 )
 
 type updateInfoReply struct {
@@ -46,7 +52,7 @@ var httpClient = &http.Client{Timeout: 60 * time.Second}
 
 // بتقرا ملف النسخة: أول سطر الرقم، تاني سطر بصمة الملف.
 func fetchLatest() (ver, sum string, err error) {
-	resp, err := httpClient.Get(updateInfo)
+	resp, err := httpClient.Get(updateInfoURL)
 	if err != nil {
 		return "", "", err
 	}
@@ -83,6 +89,21 @@ func newerThan(a, b string) bool {
 	return false
 }
 
+// ⚠️⚠️ القرار لوحده عن التنفيذ — عشان يتفحص.
+// applyUpdate كلها ورا حارس "ويندوز بس"، فلو القرار جوّاها مافيش
+// طريقة نفحصه غير على ويندوز. والقرار ده بالظبط هو اللي العطل كان
+// فيه: "بيرجع ينزل اخر نسخة حتي لو كانت علي الجهاز اخر نسخة".
+func shouldDownload(force bool) (bool, string, error) {
+	latest, sum, err := fetchLatest()
+	if err != nil {
+		return false, "", err
+	}
+	if !force && !newerThan(latest, version) {
+		return false, sum, nil
+	}
+	return true, sum, nil
+}
+
 func checkUpdate() updateInfoReply {
 	out := updateInfoReply{Current: version, Supported: updateSupported()}
 	ver, _, err := fetchLatest()
@@ -107,59 +128,74 @@ func checkUpdate() updateInfoReply {
 //   ٥) نشغّل الجديد ونقفل
 // ولو أي خطوة وقعت بعد (٣)، بنرجّع الاسم القديم مكانه — عشان
 // مانسيبش المحل من غير برنامج.
-func applyUpdate() error {
+//
+// ⚠️⚠️ وبترجّع **هل اتحدّث فعلًا**: اتبلّغ بالنص: "لما بضغط علي
+// تحديث المساعد بيرجع ينزل اخر نسخة حتي لو كانت علي الجهاز اخر نسخة".
+//
+// الدالة كانت بتنزّل الـ7 ميجا وتبدّل نفسها وتعيد التشغيل **من غير ما
+// تبص على رقم النسخة أصلًا**. يعني "حدّث كل المساعدين" على 3 أجهزة
+// كلهم على آخر نسخة = 21 ميجا تنزيل وتلات برامج بتقفل وتفتح مقابل
+// لا حاجة — وفي وسط يوم شغل.
+//
+// دلوقتي بتقارن الأول. و`force` موجودة عشان إعادة التركيب لو النسخة
+// اللي على الجهاز بايظة — من غيرها اللي على آخر رقم مالوش أي طريقة
+// يصلّح بيها.
+func applyUpdate(force bool) (bool, error) {
 	if !updateSupported() {
-		return errors.New("التحديث الذاتي على الويندوز بس")
+		return false, errors.New("التحديث الذاتي على الويندوز بس")
 	}
-	_, wantSum, err := fetchLatest()
+	want, wantSum, err := shouldDownload(force)
 	if err != nil {
-		return err
+		return false, err
+	}
+	if !want {
+		return false, nil
 	}
 
 	exe, err := os.Executable()
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	resp, err := httpClient.Get(updateBinary)
+	resp, err := httpClient.Get(updateBinaryURL)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("تنزيل البرنامج رد %d", resp.StatusCode)
+		return false, fmt.Errorf("تنزيل البرنامج رد %d", resp.StatusCode)
 	}
 
 	newPath := exe + ".new"
 	f, err := os.OpenFile(newPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
-		return err
+		return false, err
 	}
 	h := sha256.New()
 	_, err = io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxDownload))
 	f.Close()
 	if err != nil {
 		os.Remove(newPath)
-		return err
+		return false, err
 	}
 
 	got := hex.EncodeToString(h.Sum(nil))
 	if got != wantSum {
 		os.Remove(newPath)
-		return fmt.Errorf("بصمة الملف مش مطابقة — التنزيل مش سليم")
+		return false, fmt.Errorf("بصمة الملف مش مطابقة — التنزيل مش سليم")
 	}
 
 	oldPath := exe + ".old"
 	os.Remove(oldPath)
 	if err := os.Rename(exe, oldPath); err != nil {
 		os.Remove(newPath)
-		return err
+		return false, err
 	}
 	if err := os.Rename(newPath, exe); err != nil {
 		os.Rename(oldPath, exe) // رجّع اللي كان
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 // ============================================================
