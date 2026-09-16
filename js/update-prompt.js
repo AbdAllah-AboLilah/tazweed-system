@@ -67,7 +67,9 @@ const RESUME_MAX_AGE_MS = 120000;
 
 function reloadWhenSafe(secs) {
   const printing = typeof activePrintCancel !== 'undefined' && activePrintCancel !== null;
-  const typing = typeof isUserTyping === 'function' && isUserTyping();
+  // ⚠️ نفس سبب الريفريش عن بُعد بالحرف: الخانة المركّز عليها مش كتابة.
+  // الشرح عند isUserTypingNow في app.js.
+  const typing = typeof isUserTypingNow === 'function' && isUserTypingNow();
   if ((printing || typing) && secs < UPDATE_WAIT_MAX_S) {
     setTimeout(() => reloadWhenSafe(secs + 2), 2000);
     return;

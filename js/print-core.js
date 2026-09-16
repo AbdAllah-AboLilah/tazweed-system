@@ -2323,7 +2323,11 @@ function handleRemoteReload(data) {
 function waitThenReload(secs) {
   // (3) طبعة شغّالة أو حد بيكتب → نستنى
   const printing = typeof activePrintCancel !== 'undefined' && activePrintCancel !== null;
-  const typing = typeof isUserTyping === 'function' && isUserTyping();
+  // ⚠️ isUserTypingNow مش isUserTyping: التانية بترجّع true لمجرد إن
+  // الخانة مركّز عليها، وشاشة الطباعة بتفضل كده طول الوقت — فالريفريش
+  // كان بيستنى عشر دقايق على جهاز محدش بيكتب عليه. الشرح الكامل عند
+  // isUserTypingNow في app.js.
+  const typing = typeof isUserTypingNow === 'function' && isUserTypingNow();
   if ((printing || typing) && secs < RELOAD_WAIT_MAX_S) {
     setTimeout(() => waitThenReload(secs + 2), 2000);
     return;
@@ -2434,7 +2438,13 @@ let helperCmdSeeded = false;
 
 // الأنواع المسموحة — قايمة مقفولة.
 // ⚠️ أي اسم تاني بيتجاهل: أمر من نسخة نظام أجدد مايتنفّذش بالغلط.
-const HELPER_CMD_KINDS = { sync: true, update: true };
+// ⚠️ export = "يا جهاز كذا، اقرا إعدادات المساعد اللي عندك وابعتها
+//    للأجهزة دي". اتضاف عشان التليفون: التليفون مالوش مساعد يقرا منه،
+//    فهو بيطلب من كمبيوتر إنه يبقى هو **المصدر**. الشرح الكامل تحت.
+const HELPER_CMD_KINDS = { sync: true, update: true, export: true };
+
+// سقف الأجهزة في أمر export الواحد — حارس ضد أمر مشوّه.
+const HELPER_EXPORT_MAX = 50;
 
 // ⚠️ بنقرا إعدادات المساعد اللي **على الجهاز ده** — وده مصدر النسخة
 // اللي هتتوزّع. التصدير بيشيل الهوية لوحده (شوف /settings/export).
@@ -2503,6 +2513,43 @@ async function runHelperCommand(cmd) {
       return;
     }
 
+    // ============================================================
+    // 📤 الجهاز ده هو المصدر — يقرا من مساعده ويوزّع
+    // ============================================================
+    // ⚠️⚠️ ليه الخطوة دي موجودة أصلًا؟ اتطلبت بالنص:
+    //   "ينفع اعمل الخطوة دي من التليفون يعني اقول مثلا المساعد بتاع
+    //    الجهاز الفلاني المتصل ده عاوز اعداداته ... تعمم علي المساعد
+    //    كذا وكذا"
+    //
+    // "وحّد الإعدادات" القديمة كانت بتقرا المساعد اللي على **نفس**
+    // الجهاز اللي بيدوس. والتليفون مالوش مساعد، فالزرار كان بيفشل
+    // عليه دايمًا مهما عملت.
+    //
+    // فبدل ما التليفون يقرا، بيقول لكمبيوتر "انت المصدر" — والكمبيوتر
+    // هو اللي بيقرا من مساعده ويبعت sync للباقي.
+    //
+    // ⚠️ وده **مايوسّعش** صلاحية حد: اللي بعت الأمر ده كان لازم يقدر
+    // يكتب في إعدادات الجهاز أصلًا، يعني كان يقدر يبعت sync بإيده لو
+    // كان معاه الإعدادات. الجديد هو إنه بقى يعرف يجيبها.
+    if (kind === 'export') {
+      const to = (cmd.to || [])
+        .filter((x) => x && x !== (typeof getDeviceId === 'function' ? getDeviceId() : ''))
+        .slice(0, HELPER_EXPORT_MAX);
+      if (!to.length) {
+        await reportHelperCmd(cmd.id, kind, false, 'الأمر جه من غير أجهزة تتبعتلها');
+        return;
+      }
+      const payload = await readLocalHelperSettings();
+      if (!payload) {
+        await reportHelperCmd(cmd.id, kind, false, 'مش قادر أقرا إعدادات المساعد على الجهاز ده');
+        return;
+      }
+      const sent = await sendHelperCommand(to, 'sync', payload);
+      await reportHelperCmd(cmd.id, kind, !!sent,
+        sent ? `اتبعت الإعدادات لـ${to.length} جهاز` : 'مش قادر أبعت — غالبًا الحساب هنا مالوش صلاحية إعدادات الطابعة');
+      return;
+    }
+
     // ⚠️⚠️ التحديث بيقفل البرنامج ويفتحه. الرد بيوصل **قبل** القفل
     // (شوف /update/apply في البرنامج)، فبنسجّل النتيجة من الرد ده —
     // ولو استنينا بعد القفل مكناش هنلاقي حد يرد علينا.
@@ -2542,7 +2589,7 @@ function handleHelperCommand(data) {
 }
 
 // بيبعت الأمر لأجهزة. بيرجّع عدد اللي وصلهم.
-async function sendHelperCommand(deviceIds, kind, payload) {
+async function sendHelperCommand(deviceIds, kind, payload, extra) {
   const ids = (deviceIds || []).filter(Boolean);
   if (!ids.length || !HELPER_CMD_KINDS[kind]) return 0;
   // ⚠️ نفس المعرّف للكل في الطلب الواحد — عشان يبقى عملية واحدة
@@ -2550,6 +2597,9 @@ async function sendHelperCommand(deviceIds, kind, payload) {
   const id = String(Date.now());
   const cmd = { id, kind };
   if (payload) cmd.payload = payload;
+  // ⚠️ حقول زيادة (زي `to` في أمر export) — بتتحط بالاسم، مش بنسخ
+  // الكائن كله، عشان مايعديش حقل مش متوقّع للجهاز التاني.
+  if (extra && extra.to) cmd.to = extra.to;
   let done = 0;
   for (const devId of ids) {
     try {
@@ -5502,11 +5552,27 @@ async function openPrinterSettings() {
             <div style="font-size:12px; font-weight:500; margin-bottom:4px;">🔗 كل الأجهزة مرة واحدة</div>
             <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
               الأمر بيتكتب في السحابة، وكل كمبيوتر فاتح النظام بيقراه ويودّيه
-              للبرنامج المساعد اللي عنده. الجهاز المقفول بينفّذ <strong>أول ما يفتح</strong>.
+              للبرنامج المساعد اللي عنده.
+              <br>⚠️ <strong>الجهاز المقفول مش هيستلم</strong> — الأوامر بتروح للفاتحين
+              دلوقتي بس. افتح الجهاز الأول وبعدين ابعت.
               <br>⚠️ <strong>اسم الجهاز وهويته مابيتنقلوش</strong> — كل كمبيوتر بيفضل هو هو في النظام.
             </div>
+            <!-- ⚠️⚠️ المصدر بقى **اختيار** مش "الجهاز اللي أنا عليه"
+                 اتطلب بالنص: "ينفع اعمل الخطوة دي من التليفون يعني اقول
+                 مثلا المساعد بتاع الجهاز الفلاني المتصل ده عاوز اعداداته
+                 بالتصاميم اللي عليه تعمم علي المساعد كذا وكذا".
+                 التليفون مالوش برنامج مساعد يقرا منه — فبيختار كمبيوتر
+                 يبقى هو المصدر. الشرح الكامل عند فرع export في
+                 runHelperCommand. -->
+            <div style="margin-bottom:10px;">
+              <label for="allhelp-src" style="font-size:11.5px; font-weight:500; display:block; margin-bottom:4px;">
+                📤 الإعدادات والتصاميم هتتنسخ من:
+              </label>
+              <select class="input" id="allhelp-src" style="padding:6px; width:100%;"></select>
+              <div id="allhelp-src-hint" style="font-size:10.5px; color:var(--text-muted); margin-top:5px; line-height:1.7;"></div>
+            </div>
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-              <button class="btn" id="allhelp-sync">📤 وحّد الإعدادات من الجهاز ده</button>
+              <button class="btn" id="allhelp-sync">📤 وحّد الإعدادات على الباقي</button>
               <button class="btn" id="allhelp-update">🔄 حدّث كل البرامج المساعدة</button>
             </div>
             <div id="allhelp-status" style="font-size:12px; min-height:16px; margin-bottom:6px;"></div>
@@ -5887,6 +5953,18 @@ async function openPrinterSettings() {
     const others = () =>
       (state.printStations || []).filter((x) => x.id !== getDeviceId());
 
+    // ============================================================
+    // ⚠️⚠️ الأمر بيروح للفاتحين **بس** — وده مش تقصير، ده الحقيقة
+    // ============================================================
+    // الأمر اللي بيتكتب لجهاز مقفول بيتلغي أول ما الجهاز يفتح: أول لقطة
+    // بعد فتح الصفحة تسجيل وبس (الشرح عند handleHelperCommand، والسبب
+    // إن أمر قديم بيرجّع إعدادات المستخدم غيّرها بعده).
+    //
+    // فلو بعتنا للمقفول، هنقول للمستخدم "اتبعت لـ4 أجهزة" وواحد منهم
+    // عمره ما هيشوف الأمر — وهو هيفضل مستني رد. الصح إننا نبعت للفاتح
+    // ونقول له صراحةً مين اللي اتساب بره.
+    const onlineOthers = () => others().filter((x) => isStationOnline(x));
+
     const showResults = () => {
       const box = overlay.querySelector('#allhelp-results');
       if (!box) return;
@@ -5918,38 +5996,129 @@ async function openPrinterSettings() {
     const refreshBtn = overlay.querySelector('#allhelp-refresh');
     if (refreshBtn) refreshBtn.addEventListener('click', showResults);
 
+    // ============================================================
+    // 📤 اختيار جهاز المصدر
+    // ============================================================
+    // ⚠️ الجهاز اللي مالوش برنامج مساعد **مايظهرش** كمصدر: مافيش
+    // عنده إعدادات تتقرا أصلًا. ودي بالظبط حالة التليفون.
+    //
+    // ⚠️⚠️ والمقفول مايظهرش كمصدر كمان — ودي مش تفصيلة:
+    // الأمر اللي بيوصل لجهاز مقفول **بيتلغي** أول ما يفتح (أول لقطة
+    // تسجيل وبس — الشرح عند handleHelperCommand). يعني لو سبنا المقفول
+    // في القايمة، هتدوس وتستنى رد عمره ما هييجي.
+    const SRC_THIS = '__this__';
+    const srcSel = overlay.querySelector('#allhelp-src');
+    const srcHint = overlay.querySelector('#allhelp-src-hint');
+    let localHelperUp = false;
+
+    // مصادر ممكنة من الأجهزة التانية: اللي نشر رقم نسخة مساعد.
+    const srcCandidates = () =>
+      (state.printStations || []).filter(
+        (x) => x.id !== getDeviceId() && x.helperVersion && isStationOnline(x)
+      );
+
+    const fillSrc = () => {
+      if (!srcSel) return;
+      const keep = srcSel.value;
+      const opts = [];
+      if (localHelperUp) opts.push(`<option value="${SRC_THIS}">الجهاز اللي أنا عليه دلوقتي</option>`);
+      srcCandidates().forEach((x) => {
+        opts.push(
+          `<option value="${escapeHTML(x.id)}">` +
+          `${escapeHTML(x.deviceName || 'جهاز بدون اسم')} — مساعد ${escapeHTML(x.helperVersion)}` +
+          `</option>`
+        );
+      });
+      srcSel.innerHTML = opts.length
+        ? opts.join('')
+        : '<option value="">مافيش جهاز عليه برنامج مساعد</option>';
+      // ⚠️ بالمقارنة المباشرة مش بـquerySelector: معرّف الجهاز فيه
+      // حروف ممكن تكسر المُحدِّد.
+      if (keep && Array.prototype.some.call(srcSel.options, (o) => o.value === keep)) srcSel.value = keep;
+      showSrcHint();
+    };
+
+    // الأجهزة اللي هيتبعتلها = كل الباقي ما عدا المصدر نفسه.
+    const targetsFor = (src) => onlineOthers().filter((x) => x.id !== src);
+
+    const showSrcHint = () => {
+      if (!srcHint || !srcSel) return;
+      const src = srcSel.value;
+      if (!src) {
+        srcHint.textContent = 'مافيش جهاز شغّال عليه برنامج مساعد دلوقتي — افتح المساعد على كمبيوتر الأول.';
+        return;
+      }
+      const n = targetsFor(src).length;
+      const shut = others().filter((x) => x.id !== src && !isStationOnline(x)).length;
+      const from = src === SRC_THIS ? 'الجهاز ده' : 'الجهاز المختار';
+      const tail = shut ? ` ⚠️ و${shut} جهاز مقفول مش هياخدها.` : '';
+      srcHint.textContent = n
+        ? `هتتنسخ من ${from} لـ${n} جهاز تاني.${tail}`
+        : `مافيش أجهزة تانية فاتحة دلوقتي.${tail}`;
+    };
+    if (srcSel) srcSel.addEventListener('change', showSrcHint);
+
+    fillSrc();
+    // ⚠️ السؤال ده على 127.0.0.1 وبيفشل بسرعة على التليفون (مافيش
+    // مساعد) — فمابنستناهوش قبل ما نرسم، بنعيد ملّ القايمة لما يرد.
+    helperStatus().then((up) => { localHelperUp = !!(up && up.app); fillSrc(); }).catch(() => {});
+
     const syncBtn = overlay.querySelector('#allhelp-sync');
     if (syncBtn) {
       syncBtn.addEventListener('click', async () => {
-        const list = others();
-        if (!list.length) { say('مافيش أجهزة تانية.', true); return; }
+        const src = srcSel ? srcSel.value : SRC_THIS;
+        if (!src) { say('اختار جهاز مصدر الأول.', true); return; }
+        const list = targetsFor(src);
+        if (!list.length) { say('مافيش أجهزة تانية تتبعتلها.', true); return; }
+
+        const srcName = src === SRC_THIS
+          ? 'الجهاز اللي انت عليه'
+          : ((state.printStations || []).find((x) => x.id === src) || {}).deviceName || 'الجهاز المختار';
+
         // ⚠️⚠️ تأكيد صريح: ده بيكتب فوق إعدادات ماكينات المستخدم مش
-        // شايفها. والرسالة بتقول **العدد** عشان يعرف هو بيغيّر كام جهاز.
+        // شايفها. والرسالة بتقول **المصدر والعدد** عشان يعرف هو بينسخ
+        // من فين لكام جهاز.
         if (!confirm(
-          `هتنسخ إعدادات البرنامج المساعد من الجهاز ده لـ${list.length} جهاز تاني.\n\n` +
+          `هتنسخ إعدادات البرنامج المساعد من "${srcName}" لـ${list.length} جهاز تاني.\n\n` +
           'التصاميم والمقاسات والمعايرة هيتبدّلوا عندهم.\n' +
           'اسم كل جهاز وهويته هيفضلوا زي ما هم.\n\nتمام؟'
         )) return;
 
         syncBtn.disabled = true;
-        say('بيقرا إعدادات الجهاز ده...');
-        const payload = await readLocalHelperSettings();
-        if (!payload) {
+
+        // (أ) المصدر هو الجهاز ده → بنقرا من مساعده على طول.
+        if (src === SRC_THIS) {
+          say('بيقرا إعدادات الجهاز ده...');
+          const payload = await readLocalHelperSettings();
+          if (!payload) {
+            syncBtn.disabled = false;
+            say('مش قادر أقرا إعدادات المساعد — اتأكد إنه شغّال على الجهاز ده.', true);
+            return;
+          }
+          const id = await sendHelperCommand(list.map((x) => x.id), 'sync', payload);
           syncBtn.disabled = false;
-          say('مش قادر أقرا إعدادات المساعد — اتأكد إنه شغّال على الجهاز ده.', true);
+          say(id ? `📤 اتبعت لـ${list.length} جهاز — دوس "شوف الردود" بعد شوية.` : 'مش قادر أبعت.', !id);
           return;
         }
-        const id = await sendHelperCommand(list.map((x) => x.id), 'sync', payload);
+
+        // (ب) المصدر جهاز تاني → بنطلب منه هو يقرا ويوزّع.
+        // ⚠️ ده اللي بيخلي الخطوة دي تشتغل من التليفون.
+        const id = await sendHelperCommand([src], 'export', null, { to: list.map((x) => x.id) });
         syncBtn.disabled = false;
-        say(id ? `📤 اتبعت لـ${list.length} جهاز — دوس "شوف الردود" بعد شوية.` : 'مش قادر أبعت.', !id);
+        say(
+          id
+            ? `📤 اتبعت الطلب لـ"${srcName}" عشان يوزّع على ${list.length} جهاز — دوس "شوف الردود" بعد شوية.`
+            : 'مش قادر أبعت.',
+          !id
+        );
       });
     }
 
     const upBtn = overlay.querySelector('#allhelp-update');
     if (upBtn) {
       upBtn.addEventListener('click', async () => {
-        const list = others();
-        if (!list.length) { say('مافيش أجهزة تانية.', true); return; }
+        const list = onlineOthers();
+        if (!list.length) { say('مافيش أجهزة تانية فاتحة دلوقتي.', true); return; }
         // ⚠️⚠️ ده بيقفل البرنامج ويفتحه على كل الماكينات. مايتعملش
         // وطبعة شغّالة، والرسالة بتقول كده صراحةً.
         if (!confirm(
