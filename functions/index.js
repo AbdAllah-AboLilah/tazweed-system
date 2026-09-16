@@ -23,6 +23,10 @@ const {
   tokenIsEligible,
   buildGroupedMessage,
   categoryTag,
+  buildPendingMessage,
+  canSendPending,
+  pendingCooldownLeft,
+  PENDING_TAG,
 } = require('./notify-core');
 
 admin.initializeApp();
@@ -168,6 +172,18 @@ exports.notifyTest = onDocumentCreated('pushTests/{testId}', async (event) => {
   const uid = data && data.uid;
   if (!uid) return;
 
+  // ============================================================
+  // 📤 نوع تاني من نفس الباب: "ابعت الطلبات المعلّقة"
+  // ============================================================
+  // ⚠️⚠️ ليه في **نفس** المجموعة ومش مجموعة جديدة؟ لأن قواعد
+  // pushTests بتقول خلاص "المستخدم يكتب لنفسه بس" — وده بالظبط
+  // الحارس اللي محتاجينه. مجموعة جديدة معناها قواعد جديدة، ورفع
+  // تاني للقواعد، وباب تاني يتراجع.
+  if (data.kind === 'pending') {
+    await sendPendingNow(event, uid);
+    return;
+  }
+
   const tokensSnap = await db.collection('pushTokens').where('uid', '==', uid).get();
   if (tokensSnap.empty) {
     // ⚠️ بنكتب السبب في نفس المستند: صاحبه يقدر يقراه، فبيعرف إن
@@ -208,3 +224,149 @@ exports.notifyTest = onDocumentCreated('pushTests/{testId}', async (event) => {
   });
   await Promise.all(dead);
 });
+
+// ============================================================
+// 📤 إعادة إرسال الطلبات المعلّقة
+// ============================================================
+// اتطلب بالنص: "ارسال الاشعارات اللي موجوده اللي هي الطلبات المعلقه
+// ل الاجهزة اللي معاه تعديل في المخزن الرئيسي".
+//
+// ⚠⚠ ده **مش** إشعار جديد — ده إعادة إرسال للي موجود فعلًا.
+// إشعار التزويد بيتبعت مرة واحدة لحظة الطلب، ولو ضاع ساعتها (تليفون
+// مقفول أكتر من مدة التخزين، إذن مقفول، جهاز لسه مااتسجّلش) مافيش
+// حاجة بترجّعه.
+async function sendPendingNow(event, uid) {
+  const say = (ok, result) => event.data.ref.update({ ok, result }).catch(() => {});
+
+  // ⚠️ الصلاحية بتتفحص في السحابة مش في الشاشة: الشاشة ممكن
+  // تتلف، والقواعد بتسمح لأي حد يكتب المستند ده لنفسه.
+  let profile = null;
+  try {
+    const u = await db.collection('users').doc(uid).get();
+    profile = u.exists ? u.data() : null;
+  } catch (err) {
+    profile = null;
+  }
+  if (!canSendPending(profile)) {
+    await say(false, 'الحساب ده مالوش صلاحية يبعت للكل.');
+    return;
+  }
+
+  // ⚠⚠ مهلة على مستوى المحل: دوسة متكررة معناها إن تليفون كل
+  // الموظفين يرن عشر مرات. والمهلة بتتقرا من **آخر إرسال نجح**.
+  try {
+    const last = await db
+      .collection('pushTests')
+      .where('kind', '==', 'pending')
+      .where('ok', '==', true)
+      .orderBy('at', 'desc')
+      .limit(1)
+      .get();
+    if (!last.empty) {
+      const at = last.docs[0].get('at');
+      const ms = at && at.toMillis ? at.toMillis() : 0;
+      const left = pendingCooldownLeft(ms, Date.now());
+      if (left > 0) {
+        await say(false, `اتبعت من شوية — استنى ${Math.ceil(left / 60000)} دقيقة كمان.`);
+        return;
+      }
+    }
+  } catch (err) {
+    // ⚠️ الاستعلام محتاج فهرس مركّب. لو مش موجود، بنكمّل من غير
+    // مهلة بدل ما نقفل الميزة — والإرسال نفسه هو الأهم.
+    console.warn('تعذّر فحص المهلة:', err && err.message);
+  }
+
+  // كل الدرجات المعلّقة في المحل، مجمّعة بالفئة.
+  //
+  // ⚠️ collectionGroup: الدرجات جوّه كل فئة لوحدها، والاستعلام ده
+  // بيلمّهم كلهم في نداء واحد بدل نداء لكل فئة.
+  let rows = [];
+  try {
+    const snap = await db.collectionGroup('grades').where('status', '==', 'pending').get();
+    const byCat = new Map();
+    snap.docs.forEach((d) => {
+      const parent = d.ref.parent.parent;
+      if (!parent) return;
+      const arr = byCat.get(parent.id) || [];
+      const n = d.get('number');
+      if (n === 0 || n) arr.push(n);
+      byCat.set(parent.id, arr);
+    });
+    const names = await Promise.all(
+      [...byCat.keys()].map(async (id) => {
+        try {
+          const c = await db.collection('categories').doc(id).get();
+          return [id, c.exists ? c.get('name') || '' : ''];
+        } catch (err) {
+          return [id, ''];
+        }
+      })
+    );
+    const nameOf = new Map(names);
+    rows = [...byCat.entries()].map(([id, numbers]) => ({
+      categoryName: nameOf.get(id) || '',
+      numbers,
+    }));
+  } catch (err) {
+    await say(false, 'مانفعش نقرا الطلبات المعلّقة: ' + (err && err.message ? err.message : err));
+    return;
+  }
+
+  const msg = buildPendingMessage(rows);
+  if (!msg) {
+    // ⚠️ مافيش طلبات = **مابنبعتش**. إشعار بيقول "مافيش حاجة" هو
+    // نفسه إزعاج.
+    await say(false, 'مافيش أي طلب تزويد معلّق دلوقتي.');
+    return;
+  }
+
+  const tokensSnap = await db.collection('pushTokens').where('wantsRestock', '==', true).get();
+  if (tokensSnap.empty) {
+    await say(false, 'مافيش أي جهاز مفعّل الإشعارات.');
+    return;
+  }
+
+  // ⚠️ نفس فلترة إشعار التزويد بالحرف — اللي بيرن عنده التليفون
+  // هو اللي قدامه زرار "زوّد"، مش أكتر ولا أقل.
+  const uids = [...new Set(tokensSnap.docs.map((d) => d.get('uid')).filter(Boolean))];
+  const profiles = {};
+  await Promise.all(
+    uids.map(async (u) => {
+      try {
+        const doc = await db.collection('users').doc(u).get();
+        profiles[u] = doc.exists ? doc.data() : null;
+      } catch (err) {
+        profiles[u] = null;
+      }
+    })
+  );
+  const targets = tokensSnap.docs.filter((d) => tokenIsEligible(d.data(), profiles[d.get('uid')]));
+  if (!targets.length) {
+    await say(false, 'مافيش أي جهاز مؤهّل يستقبل.');
+    return;
+  }
+
+  const res = await admin.messaging().sendEachForMulticast({
+    tokens: targets.map((d) => d.id),
+    data: { title: msg.title, body: msg.body, tag: PENDING_TAG },
+    webpush: { headers: { Urgency: 'high', TTL: String(PUSH_TTL_SECONDS) } },
+  });
+
+  const failed = res.responses.filter((r) => !r.success).length;
+  await say(
+    res.successCount > 0,
+    `اتبعت لـ${targets.length} جهاز — نجح ${res.successCount}` +
+      (failed ? `، فشل ${failed}` : '') +
+      `. (${msg.body})`
+  );
+
+  const dead = [];
+  res.responses.forEach((r, i) => {
+    const code = r.error && r.error.code;
+    if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-registration-token') {
+      dead.push(targets[i].ref.delete());
+    }
+  });
+  await Promise.all(dead);
+}

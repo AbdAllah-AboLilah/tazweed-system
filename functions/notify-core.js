@@ -125,8 +125,89 @@ function categoryTag(categoryId) {
 }
 
 
+// ============================================================
+// 📤 "ابعت الطلبات المعلّقة دلوقتي" — إشعار بإيد المستخدم
+// ============================================================
+// اتطلب بالنص: "ممكن نعمل مفتاح او زر زي بتاع تجربة الاشعارات ...
+// ارسال الاشعارات اللي موجوده اللي هي الطلبات المعلقه ل الاجهزة اللي
+// معاه تعديل في المخزن الرئيسي".
+//
+// ⚠️⚠️ ليه ده محتاج أصلًا؟ لأن إشعار التزويد بيتبعت **مرة واحدة**،
+// لحظة ما الدرجة تتحوّل لمعلّق. ولو ضاع ساعتها (التليفون كان مقفول
+// أكتر من مدة التخزين، أو الإذن كان مقفول، أو الجهاز لسه مااتسجّلش)
+// مافيش أي حاجة بترجّعه — الطلب بيفضل معلّق في النظام والتليفون ساكت.
+//
+// فده مش "إشعار تاني"، ده **إعادة إرسال للي موجود فعلًا**.
+
+// نص الإشعار لكل الطلبات المعلّقة في المحل.
+//
+// ⚠️ بيقول **عدد الفئات** كمان مش الدرجات بس: "3 فئات" بتخلّي
+// اللي بيقراه يعرف إن ده مش طلب واحد، من غير ما نكتب سطر لكل فئة
+// (الإشعار بيتقص على التليفون).
+function buildPendingMessage(rows) {
+  const list = (Array.isArray(rows) ? rows : []).filter(
+    (r) => r && Array.isArray(r.numbers) && r.numbers.length
+  );
+  if (!list.length) return null;
+
+  const total = list.reduce((n, r) => n + r.numbers.length, 0);
+  const title = total > 1 ? `🔔 ${total} طلبات تزويد مستنية` : '🔔 طلب تزويد مستني';
+
+  // فئة واحدة → نفس شكل الإشعار العادي بالظبط، عشان مايبقاش شكل غريب.
+  if (list.length === 1) {
+    const one = list[0];
+    const body = formatGradeList(one.numbers);
+    const cat = String(one.categoryName || '').trim();
+    return { title, body: cat ? (body ? `${cat} — ${body}` : cat) : (body || 'فيه طلب تزويد مستني') };
+  }
+
+  // ⚠️ بسقف على عدد الفئات المكتوبة — نفس سبب MAX_LISTED_GRADES.
+  const shown = list.slice(0, 3).map((r) => {
+    const cat = String(r.categoryName || '').trim() || 'فئة';
+    return `${cat} (${r.numbers.length})`;
+  });
+  const rest = list.length - shown.length;
+  const body = shown.join('، ') + (rest > 0 ? ` و${rest} غيرهم` : '');
+  return { title, body };
+}
+
+// ⚠️ وسم لوحده: الإشعار ده بيلمّ **كل** الفئات، فلو اداناه وسم فئة
+// كان هيمسح إشعارها. ولو اداناه الوسم العام كان هيمسح إشعار محلي.
+const PENDING_TAG = `${PUSH_TAG}-all`;
+
+// ⚠⚠ مين يقدر يبعته؟
+//
+// نفس قاعدة الاستقبال بالظبط (tokenIsEligible)، والسبب إن اللي في
+// جمهور التزويد يقدر أصلًا يخلّي التليفونات ترن — بيعمل طلب تزويد
+// حقيقي وخلاص. فده مش بيفتح باب جديد.
+//
+// ⚠️ واللي صلاحيته اتقفلت بالاسم مايقدرش: نفس حارس الاستقبال.
+function canSendPending(profile) {
+  if (!profile) return false;
+  const perms = profile.perms || {};
+  if (perms.editMainQty === false) return false;
+  return true;
+}
+
+// ⚠⚠ مهلة بين الإرسالتين: من غيرها دوسة متكررة معناها إن تليفون
+// كل الموظفين يرن عشر مرات. والمهلة **على مستوى المحل** مش على
+// المستخدم — الإزعاج بيوصل للكل مهما كان اللي دوس.
+const PENDING_COOLDOWN_MS = 5 * 60 * 1000;
+
+function pendingCooldownLeft(lastAtMs, nowMs) {
+  const last = Number(lastAtMs);
+  if (!isFinite(last) || last <= 0) return 0;
+  const left = PENDING_COOLDOWN_MS - (Number(nowMs) - last);
+  return left > 0 ? left : 0;
+}
+
 module.exports = {
   becamePending,
+  buildPendingMessage,
+  canSendPending,
+  pendingCooldownLeft,
+  PENDING_TAG,
+  PENDING_COOLDOWN_MS,
   tokenIsEligible,
   buildMessage,
   buildGroupedMessage,

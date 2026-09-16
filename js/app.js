@@ -3723,6 +3723,7 @@ function attachDashboardEvents() {
   wire('restock-notify-btn', () => safeAsync(() => toggleRestockNotifications(), 'إشعارات التزويد'));
   // 🧪 زرار تجربة الإشعار — الشرح الكامل عند sendTestNotification
   wire('restock-notify-test', () => safeAsync(() => sendTestNotification(), 'تجربة الإشعار'));
+  wire('restock-notify-pending', () => safeAsync(() => sendPendingNotification(), 'إرسال الطلبات المعلّقة'));
   wire('export-btn', async (e) => {
     const btn = document.getElementById('export-btn');
     btn.disabled = true;
