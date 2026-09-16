@@ -427,7 +427,23 @@ function draw(){
         // ============================================================
         if (e.overflow!=='ellipsis'){
           var f = e.fontMm*K, guard = 0;
-          while ((s.scrollHeight > box.clientHeight+1 || s.scrollWidth > box.clientWidth+1) && f > 2 && guard++ < 60){
+          // ⚠️⚠️ المعاينة كانت بتكذب في الاتجاه التاني: عنصر
+          // مكتوب عليه "أقصى سطرين" كانت بتوريه في **تلاتة** لأنها
+          // كانت بتقيس الارتفاع بس. فاللي على الشاشة كان كلام
+          // عمره ما هيتطبع.
+          //
+          // (والورق كان بيكذب في الاتجاه المعاكس: بيقص الزيادة —
+          //  شوف wrapCanvas.) دلوقتي الاتنين بنفس القاعدة بالحرف:
+          //  صغّر لحد ما الكلام يدخل في العدد المسموح.
+          var maxL = Math.max(1, e.lines||1);
+          var over = function(){
+            if (s.scrollHeight > box.clientHeight+1) return true;
+            if (s.scrollWidth > box.clientWidth+1) return true;
+            // line-height 1.2 متحطوط على .el في التنسيق، ونفس الرقم
+            // في الكانفاس — فالقسمة دي بتدّي عدد السطور فعلًا.
+            return Math.round(s.scrollHeight / (f*1.2)) > maxL;
+          };
+          while (over() && f > 2 && guard++ < 60){
             f -= Math.max(0.5, f*0.04);
             s.style.fontSize = f+'px';
           }
@@ -735,10 +751,25 @@ function writeSample(){
 // ⚠️ بتتفكر في المتصفح: لو طويتها، تفضل مطوية لما تفتح الصفحة
 // تاني. من غير كده كنت هتطويها كل مرة من أول وجديد.
 var SAMPLE_OPEN_KEY = 'tz_sample_open';
+// ⚠️⚠️ صورة "اللي اتبعت للطابعة" بتتطوي معاهم. اتطلب بالنص:
+// "لما اضغط اطبع تجربة لما يظهر معاينه المعاينه تدخل بردوا جوه حقل
+//  بيانات التجربة بمعني لما اطوي الحقل او اخفيه تختفي جواه معاهم".
+//
+// ⚠️ وهي **مش** جوّه s-body في الصفحة عن قصد: مكانها الطبيعي تحت
+// زرار الطباعة اللي طلّعها، مش فوقه. فالطيّ بيتحكم فيها بالكود.
+//
+// ⚠️ وفيه شرطين مش واحد: الصورة تظهر لو **فيه صورة أصلًا**
+// (يعني طبع تجربة) **و**الخانات مفتوحة. من غير الشرط الأول، الطيّ
+// كان هيطلّع إطار فاضي قبل ما يطبع حاجة.
+var sampleOpen = true, hasSent = false;
+function syncSent(){ $('sent-wrap').hidden = !(hasSent && sampleOpen); }
+
 function setSampleOpen(open){
+  sampleOpen = open;
   $('s-body').hidden = !open;
   $('s-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
   $('s-chev').innerHTML = open ? '&#9662;' : '&#9656;';
+  syncSent();
 }
 $('s-toggle').onclick = function(){
   var open = !!$('s-body').hidden;
@@ -805,16 +836,38 @@ function sampleFor(kind){
 var DPMM = 203/25.4; // نفس دقة الطابعة في النظام
 
 // بتقسّم النص على سطور بعرض معيّن — محاكاة لطريقة المتصفح:
-// بيقسّم عند المسافات، ولو كلمة لوحدها أطول من السطر بيكسرها جوّه.
-function wrapCanvas(x, txt, maxW, maxLines){
+// بيقسّم عند المسافات.
+//
+// ============================================================
+// ⚠️⚠️⚠️ بترجّع **كل** السطور — حتى اللي زيادة عن المسموح
+// ============================================================
+// العطل اللي اتصلّح، اتبلّغ بالنص وبصورة:
+//
+//	"المعاينه فوق جايبه ان الاسم ده يدخل في سطرين عادي لما بضغط علي
+//	 طباعة تجربة بقيت الاسم بيتاكل مش بيطلع زي المعاينه فوق"
+//
+// والقياس أكّده بالحرف على نفس الاسم: المعاينة بتوري 12 كلمة،
+// والصورة اللي راحت للطابعة فيها **8**. آخر 4 كلمات اختفوا في سكوت.
+//
+// السبب: الدالة كانت بتاخد maxLines وبتقف عنده وترمي باقي الكلام.
+// والكارثة مش الرمي نفسه — الكارثة إن اللي بينده بيقيس اللي **فضل**:
+//
+//	lines = wrapCanvas(...)            ← رمت الزيادة
+//	fits  = lines كلها داخلة في الصندوق ← أكيد داخلة، إحنا رمينا الباقي!
+//
+// يعني حلقة التصغير كانت بتشوف إن كله تمام و**ماتشتغلش أبدًا**. فبدل
+// ما الخط يصغر عشان الكلام يدخل، الكلام كان بيتقص.
+//
+// دلوقتي بترجّع كل السطور، واللي بينده هو اللي يقرّر: لو عددها أكتر
+// من المسموح يصغّر الخط ويعيد. الشرح عند drawFit.
+function wrapCanvas(x, txt, maxW){
   var words = String(txt).split(/\s+/).filter(Boolean), lines = [], cur = '';
   for (var i=0;i<words.length;i++){
     var t = cur ? cur+' '+words[i] : words[i];
     if (x.measureText(t).width <= maxW || !cur){ cur = t; continue; }
     lines.push(cur); cur = words[i];
-    if (lines.length >= maxLines) break;
   }
-  if (cur && lines.length < maxLines) lines.push(cur);
+  if (cur) lines.push(cur);
   return lines;
 }
 
@@ -828,14 +881,21 @@ function drawFit(x, txt, X, Y, W, H, e){
   var lines = [];
   for (var g=0; g<90; g++){
     x.font = weight + size.toFixed(2) + 'px ' + fontStack();
-    lines = wrapCanvas(x, txt, W, maxLines);
+    lines = wrapCanvas(x, txt, W);
     var tooWide = false;
     for (var i=0;i<lines.length;i++) if (x.measureText(lines[i]).width > W) tooWide = true;
-    var fits = !tooWide && lines.length*size*1.2 <= H;
+    // ⚠️⚠️ عدد السطور **جزء من الاختبار** — ودي
+    // اللي كانت ناقصة. من غيرها الكلام الزيادة كان بيتقص بدل ما
+    // الخط يصغر. الشرح الكامل عند wrapCanvas.
+    var fits = !tooWide && lines.length <= maxLines && lines.length*size*1.2 <= H;
     if (fits || e.overflow==='ellipsis') break;
     size -= Math.max(0.5, size*0.04);
     if (size <= 4) break;
   }
+  // ⚠️ القص هنا بس — يعني لما الخط وصل لأصغر حاجة والكلام لسه
+  // مش داخل (أو العنصر متظبّط على "يتقص"). قبل كده كان بيحصل
+  // **دايمًا** من غير ما حد يعرف.
+  if (lines.length > maxLines) lines = lines.slice(0, maxLines);
   var lh = size*1.2;
   var top = Y + (H - lines.length*lh)/2 + lh/2;
   x.textBaseline = 'middle';
@@ -909,7 +969,8 @@ $('s-print').onclick = function(){
       // ⚠️ بنوري الصورة اللي اتبعتت فعلًا. المعاينة فوق HTML،
       // ودي الصورة اللي راحت للطابعة بالحرف — فلو اختلفوا، تشوف
       // بعينك من غير ما تستنى الورق.
-      $('sent-wrap').hidden = false;
+      hasSent = true;
+      syncSent();
       $('sent-img').src = out.url;
       $('sent-img').style.width = (out.w/DPMM*px()/1) + 'px';
       return fetch('/label', {

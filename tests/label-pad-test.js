@@ -107,7 +107,23 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       for (let x = 0; x < c.width && leftInk === -1; x++) {
         for (let y = 0; y < half; y++) if (dark(x, y)) { leftInk = x; break; }
       }
-      return { ink, gaps, topGap: gaps[0], bottomGap: gaps[gaps.length - 1], leftMm: +(leftInk / DPMM).toFixed(2), edges };
+
+      // ============================================================
+      // ⚠⚠ عمود الـQR لوحده — لأن الرمز أعلى وأوطى حاجة في الملصق
+      // ============================================================
+      // القياسات فوق بتاخد الملصق كله، والرمز هو اللي بيوصل لخط القص
+      // الأول. فبنقيسه لوحده: أول 14مم من الشمال بس.
+      const qcols = Math.round(14 * (c.width / 38));
+      const qrRow = (y) => { for (let x = 0; x < qcols; x++) if (dark(x, y)) return true; return false; };
+      let qTop = -1, qBot = -1;
+      for (let y = 0; y < half - 3; y++) if (qrRow(y)) { if (qTop < 0) qTop = y; qBot = y; }
+      const qr = {
+        sizeMm: qTop < 0 ? 0 : q(qBot - qTop + 1),
+        fromEdgeMm: qTop < 0 ? 0 : q(qTop),
+        fromCutMm: qBot < 0 ? 0 : q(half - 1 - qBot),
+      };
+
+      return { ink, gaps, topGap: gaps[0], bottomGap: gaps[gaps.length - 1], leftMm: +(leftInk / DPMM).toFixed(2), edges, qr };
     };
 
     setT('htmlLabels', 0); setT('fixedNameSize', 1); setT('fixedLabelSizes', 1); setT('lightQR', 1);
@@ -243,6 +259,40 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     E.left === E0.left, { مقفول: E0.left, مفتوح: E.left });
   check('⭐⭐⭐⭐ والجنبين ≥ 1.5مم (التحريف مايخفيش حاجة)',
     E.left >= 1.5 && E.right >= 1.5, { شمال: E.left, يمين: E.right });
+
+  // ============================================================
+  // ⭐⭐⭐⭐⭐ رمز QR وخط القص
+  // ============================================================
+  // ⚠⚠ اتبلّغ بالنص: "عاوز الكيو ار كود اللي بيطلع من المفتاح يصغر
+  // حاجه بسيط لانه ساعات بيطلع بره النص بتاعه".
+  //
+  // والقياس أكّده: المفتاح بيكبّر الرمز **درجة كاملة** (7.88 → 10.5مم)
+  // وبياكل الفسحة اللي عند خط القص (1.63 → 0.70مم).
+  //
+  // و"يصغر حاجة بسيطة" مش متاحة: مقاس المربع لازم يبقى عدد صحيح من
+  // نقط الطابعة والرمز 21 مربع — فالدرجة 2.63مم. فالرمز بيتزحلق بدل
+  // ما يصغر.
+  const Q0 = r.offLong.qr, Q = r.onLong.qr;
+
+  check('⭐⭐⭐⭐⭐ الرمز عند خط القص ≥ 1مم (كان 0.70 قبل الزحلقة)',
+    Q.fromCutMm >= 1.0, { مقفول: Q0.fromCutMm, مفتوح: Q.fromCutMm });
+
+  // ⚠⚠ والحجم **مااتغيّرش**: ده اللي الزحلقة اتعملت عشانه — الفسحة
+  // من غير ما نخسر الرمز الكبير.
+  check('⭐⭐⭐⭐ والحجم زي ما هو (الزحلقة مش تصغير)',
+    Q.sizeMm >= 10.0, { مفتوح: Q.sizeMm });
+
+  // ⚠⚠ وحرف الورقة ماينزلش عن 1مم — منه بناخد، بس بسقف.
+  // الزحلقة الأولى نزلت لـ0.88 والفحص اللي فوق مسكها. السقف ده هو
+  // اللي بيحدّد الزحلقة، مش العكس.
+  check('⭐⭐⭐⭐⭐ وحرف الورقة لسه ≥ 1مم (الحارس اللي حدّد الزحلقة)',
+    Q.fromEdgeMm >= 1.0, { مفتوح: Q.fromEdgeMm });
+
+  // ⚠⚠⚠ أهم واحد: المفتاح **المقفول** مالوش أي تغيير. الزحلقة
+  // بتتفعّل لما الفسحة تبقى ضيقة بس.
+  check('⭐⭐⭐⭐⭐ والمفتاح المقفول مااتلمسش خالص',
+    Q0.fromCutMm >= 1.5 && Q0.fromEdgeMm >= 2.5,
+    { منالقص: Q0.fromCutMm, منالحرف: Q0.fromEdgeMm });
 
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
