@@ -210,6 +210,42 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ وبيسأل في شريط شاشة الأصناف', /pfile-upload/.test(off.banner));
 
   // ============================================================
+  // 11ب) ⭐ النظام بيقول للبرنامج إن الرفع ماشي
+  // ============================================================
+  // ⚠️ البرنامج مابيرفعش — فمن غير الأسطر دي صفحته عمرها ما هتعرف
+  // إن فيه حاجة بتحصل، والشريط عمره ما هيتحرك.
+  const prog = await p.evaluate(async () => {
+    const sent = [];
+    state.profile = { role: 'owner' };
+    state.screen = 'products';
+    window.canManageProducts = () => true;
+    window.isServerReachable = () => true;
+    window.render = () => {};
+    window.logActivity = () => {};
+    productsMeta = { sourceFingerprint: 'OLD' };
+    window.parseProductsFileBuffer = async () => [{ name: 'ص', barcode: '1', price: 1 }];
+    window.saveProducts = async (list, onProgress) => {
+      if (onProgress) onProgress(2000, 4000);
+    };
+    window.fetch = async (url, opt) => {
+      const u = String(url);
+      if (u.endsWith('/products/file/progress')) {
+        sent.push(JSON.parse(opt.body).state);
+        return { ok: true, json: async () => ({}) };
+      }
+      if (u.endsWith('/products/file')) {
+        return { ok: true, json: async () => ({ path: 'x', exists: true, fingerprint: 'NEW', autoUpload: true }) };
+      }
+      return { ok: true, headers: { get: () => 'NEW' }, arrayBuffer: async () => new ArrayBuffer(8) };
+    };
+    pfileState = null; pfileStateAt = 0; pfileNote = '';
+    await checkProductsFile({ force: true });
+    return sent;
+  });
+  check('⭐⭐ بيقول للبرنامج: بدأ / ماشي / خلص',
+    prog.join(',') === 'start,working,done', prog);
+
+  // ============================================================
   // 12) ⭐ الفحص بيتعاد — مش مرة واحدة بعد الدخول وخلاص
   // ============================================================
   check('⭐⭐ فتح شاشة الأصناف بيسأل البرنامج من الأول',
@@ -218,6 +254,15 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     /visibilitychange/.test(pf) && /force: true/.test(pf));
   check('⭐ وفيه فحص كل شوية والصفحة مفتوحة', /PFILE_WATCH_MS/.test(pf));
   check('⭐ ومابيشتغلش والصفحة مخفية', /document\.hidden/.test(pf));
+
+  // والشريط نفسه في صفحة البرنامج
+  check('⭐ الشريط موجود في صفحة البرنامج وبيتحرك بالنسبة',
+    /pf-bar/.test(testpage) && /pfDrawProgress/.test(testpage));
+  check('⭐⭐ وسطر "آخر رفع" بنفس شكل تاريخ النظام (اسم اليوم الأول)',
+    /pfStamp/.test(testpage) && /weekday:'long'/.test(testpage));
+  check('⭐⭐ وبيحذّر لو الملف اتغيّر بعد آخر رفع',
+    /changedSinceUpload/.test(testpage) && /changedSinceUpload/.test(mainGo + testpage));
+  check('⭐ والسؤال كل ثانية بيقف أول ما الرفع يخلص', /pfStopPoll/.test(testpage));
 
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();

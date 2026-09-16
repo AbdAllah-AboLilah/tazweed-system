@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func postJSON(t *testing.T, h func(http.ResponseWriter, *http.Request), path, body string, out interface{}) {
@@ -165,5 +166,82 @@ func TestStatusCarriesTheProductsFile(t *testing.T) {
 	}
 	if s.ProductsFile != f || !s.ProductsAutoUpload {
 		t.Fatalf("/status مش شايل ملف الأصناف: %+v", s)
+	}
+}
+
+// ============================================================
+// 📶 شريط التقدّم
+// ============================================================
+// ⚠️ اتطلب بالنص: "ممكن نعمل شريط تقدم في لمساعد عند الرفع ولما يخلص
+// يكتب انه خلص ويكتب تاريخ اخر رفع امتي".
+//
+// ⚠️⚠️ والبرنامج مابيرفعش — النظام هو اللي بيرفع وبيبعت خطواته هنا.
+
+func TestProgressShowsThenClearsAndRecordsTheDate(t *testing.T) {
+	upMu.Lock()
+	upCur = nil
+	upMu.Unlock()
+	s := getSettings()
+	s.ProductsLastUploadMs, s.ProductsLastUploadCount, s.ProductsLastUploadFP = 0, 0, ""
+	saveSettings(s)
+
+	var st productsFileState
+	postJSON(t, handleProductsFileProgress, "/products/file/progress",
+		`{"state":"working","done":8000,"total":46969}`, &st)
+	if st.Progress == nil || st.Progress.Done != 8000 || st.Progress.Total != 46969 {
+		t.Fatalf("التقدّم مابانش: %+v", st.Progress)
+	}
+
+	// ⚠️ كائن جديد عن قصد: json.Unmarshal على كائن فيه قيم قديمة
+	// **مابيمسحش** الحقل اللي مش موجود في الرد — فالفحص كان هيعدّي
+	// على قيمة قديمة ويفتكرها الرد.
+	var after productsFileState
+	postJSON(t, handleProductsFileProgress, "/products/file/progress",
+		`{"state":"done","count":46969,"fingerprint":"FP1"}`, &after)
+	if after.Progress != nil {
+		t.Fatalf("الشريط المفروض يختفي بعد ما يخلص: %+v", after.Progress)
+	}
+	if after.LastUploadCount != 46969 || after.LastUploadMs == 0 {
+		t.Fatalf("تاريخ آخر رفع مااتسجّلش: %+v", after)
+	}
+	// ⚠️ على القرص مش في الذاكرة بس — لازم يفضل بعد ما البرنامج يقفل ويفتح
+	if getSettings().ProductsLastUploadFP != "FP1" {
+		t.Fatal("البصمة مااتحفظتش في الإعدادات")
+	}
+}
+
+// ⚠️⚠️ تاريخ ساكت لوحده بيخلي اللي بيقرا يفتكر إن اللي في النظام هو
+// اللي في الملف — وممكن يكون حفظ الملف بعد الرفع.
+func TestSaysTheFileChangedAfterTheLastUpload(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "p.xlsx")
+	os.WriteFile(f, []byte("نسخة ١"), 0o644)
+	var st productsFileState
+	postJSON(t, handleProductsFile, "/products/file", `{"path":`+jsonStr(f)+`}`, &st)
+	var done productsFileState
+	postJSON(t, handleProductsFileProgress, "/products/file/progress",
+		`{"state":"done","count":10,"fingerprint":`+jsonStr(st.Fingerprint)+`}`, &done)
+	if done.ChangedSinceUpload {
+		t.Fatal("قال إنه اتغيّر وهو نفس اللي اترفع")
+	}
+
+	os.WriteFile(f, []byte("نسخة ٢"), 0o644)
+	rec := httptest.NewRecorder()
+	handleProductsFile(rec, httptest.NewRequest(http.MethodGet, "/products/file", nil))
+	json.Unmarshal(rec.Body.Bytes(), &st)
+	if !st.ChangedSinceUpload {
+		t.Fatal("الملف اتغيّر بعد الرفع والبرنامج مش واخد باله")
+	}
+}
+
+// ⚠️ لو المتصفح اتقفل في نص الرفع، الشريط مايفضلش ماشي للأبد.
+func TestStaleProgressStopsShowing(t *testing.T) {
+	postJSON(t, handleProductsFileProgress, "/products/file/progress",
+		`{"state":"working","done":1,"total":10}`, nil)
+	upMu.Lock()
+	upCur.at = time.Now().Add(-2 * uploadStaleAfter)
+	upMu.Unlock()
+	if currentUpload() != nil {
+		t.Fatal("الشريط لسه ماشي بعد ما الخبر انقطع")
 	}
 }

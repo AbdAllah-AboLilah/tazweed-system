@@ -109,6 +109,30 @@ async function parseProductsFileBuffer(buf) {
 //
 // ⚠️⚠️ والبصمة اللي بتتحفظ هي بتاعة **اللي اتنزّل فعلًا** (من ترويسة
 // الرد) مش اللي كانت في الحالة: الملف ممكن يتغيّر بين السؤال والتنزيل.
+// ============================================================
+// 📶 بنقول للبرنامج المساعد إن الرفع ماشي
+// ============================================================
+// اتطلب بالنص: "ممكن نعمل شريط تقدم في لمساعد عند الرفع ولما يخلص
+// يكتب انه خلص ويكتب تاريخ اخر رفع امتي زي اللي في النظام".
+//
+// ⚠️⚠️ ليه محتاجين نقوله أصلًا: البرنامج **مابيرفعش**. هو بيناول
+// الملف بس، والرفع كله بيحصل هنا في المتصفح. فمن غير الأسطر دي،
+// صفحة البرنامج عمرها ما هتعرف إن فيه حاجة بتحصل.
+//
+// ⚠️ ومن غير await ومن غير ما يوقّف أي حاجة: النداء ده تزويق، ولو
+// البرنامج مقفول أو رفض، الرفع نفسه لازم يكمّل عادي.
+function tellHelper(body) {
+  try {
+    fetch(HELPER_URL + '/products/file/progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => {});
+  } catch (err) {
+    /* البرنامج مش شغّال — مش مشكلة */
+  }
+}
+
 async function uploadProductsFromHelper(onProgress, fallbackFingerprint) {
   const res = await fetch(HELPER_URL + '/products/file/raw');
   if (!res.ok) {
@@ -131,10 +155,19 @@ async function uploadProductsFromHelper(onProgress, fallbackFingerprint) {
   const fingerprint = res.headers.get('X-Tazweed-Fingerprint') || fallbackFingerprint || '';
   const buf = await res.arrayBuffer();
   const list = await parseProductsFileBuffer(buf);
+  tellHelper({ state: 'start', done: 0, total: list.length });
   // ⚠️ استبدال كامل — اتطلب بالنص: "وعاوز استبدال كامل لان انا ممكن
   // احذف اصناف او اضيف اصناف او اعدل اي صنف". يعني اللي اتشال من
   // الملف بيتشال من النظام، ومافيش حارس بيمنع النقصان.
-  await saveProducts(list, onProgress, { sourceFingerprint: fingerprint });
+  await saveProducts(
+    list,
+    (done, total) => {
+      tellHelper({ state: 'working', done: done, total: total });
+      if (onProgress) onProgress(done, total);
+    },
+    { sourceFingerprint: fingerprint }
+  );
+  tellHelper({ state: 'done', count: list.length, fingerprint: fingerprint });
   // السجل حاجة ثانوية — فشله مايلغيش نجاح الرفع نفسه.
   try {
     logActivity({ action: 'import_products_file', newValue: list.length });
@@ -194,6 +227,10 @@ async function runProductsFileUpload(opts) {
   } catch (err) {
     console.error(err);
     pfileNote = `⚠️ مقدرتش أرفع ملف الأصناف: ${err.message || err}`;
+    // ⚠️ الغلط بيوصل للبرنامج كمان: من غير كده الشريط عنده بيفضل
+    // ماشي لحد ما يخلص بالمهلة، واللي قاعد على الكمبيوتر يفتكر إنه
+    // شغّال وهو واقع.
+    tellHelper({ state: 'error', error: String((err && err.message) || err) });
   }
   pfileBusy = false;
   // ⚠️ الحالة بتتقرا من الأول بعد الرفع: البصمة اتغيّرت، والشريط

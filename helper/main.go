@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.20.0"
+	version = "1.21.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -390,6 +390,8 @@ func newServer() *http.ServeMux {
 	// ويرفع — عشان منطق قراءة أعمدة الـERP يفضل في مكان واحد.
 	mux.HandleFunc("/products/file", guard(handleProductsFile))
 	mux.HandleFunc("/products/file/raw", guard(handleProductsFileRaw))
+	// 📶 النظام بيقول إن الرفع ماشي — الشرح عند uploadProgress
+	mux.HandleFunc("/products/file/progress", guard(handleProductsFileProgress))
 	// 🗂️ شاشة "اختار ملف" بتاعة الويندوز — المتصفح مايقدرش يدّي مسار
 	mux.HandleFunc("/products/file/pick", guard(handleProductsFilePick))
 

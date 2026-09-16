@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -42,6 +43,60 @@ type productsFileState struct {
 	Fingerprint string `json:"fingerprint"`
 	AutoUpload  bool   `json:"autoUpload"`
 	Error       string `json:"error,omitempty"`
+
+	// 🕒 آخر رفع — الشرح عند ProductsLastUploadMs في settings.go
+	LastUploadMs    int64 `json:"lastUploadMs,omitempty"`
+	LastUploadCount int   `json:"lastUploadCount,omitempty"`
+	// ⚠️ بيتحسب هنا مش في الصفحة: الصفحة مالهاش دعوة تقارن بصمات.
+	ChangedSinceUpload bool `json:"changedSinceUpload"`
+
+	// 📶 الرفع اللي شغّال دلوقتي (لو فيه)
+	Progress *uploadProgress `json:"progress,omitempty"`
+}
+
+// ============================================================
+// 📶 شريط التقدّم — والرفع أصلًا بيحصل في النظام مش هنا
+// ============================================================
+// اتطلب بالنص: "ممكن نعمل شريط تقدم في لمساعد عند الرفع".
+//
+// ⚠️⚠️ البرنامج **مابيرفعش**. اللي بيرفع هو النظام في المتصفح (هو
+// اللي معاه حساب السحابة). فالبرنامج مايقدرش يعرف لوحده إن فيه رفع
+// شغّال — لازم النظام يقوله.
+//
+// فالنظام بيبعت هنا: بدأت / وصلت لكذا من كذا / خلصت. والصفحة بتسأل
+// كل ثانية وترسم الشريط.
+//
+// ⚠️ ومقفول بمهلة: لو المتصفح اتقفل في نص الرفع، الشريط مايفضلش
+// شغّال للأبد — بيعتبر نفسه وقف بعد دقيقة من غير أي خبر.
+const uploadStaleAfter = 60 * time.Second
+
+type uploadProgress struct {
+	Done  int    `json:"done"`
+	Total int    `json:"total"`
+	Error string `json:"error,omitempty"`
+	// ⚠️ مابيتبعتش للصفحة: ده وقتنا إحنا عشان نعرف الخبر بايت ولا لأ
+	at time.Time
+}
+
+var (
+	upMu   sync.Mutex
+	upCur  *uploadProgress
+	upDone bool
+)
+
+// بترجّع نسخة من الحالة الشغّالة — أو nil لو مافيش رفع دلوقتي.
+func currentUpload() *uploadProgress {
+	upMu.Lock()
+	defer upMu.Unlock()
+	if upCur == nil {
+		return nil
+	}
+	if time.Since(upCur.at) > uploadStaleAfter {
+		upCur = nil
+		return nil
+	}
+	c := *upCur
+	return &c
 }
 
 // ⚠️ البصمة متخزّنة بالحجم والتاريخ: حساب sha256 لـ3 ميجا رخيص، بس
@@ -103,7 +158,13 @@ func itoa(n int64) string {
 
 func productsFileInfo() productsFileState {
 	s := getSettings()
-	out := productsFileState{Path: s.ProductsFile, AutoUpload: s.ProductsAutoUpload}
+	out := productsFileState{
+		Path:            s.ProductsFile,
+		AutoUpload:      s.ProductsAutoUpload,
+		LastUploadMs:    s.ProductsLastUploadMs,
+		LastUploadCount: s.ProductsLastUploadCount,
+		Progress:        currentUpload(),
+	}
 	if strings.TrimSpace(out.Path) == "" {
 		return out
 	}
@@ -131,6 +192,10 @@ func productsFileInfo() productsFileState {
 		return out
 	}
 	out.Fingerprint = fp
+	// ⚠️ "اتغيّر بعد آخر رفع" = فيه رفع قبل كده، والبصمة دلوقتي مختلفة.
+	// من غير الشرط الأول، أول مرة خالص كانت هتقول "اتغيّر" وهي عمرها
+	// ما اترفعت أصلًا.
+	out.ChangedSinceUpload = s.ProductsLastUploadFP != "" && s.ProductsLastUploadFP != fp
 	return out
 }
 
@@ -257,4 +322,67 @@ func handleProductsFilePick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, pickReply{OK: true, State: productsFileInfo()})
+}
+
+// ============================================================
+// 📶 النظام بيقول للبرنامج إن الرفع ماشي
+// ============================================================
+// POST /products/file/progress
+//
+//	{"state":"start"}                        بدأ
+//	{"state":"working","done":8,"total":24}  ماشي
+//	{"state":"done","count":46969,"fingerprint":"..."}  خلص
+//	{"state":"error","error":"..."}          وقع
+type progressReq struct {
+	State       string `json:"state"`
+	Done        int    `json:"done"`
+	Total       int    `json:"total"`
+	Count       int    `json:"count"`
+	Fingerprint string `json:"fingerprint"`
+	Error       string `json:"error"`
+}
+
+func handleProductsFileProgress(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})
+		return
+	}
+	var in progressReq
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "الطلب مش مفهوم"})
+		return
+	}
+
+	switch in.State {
+	case "start", "working":
+		upMu.Lock()
+		upCur = &uploadProgress{Done: in.Done, Total: in.Total, at: time.Now()}
+		upMu.Unlock()
+	case "error":
+		// ⚠️ الغلط بيفضل باين شوية بدل ما يختفي: لو مسحناه على طول،
+		// اللي كان بيبص على الشاشة يشوف الشريط بيختفي ومايعرفش ليه.
+		upMu.Lock()
+		upCur = &uploadProgress{Error: in.Error, at: time.Now()}
+		upMu.Unlock()
+	case "done":
+		upMu.Lock()
+		upCur = nil
+		upMu.Unlock()
+		// ⚠️⚠️ التاريخ بيتحفظ على القرص مش في الذاكرة: لازم يفضل
+		// موجود بعد ما البرنامج يقفل ويفتح — ده المقصود من "تاريخ
+		// اخر رفع".
+		s := getSettings()
+		s.ProductsLastUploadMs = time.Now().UnixNano() / int64(time.Millisecond)
+		s.ProductsLastUploadCount = in.Count
+		s.ProductsLastUploadFP = in.Fingerprint
+		if err := saveSettings(s); err != nil {
+			log.Println("تعذّر حفظ تاريخ آخر رفع:", err)
+		}
+		log.Printf("📦 ملف الأصناف اترفع من النظام: %d صنف\n", in.Count)
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "حالة مش معروفة"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(productsFileInfo())
 }
