@@ -2355,6 +2355,213 @@ async function requestRemoteReload(deviceIds) {
   return done;
 }
 
+// ============================================================
+// 🩺 حالة الطابعة — من البرنامج المساعد للنظام
+// ============================================================
+// ⚠️⚠️ ده اللي المتصفح **مايقدرش** عليه: النظام بيقول "اتبعت ✅" أول
+// ما البايتات تروح لويندوز، واللي بعد كده مش شايفه — الرول خلص، الغطا
+// مفتوح، الورق اتزنق. البرنامج بس هو اللي يقدر يسأل.
+//
+// ⚠️ وبنعرضها كـ**معلومة** مش حكم: تعريفات الطابعات الحرارية الرخيصة
+// كتير منها بيرجّع صفر دايمًا، فـ"مافيش بلاغ" **مش** معناها "الطابعة
+// تمام". الرسالة اللي جاية من البرنامج مكتوبة بالفرق ده بالحرف.
+const PRINTER_STATE_TTL_MS = 20000;
+let printerStateCache = null;
+let printerStateAt = 0;
+
+async function readHelperPrinterState() {
+  if (printerStateCache && Date.now() - printerStateAt < PRINTER_STATE_TTL_MS) return printerStateCache;
+  let out = null;
+  try {
+    const up = await helperStatus();
+    if (up && up.app) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 2000);
+      const res = await fetch(HELPER_URL + '/printer/status', { signal: ctl.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const j = await res.json();
+        // ⚠️ بنحتفظ باللي يهم بس: ده بيتنشر في نبضة الجهاز وبيتقرا من
+        // التليفون، فمافيش داعي نكبّر المستند.
+        if (j && !j.error) {
+          out = {
+            summary: String(j.summary || '').slice(0, 120),
+            blocking: !!j.blocking,
+            raw: Number(j.raw) || 0,
+            printer: String(j.name || '').slice(0, 80),
+          };
+        }
+      }
+    }
+  } catch (err) {
+    out = null;
+  }
+  printerStateCache = out;
+  printerStateAt = Date.now();
+  return out;
+}
+
+// ============================================================
+// 🔗 أوامر للبرنامج المساعد على **كل** الأجهزة
+// ============================================================
+// اتطلب بالنص:
+//   "هل في طريقه اوحد الاعدادات علي كل برامج المساعده اللي عندي ممكن
+//    اعملها من علي جهاز الكمبيوتر"
+//   "او ممكن اطلب ان كل نسخ المساعد علي الاجهزة المختلفة تتحدث ل احدث
+//    اصدار من مفتاح من مساعد معين وكل المساعدين يتحدثوا كلهم مرة واحده"
+//
+// ------------------------------------------------------------
+// ⚠️⚠️ المساعدين **مش شايفين بعض** — وده مش عيب، ده تصميم
+// ------------------------------------------------------------
+// كل مساعد سامع على 127.0.0.1 بتاع ماكينته هو بس. وده اللي بيخلّيه
+// آمن: مافيش منفذ مفتوح على الشبكة، ومحدش من بره يقدر يكلّمه.
+//
+// فمين يقدر يوصّل الأمر؟ **المتصفح**. كل كمبيوتر بيطبع لازم يكون
+// فاتح النظام، والمتصفح ده هو الوحيد اللي بيقدر يكلّم المساعد اللي
+// جنبه. فبيبقى ساعي البريد:
+//
+//     انت (من أي جهاز، حتى التليفون)
+//        ↓ بتكتب أمر في السحابة
+//     متصفح كل كمبيوتر
+//        ↓ بيقرا الأمر
+//     المساعد اللي عنده → بينفّذ ويرد
+//
+// ⚠️ ونفس قناة "اعمل ريفريش من عندي" بالحرف (شوف handleRemoteReload):
+// مجرّبة وشغّالة، ومافيش قناة جديدة اتفتحت.
+const HELPER_CMD_FIELD = 'helperCmd';
+const HELPER_CMD_SEEN_KEY = 'tazweed_helper_cmd_seen';
+let helperCmdSeeded = false;
+
+// الأنواع المسموحة — قايمة مقفولة.
+// ⚠️ أي اسم تاني بيتجاهل: أمر من نسخة نظام أجدد مايتنفّذش بالغلط.
+const HELPER_CMD_KINDS = { sync: true, update: true };
+
+// ⚠️ بنقرا إعدادات المساعد اللي **على الجهاز ده** — وده مصدر النسخة
+// اللي هتتوزّع. التصدير بيشيل الهوية لوحده (شوف /settings/export).
+async function readLocalHelperSettings() {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 3000);
+    const res = await fetch(HELPER_URL + '/settings/export', { signal: ctl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    return null;
+  }
+}
+
+// ⚠️ النتيجة بتترجع في نبضة الجهاز نفسها — فاللي بعت الأمر بيشوف
+// كل جهاز رد بإيه من غير قناة تانية.
+async function reportHelperCmd(id, kind, ok, msg) {
+  const deviceId = typeof getDeviceId === 'function' ? getDeviceId() : '';
+  if (!deviceId || !db) return;
+  try {
+    await db.collection('printStations').doc(deviceId).set(
+      {
+        helperCmdResult: {
+          id: String(id || ''),
+          kind: String(kind || ''),
+          ok: !!ok,
+          msg: String(msg || '').slice(0, 200),
+          at: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('تعذّر تسجيل نتيجة أمر المساعد:', err);
+  }
+}
+
+async function runHelperCommand(cmd) {
+  const kind = cmd && cmd.kind;
+  if (!HELPER_CMD_KINDS[kind]) return;
+
+  // ⚠️ المساعد مش شغّال على الجهاز ده؟ نقول كده بصراحة بدل ما نسكت —
+  // اللي بعت الأمر لازم يعرف مين نفّذ ومين لأ.
+  const up = await helperStatus();
+  if (!up || !up.app) {
+    await reportHelperCmd(cmd.id, kind, false, 'البرنامج المساعد مش شغّال على الجهاز ده');
+    return;
+  }
+
+  try {
+    if (kind === 'sync') {
+      if (!cmd.payload) {
+        await reportHelperCmd(cmd.id, kind, false, 'الأمر جه من غير إعدادات');
+        return;
+      }
+      const res = await fetch(HELPER_URL + '/settings/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cmd.payload),
+      });
+      const j = await res.json();
+      await reportHelperCmd(cmd.id, kind, !!j.ok,
+        j.ok ? `اتحمّلت الإعدادات (${j.designs || 0} تصميم)` : (j.error || 'مش عارف'));
+      return;
+    }
+
+    // ⚠️⚠️ التحديث بيقفل البرنامج ويفتحه. الرد بيوصل **قبل** القفل
+    // (شوف /update/apply في البرنامج)، فبنسجّل النتيجة من الرد ده —
+    // ولو استنينا بعد القفل مكناش هنلاقي حد يرد علينا.
+    const res = await fetch(HELPER_URL + '/update/apply', { method: 'POST' });
+    const j = await res.json();
+    await reportHelperCmd(cmd.id, kind, !!j.ok, j.ok ? 'اتحدّث وبيقفل ويفتح' : (j.error || 'مش عارف'));
+  } catch (err) {
+    await reportHelperCmd(cmd.id, kind, false, String(err && err.message ? err.message : err));
+  }
+}
+
+// بيتنده من كل لقطة لإعدادات الجهاز — نفس حراس handleRemoteReload:
+// أول لقطة تسجيل بس، والتنفيذ مرة واحدة لكل أمر.
+function handleHelperCommand(data) {
+  const cmd = data && data[HELPER_CMD_FIELD];
+  if (!cmd || !cmd.id) return;
+  const val = String(cmd.id);
+  const remember = () => {
+    try { localStorage.setItem(HELPER_CMD_SEEN_KEY, val); } catch (err) { /* التخزين مقفول */ }
+  };
+
+  // ⚠️ أول لقطة بعد فتح الصفحة = تسجيل وبس. من غير ده، أي جهاز بيفتح
+  // بعد أمر قديم هينفّذه تاني — والتحديث مرتين مش مشكلة، بس توحيد
+  // الإعدادات بيرجّع اللي المستخدم غيّره بعدها.
+  if (!helperCmdSeeded) {
+    helperCmdSeeded = true;
+    remember();
+    return;
+  }
+
+  let seen = '';
+  try { seen = localStorage.getItem(HELPER_CMD_SEEN_KEY) || ''; } catch (err) { /* تجاهل */ }
+  if (val === seen) return;
+
+  remember(); // ⚠️ قبل التنفيذ مش بعده — لو التنفيذ وقع، مايتكررش لوحده
+  runHelperCommand(cmd);
+}
+
+// بيبعت الأمر لأجهزة. بيرجّع عدد اللي وصلهم.
+async function sendHelperCommand(deviceIds, kind, payload) {
+  const ids = (deviceIds || []).filter(Boolean);
+  if (!ids.length || !HELPER_CMD_KINDS[kind]) return 0;
+  // ⚠️ نفس المعرّف للكل في الطلب الواحد — عشان يبقى عملية واحدة
+  // وتقدر تقارن الردود ببعض.
+  const id = String(Date.now());
+  const cmd = { id, kind };
+  if (payload) cmd.payload = payload;
+  let done = 0;
+  for (const devId of ids) {
+    try {
+      await db.collection(DEVICE_SETTINGS).doc(devId).set({ [HELPER_CMD_FIELD]: cmd }, { merge: true });
+      done++;
+    } catch (err) {
+      console.warn('تعذّر إرسال أمر المساعد للجهاز:', devId, err);
+    }
+  }
+  return done ? id : 0;
+}
+
 function subscribeDeviceSettings() {
   const deviceId = getDeviceId();
   if (!deviceId) return;
@@ -2369,6 +2576,9 @@ function subscribeDeviceSettings() {
           // ⚠️ **قبل** التنظيف: cleanPrintFields بترمي أي حقل مش من
           // حقول الطباعة، وطابع التحديث واحد منهم.
           handleRemoteReload(raw);
+          // ⚠️ **قبل** التنظيف كمان: helperCmd مش من حقول الطباعة،
+          // فـcleanPrintFields بترميه.
+          handleHelperCommand(raw);
           deviceOverrides = raw ? cleanPrintFields(raw) : {};
           try {
             localStorage.setItem('tazweed_device_overrides', JSON.stringify(deviceOverrides));
@@ -5274,6 +5484,40 @@ async function openPrinterSettings() {
              أي منطق مربوط بيهم مايتكسرش.
              ⚠️ وid="copy-box" فضل على **نفس العنصر** اللي كان عليه، عشان
              السطر اللي بيعرض القسم (copyBox.style.display) يفضل شغّال. -->
+        <!-- ============================================================
+             🔗 كل الأجهزة مرة واحدة
+             ============================================================
+             اتطلب بالنص: "اوحد الاعدادات علي كل برامج المساعده" و
+             "كل نسخ المساعد ... تتحدث ل احدث اصدار من مفتاح".
+
+             ⚠️ القسم ده بيظهر **للي معاه التحكم عن بُعد بس**: ده
+             بيغيّر ماكينات هو مش شايفها. نفس القاعدة المكتوبة عند
+             canSetPrintForAllDevices بالحرف. -->
+        <div class="pset-sec" id="allhelp-box" style="display:none;">
+          <button type="button" class="pset-toggle" data-pset="allhelp" aria-expanded="false" aria-controls="pset-body-allhelp">
+            <span class="pset-sec-title">🔗 كل الأجهزة مرة واحدة<small>وحّد الإعدادات أو حدّث كل البرامج المساعدة</small></span>
+            <span class="pset-chev">▾</span>
+          </button>
+          <div class="pset-body" id="pset-body-allhelp" hidden>
+            <div style="font-size:12px; font-weight:500; margin-bottom:4px;">🔗 كل الأجهزة مرة واحدة</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:10px;">
+              الأمر بيتكتب في السحابة، وكل كمبيوتر فاتح النظام بيقراه ويودّيه
+              للبرنامج المساعد اللي عنده. الجهاز المقفول بينفّذ <strong>أول ما يفتح</strong>.
+              <br>⚠️ <strong>اسم الجهاز وهويته مابيتنقلوش</strong> — كل كمبيوتر بيفضل هو هو في النظام.
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+              <button class="btn" id="allhelp-sync">📤 وحّد الإعدادات من الجهاز ده</button>
+              <button class="btn" id="allhelp-update">🔄 حدّث كل البرامج المساعدة</button>
+            </div>
+            <div id="allhelp-status" style="font-size:12px; min-height:16px; margin-bottom:6px;"></div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px;">
+              <button class="btn" id="allhelp-refresh" style="padding:4px 12px; font-size:11px; min-height:30px;">↻ شوف الردود</button>
+              <span style="font-size:10.5px; color:var(--text-muted);">كل جهاز بيرد لوحده — ممكن ياخد لحظات</span>
+            </div>
+            <div id="allhelp-results" style="font-size:11.5px; line-height:1.9;"></div>
+          </div>
+        </div>
+
         <div class="pset-sec" id="copy-box" style="display:none;">
           <button type="button" class="pset-toggle" data-pset="copy" aria-expanded="false" aria-controls="pset-body-copy">
             <span class="pset-sec-title">📥 انسخ الإعدادات من جهاز تاني<small>لاختيار الطابعة لو نفس اسمها موجود هنا</small></span>
@@ -5631,6 +5875,94 @@ async function openPrinterSettings() {
         ? `✅ اتحفظ — الطبعة الكبيرة هتمشي على ${getPrintPaceMs()}مث للملصق.`
         : '✅ اتحفظ — من غير انتظار.';
     });
+  }
+
+  // ============================================================
+  // 🔗 كل الأجهزة مرة واحدة
+  // ============================================================
+  const allBox = overlay.querySelector('#allhelp-box');
+  if (allBox && canSetPrintForAllDevices()) {
+    allBox.style.display = '';
+
+    const others = () =>
+      (state.printStations || []).filter((x) => x.id !== getDeviceId());
+
+    const showResults = () => {
+      const box = overlay.querySelector('#allhelp-results');
+      if (!box) return;
+      const list = others();
+      if (!list.length) {
+        box.innerHTML = '<span style="color:var(--text-muted);">مافيش أجهزة تانية مسجّلة.</span>';
+        return;
+      }
+      box.innerHTML = list
+        .map((x) => {
+          const r = x.helperCmdResult;
+          const name = escapeHTML(x.deviceName || 'جهاز بدون اسم');
+          if (!r) return `<div>⚪ ${name} — <span style="color:var(--text-muted);">لسه مارَدّش</span></div>`;
+          const icon = r.ok ? '✅' : '❌';
+          const color = r.ok ? 'var(--ok)' : 'var(--warning-text)';
+          return `<div>${icon} ${name} — <span style="color:${color};">${escapeHTML(r.msg || '')}</span></div>`;
+        })
+        .join('');
+    };
+    showResults();
+
+    const st = overlay.querySelector('#allhelp-status');
+    const say = (t, bad) => {
+      if (!st) return;
+      st.textContent = t;
+      st.style.color = bad ? 'var(--warning-text)' : 'var(--ok)';
+    };
+
+    const refreshBtn = overlay.querySelector('#allhelp-refresh');
+    if (refreshBtn) refreshBtn.addEventListener('click', showResults);
+
+    const syncBtn = overlay.querySelector('#allhelp-sync');
+    if (syncBtn) {
+      syncBtn.addEventListener('click', async () => {
+        const list = others();
+        if (!list.length) { say('مافيش أجهزة تانية.', true); return; }
+        // ⚠️⚠️ تأكيد صريح: ده بيكتب فوق إعدادات ماكينات المستخدم مش
+        // شايفها. والرسالة بتقول **العدد** عشان يعرف هو بيغيّر كام جهاز.
+        if (!confirm(
+          `هتنسخ إعدادات البرنامج المساعد من الجهاز ده لـ${list.length} جهاز تاني.\n\n` +
+          'التصاميم والمقاسات والمعايرة هيتبدّلوا عندهم.\n' +
+          'اسم كل جهاز وهويته هيفضلوا زي ما هم.\n\nتمام؟'
+        )) return;
+
+        syncBtn.disabled = true;
+        say('بيقرا إعدادات الجهاز ده...');
+        const payload = await readLocalHelperSettings();
+        if (!payload) {
+          syncBtn.disabled = false;
+          say('مش قادر أقرا إعدادات المساعد — اتأكد إنه شغّال على الجهاز ده.', true);
+          return;
+        }
+        const id = await sendHelperCommand(list.map((x) => x.id), 'sync', payload);
+        syncBtn.disabled = false;
+        say(id ? `📤 اتبعت لـ${list.length} جهاز — دوس "شوف الردود" بعد شوية.` : 'مش قادر أبعت.', !id);
+      });
+    }
+
+    const upBtn = overlay.querySelector('#allhelp-update');
+    if (upBtn) {
+      upBtn.addEventListener('click', async () => {
+        const list = others();
+        if (!list.length) { say('مافيش أجهزة تانية.', true); return; }
+        // ⚠️⚠️ ده بيقفل البرنامج ويفتحه على كل الماكينات. مايتعملش
+        // وطبعة شغّالة، والرسالة بتقول كده صراحةً.
+        if (!confirm(
+          `هتحدّث البرنامج المساعد على ${list.length} جهاز.\n\n` +
+          '⚠️ كل برنامج هيقفل ويفتح تاني — متعملهاش وفيه طبعة شغّالة.\n\nتمام؟'
+        )) return;
+
+        upBtn.disabled = true;
+        const id = await sendHelperCommand(list.map((x) => x.id), 'update');
+        upBtn.disabled = false;
+        say(id ? `🔄 اتبعت لـ${list.length} جهاز — دوس "شوف الردود" بعد شوية.` : 'مش قادر أبعت.', !id);
+      });
+    }
   }
 
   // 📄 خط ورقة التزويد — نفس منطق خط الملصق بالحرف

@@ -5295,6 +5295,16 @@ async function registerPrintStation() {
         // ⚠️ اللي **مش** موجود هنا مقصود: اسم الجهاز ومعرّفه. دول لازم
         // يفضلوا فريدين لكل جهاز، وإلا الجهازين هيتلخبطوا في قايمة الطباعة
         // عن بُعد ويبقى فيه جهازين بنفس الاسم مش عارف تبعت لمين.
+        // ============================================================
+        // 🩺 حالة الطابعة على الجهاز ده
+        // ============================================================
+        // ⚠️ بتتنشر عشان **التليفون يشوفها**: انت مش واقف قدام ماكينة
+        // المخزن، والنظام كان بيقولك "الجهاز شغّال" وخلاص — حتى لو
+        // الرول خلص من ساعة.
+        //
+        // ⚠️⚠️ و`null` معناها "مافيش برنامج مساعد على الجهاز ده"، مش
+        // "الطابعة تمام". الفرق ده مكتوب في العرض كمان.
+        printerState: typeof readHelperPrinterState === 'function' ? await readHelperPrinterState() : null,
         printSetup: {
           align: getPrintAlign(),
           tweaks: getPrintTweaksMap(),
@@ -5426,10 +5436,25 @@ function choosePrintTarget() {
           ${others
             .map((s) => {
               const stale = s.appVersion && s.appVersion !== APP_VERSION;
+              // ============================================================
+              // ⚠️⚠️ الطابعة مبلّغة مشكلة؟ قولها **قبل** ما يبعت
+              // ============================================================
+              // ده أكتر مكان بتفرق فيه: 200 ملصق رايحين لماكينة الرول
+              // بتاعها خلص = 200 ملصق في الهوا، والمستخدم مش واقف
+              // قدامها عشان يشوف.
+              const ps = s.printerState;
+              const bad = ps && ps.blocking;
               return `
             <button class="btn btn-primary" data-target="${escapeHTML(s.id)}">
-              ${stale ? '🟡' : '🟢'} ${escapeHTML(s.deviceName || 'جهاز بدون اسم')}
+              ${bad ? '🔴' : stale ? '🟡' : '🟢'} ${escapeHTML(s.deviceName || 'جهاز بدون اسم')}
             </button>
+            ${
+              bad
+                ? `<div style="font-size:10px; color:var(--warning-text); margin-top:-4px;">
+                     ${escapeHTML(ps.summary)}
+                   </div>`
+                : ''
+            }
             ${
               stale
                 ? `<div style="font-size:10px; color:var(--warning-text); margin-top:-4px;">

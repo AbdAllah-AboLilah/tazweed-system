@@ -94,7 +94,7 @@ const USERS = [
     // ⚠️ 'lastdate' اتشال في v0.77.7: "تاريخ آخر طبعة" بقى **مفتاح في
     // الحساب** مش إعداد في الطابعة، فقسمه هنا اتلغى.
     const keys = ['cal', 'quality', 'pace', 'batch', 'fonts', 'labelfont',
-      'copy', 'align', 'tweaks', 'details'];
+      'allhelp', 'copy', 'align', 'tweaks', 'details'];
     const before = keys.every((k) => document.getElementById('pset-body-' + k).hidden);
     document.querySelector('.pset-toggle[data-pset="quality"]').click();
     const opened = !document.getElementById('pset-body-quality').hidden;
@@ -114,8 +114,11 @@ const USERS = [
   });
   // ⚠️ 'labelfont' اتضاف في v0.97.0 — خط الملصق. وهو **مش** نفس 'fonts'
   // (دي عيّنة خطوط الطابعة الداخلية، إنجليزي بس).
+  // ⚠️ 'allhelp' اتضاف في v1.1.0 — أوامر لكل الأجهزة. وهو **مخفي**
+  // لغير صاحب "التحكم عن بُعد"، بس القسم نفسه موجود في الصفحة دايمًا
+  // (بيتخفي بـdisplay مش بالحذف) — فالعدّ هنا بيشوفه.
   const WANT = ['cal', 'quality', 'pace', 'batch', 'fonts', 'labelfont',
-    'copy', 'align', 'tweaks', 'details'];
+    'allhelp', 'copy', 'align', 'tweaks', 'details'];
   check('الطابعة: كل النافذة أقسام بتتقفل',
     WANT.every((k) => ps.found.includes(k)) && ps.found.length === WANT.length,
     { ناقص: WANT.filter((k) => !ps.found.includes(k)), زيادة: ps.found.filter((k) => !WANT.includes(k)) });

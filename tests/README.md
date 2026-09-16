@@ -201,6 +201,7 @@ node tests/label-font-test.js
 node tests/helper-design-test.js
 node tests/log-where-test.js
 node tests/sheet-font-test.js
+node tests/all-helpers-test.js
 node functions/test.js
 node tests/restock-hatch-test.js
 node tests/print-unify-test.js
