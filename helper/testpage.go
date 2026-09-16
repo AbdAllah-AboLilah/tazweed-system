@@ -45,6 +45,9 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
  .box{background:#fff8e6;border:1px solid #f0d8a0;border-radius:9px;padding:11px}
  #out,#uout{margin-top:10px;font-size:13px;line-height:1.8;white-space:pre-wrap}
  .ok{color:var(--sage)} .bad{color:var(--warn)}
+ /* 📶 شريط تقدّم الرفع — الشرح عند uploadProgress في productsfile.go */
+ .bar{height:9px;border-radius:999px;background:#e9ecef;overflow:hidden;margin-top:8px}
+ .bar i{display:block;height:100%;background:var(--sage);border-radius:999px;transition:width .25s}
 </style>
 
 <!-- ============================================================
@@ -201,6 +204,16 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
    <button class="ghost" id="pf-check">&#9989; تأكد من الملف</button>
   </div>
   <div id="pf-out" style="font-size:13px;line-height:1.9;margin-top:9px;min-height:18px"></div>
+
+  <!-- ⚠️ الشريط مخفي لحد ما يبقى فيه رفع فعلًا: شريط فاضي واقف على
+       الصفر بيخلي اللي بيبص يفتكر إن فيه حاجة واقفة. -->
+  <div id="pf-prog" style="display:none;margin-top:10px">
+   <div id="pf-prog-txt" style="font-size:12.5px;color:var(--mut)"></div>
+   <div class="bar"><i id="pf-bar" style="width:0%"></i></div>
+  </div>
+
+  <!-- 🕒 آخر رفع — زي سطر "آخر تحديث" اللي في النظام بالظبط -->
+  <div id="pf-last" style="font-size:12.5px;line-height:1.8;margin-top:9px;color:var(--mut)"></div>
 
   <label class="chk" style="margin-top:10px"><input type="checkbox" id="pf-auto">
    <span>ارفع لوحدك أول ما الملف يتغيّر
@@ -542,12 +555,78 @@ function pfWhen(ms){
 }
 function pfSize(b){
   if(!b) return '';
+  // ⚠️ الملف الصغير كان بيطلع "0 كيلو" — رقم بيخوّف من غير داعي.
+  if(b<1024) return b+' بايت';
   return b>=1048576 ? (b/1048576).toFixed(1)+' ميجا' : Math.round(b/1024)+' كيلو';
 }
+// ============================================================
+// 📶 شريط التقدّم + سطر آخر رفع
+// ============================================================
+// ⚠️⚠️ البرنامج **مابيرفعش** — اللي بيرفع هو النظام في المتصفح. فاللي
+// بنرسمه هنا جاي من النظام وهو بيبعت خطواته للبرنامج، والصفحة بتسأل
+// كل ثانية وهو ماشي. الشرح الكامل في productsfile.go.
+const pfProg=document.getElementById('pf-prog'), pfProgTxt=document.getElementById('pf-prog-txt'),
+      pfBar=document.getElementById('pf-bar'), pfLast=document.getElementById('pf-last');
+let pfPoll=null;
+
+// ⚠️ نفس شكل التاريخ اللي في النظام: اسم اليوم الأول — بيقولك "امبارح
+// ولا من أسبوع" من غير ما تحسب.
+function pfStamp(ms){
+  if(!ms) return '';
+  try{
+    return new Date(ms).toLocaleString('ar-EG',{weekday:'long',year:'numeric',month:'numeric',
+      day:'numeric',hour:'numeric',minute:'2-digit'});
+  }catch(e){ return new Date(ms).toLocaleString(); }
+}
+function pfNum(n){ try{ return Number(n).toLocaleString('ar-EG'); }catch(e){ return String(n); } }
+
+function pfDrawProgress(st){
+  const pr=st&&st.progress;
+  if(!pr){ pfProg.style.display='none'; pfStopPoll(); return; }
+  pfProg.style.display='block';
+  if(pr.error){
+    pfProgTxt.innerHTML='\u274c الرفع وقع: '+pr.error;
+    pfBar.style.width='0%';
+    pfStopPoll();
+    return;
+  }
+  const total=Number(pr.total)||0, done=Number(pr.done)||0;
+  // ⚠️ من غير total معروف بنكتب "بيجهّز" بدل ما نحسب نسبة من صفر
+  // ونطلّع NaN% في وش المستخدم.
+  const pct=total>0?Math.min(100,Math.round(done*100/total)):0;
+  pfProgTxt.textContent=total>0?('بيرفع... '+pct+'% ('+pfNum(done)+' من '+pfNum(total)+' صنف)'):'بيجهّز الملف...';
+  pfBar.style.width=(total>0?pct:6)+'%';
+  pfStartPoll();
+}
+
+function pfDrawLast(st){
+  if(!st||!st.lastUploadMs){ pfLast.textContent=''; return; }
+  pfLast.innerHTML='\u2705 آخر رفع: <b>'+pfStamp(st.lastUploadMs)+'</b>'
+    +(st.lastUploadCount?(' &mdash; '+pfNum(st.lastUploadCount)+' صنف'):'')
+    // ⚠️⚠️ السطر ده هو اللي بيمنع أخطر لبس: تاريخ لوحده بيخلي اللي
+    // بيقرا يفتكر إن اللي في النظام هو اللي في الملف — وممكن يكون
+    // حفظ الملف بعدين والرفع لسه مااتعملش.
+    // ⚠️ مابنقولش "لسه مااترفعش" وهو **بيرفع دلوقتي**: الجملتين مع
+    // بعض بتلخبط — الشريط ماشي والكلام بيقول إنه واقف.
+    +(st.changedSinceUpload&&!st.progress
+      ?'<br><span class="bad">\u26a0 والملف اتغيّر بعد كده — لسه مااترفعش</span>':'');
+}
+
+// ⚠️ السؤال كل ثانية **وهو بيرفع بس**، وبيقف أول ما يخلص: مافيش نداء
+// دايم شغّال على الفاضي.
+function pfStartPoll(){
+  if(pfPoll) return;
+  pfPoll=setInterval(()=>{ fetch('/products/file').then(r=>r.json())
+    .then(j=>{ pfDrawProgress(j); pfDrawLast(j); }).catch(()=>{}); },1000);
+}
+function pfStopPoll(){ if(pfPoll){ clearInterval(pfPoll); pfPoll=null; } }
+
 function pfShow(st,quiet){
   if(!st) return;
   if(typeof st.path==='string' && document.activeElement!==pfPath) pfPath.value=st.path;
   pfAuto.checked=!!st.autoUpload;
+  pfDrawProgress(st);
+  pfDrawLast(st);
   if(!st.path){ if(!quiet){ pfOut.textContent='مافيش ملف متظبّط لسه.'; pfOut.className=''; } return; }
   if(st.error){ pfOut.textContent='\u274c '+st.error; pfOut.className='bad'; return; }
   if(st.exists){
