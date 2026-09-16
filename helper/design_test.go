@@ -10,6 +10,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -888,5 +889,59 @@ func TestSentPreviewFoldsWithSampleFields(t *testing.T) {
 	j := strings.Index(designerPage[i:], "}")
 	if i < 0 || !strings.Contains(designerPage[i:i+j], "syncSent();") {
 		t.Fatal("الطيّ مش بيحدّث الصورة")
+	}
+}
+
+// ============================================================
+// ⛔ حد الأمان بيتقال **وانت بتحرّك**، مش عند الحفظ
+// ============================================================
+// اتبلّغ بالنص: "لما باجي بحفظ التصميم بيكتبلي ⚠️ السعر: خارج من
+// الملصق من تحت ده اللي بيكتب بالرغم من ان اتطبع كويس وطلع في معاينة
+// التجربة كويسه".
+//
+// ⚠️⚠️ والرسالة كانت **صح**: الاسم اتكبّر لـ6.3مم، فالفاضل للرقم
+// والسعر 4.2مم وهما محتاجين 5.4 — يعني السعر بيعدّي خط الأمان بـ1.2مم.
+// وطبع عادي لأن 0.7مم هامش أمان مش حد قص.
+//
+// فاللي اتصلّح مش القاعدة — اللي اتصلّح إن المستخدم يشوفها وهو
+// بيحرّك، بدل ما يكتشفها بعد ما يخلص شغل.
+func TestSafeEdgeShowsWhileDragging(t *testing.T) {
+	for _, want := range []string{
+		`id="outside"`,        // مكان التحذير
+		"var SAFE_MM = 0.7;",  // نفس رقم البرنامج
+		"مش هيتحفظ كده",       // نبرة مانع مش معلومة
+		".el.out{",            // الصندوق المخالف بيتلوّن
+		"outside.push(",       // وبيتجمّع فعلًا
+	} {
+		if !strings.Contains(designerPage, want) {
+			t.Fatalf("تحذير الحدود ناقص: %s", want)
+		}
+	}
+	// ⚠️⚠️ الرقم في الصفحة لازم يطابق البرنامج بالظبط، وإلا الشاشة
+	// تقول تمام والحفظ يرفض — وده العطل الأصلي بعينه.
+	if !strings.Contains(designerPage, fmt.Sprintf("var SAFE_MM = %.1f;", safeEdgeMm)) {
+		t.Fatalf("رقم حد الأمان في الصفحة مش مطابق للبرنامج (%v)", safeEdgeMm)
+	}
+}
+
+// ⚠️ والرسالة بتقول **كام** — اللي بيقراها واقف قدام خانات بالمليمتر.
+func TestOutOfBoundsErrorSaysHowMuch(t *testing.T) {
+	d := defaultDesign()
+	for i := range d.Elements {
+		if d.Elements[i].Kind == elPrice {
+			d.Elements[i].Y = 10.0 // 10.0 + 2.9 = 12.9 > 12.5 - 0.7
+		}
+	}
+	err := validateDesign(&d)
+	if err == nil {
+		t.Fatal("قبل عنصر خارج عن حد الأمان")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "خارج من الملصق من تحت") {
+		t.Fatalf("رسالة مش متوقّعة: %s", msg)
+	}
+	// 10.0 + 2.9 - (12.5 - 0.7) = 1.10
+	if !strings.Contains(msg, "1.10مم") {
+		t.Fatalf("الرسالة مش بتقول كام: %s", msg)
 	}
 }

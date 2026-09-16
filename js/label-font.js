@@ -465,8 +465,54 @@ async function ensureSheetFontReady() {
   return true;
 }
 
-// @font-face بالبايتات جوّه الورقة — مافيش أي ملف بيتجاب من بره.
+// ============================================================
+// ⚠️⚠️⚠️ نسختين من نفس الخط — ودي مش زيادة، دي إصلاح عطل
+// ============================================================
+// العطل اللي اتبلّغ بالنص: "دلوقتي لما غيرت الخط الي المراعي بيطبع كل
+// مجموعة مع بعض بالرغم من اني عامل الورقة كلها مرة واحده".
+//
+// والقياس على فئة حقيقية (57 درجة، مجموعتين):
+//
+//     خط الجهاز  →  9.6 كيلو   (الخط 0)
+//     المراعي    →  140 كيلو   (منها **130 للخط**)
+//     بلكس       →  138 كيلو   (منها 129)
+//     تجوّل      →  60 كيلو    (منها 50)
+//
+// وحد أمر الطباعة الواحد 44 كيلو. يعني **أي خط** غير خط الجهاز كان
+// بيعدّي الحد، والنظام بيقسّم الورقة لكل مجموعة لوحدها — وهو محق،
+// لأن الرسالة اللي بتعدّي الحد بتتضاع في سكوت.
+//
+// السبب: الورقة كانت شايلة **ملف الخط نفسه** جوّاها بالبايتات. وده
+// كان محتاج **لمسار واحد بس**: الورقة كصورة، لأن الصورة بترسم جوّه
+// <img> واللي جوّاه مايقدرش يجيب أي ملف من بره (شوف renderSheetImage).
+//
+// فبقى فيه نسختين:
+//   sheetFontFaceCSS()        → **رابط** للملف. ~200 بايت. دي اللي
+//                               بتروح في الورقة، والجهاز اللي بيطبع
+//                               بيجيب الخط من نفس الموقع (ومحفوظ عنده
+//                               في الـService Worker، فشغّال من غير نت).
+//   sheetFontFaceInlineCSS()  → **البايتات**. بتتحقن في الصورة بس،
+//                               جوّه renderSheetImage.
+//
+// النتيجة: الورقة رجعت 9.8 كيلو بأي خط، والصورة لسه شايلة خطها.
 function sheetFontFaceCSS() {
+  const f = activeSheetFont();
+  if (!f || sheetFontReadyId !== f.id) return '';
+  const base = labelFontBase();
+  let css = '';
+  f.files.forEach((row) => {
+    css +=
+      `@font-face{font-family:'${f.family}';font-style:normal;font-weight:${row.weight};` +
+      `font-display:block;src:url('${base}${row.arabic}') format('woff2');` +
+      `unicode-range:${LABEL_FONT_ARABIC_RANGE};}` +
+      `@font-face{font-family:'${f.family}';font-style:normal;font-weight:${row.weight};` +
+      `font-display:block;src:url('${base}${row.latin}') format('woff2');}`;
+  });
+  return css;
+}
+
+// @font-face بالبايتات — **للصورة بس**. الشرح فوق.
+function sheetFontFaceInlineCSS() {
   const f = activeSheetFont();
   if (!f || sheetFontReadyId !== f.id) return '';
   let css = '';

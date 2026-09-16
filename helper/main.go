@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.14.0"
+	version = "1.15.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -524,6 +524,9 @@ func main() {
 	// بيطلع مربعات.
 	fixConsoleEncoding()
 	loadSettings()
+	// ⚠️⚠️ **قبل** التنضيف: cleanupOldBinary بتمسح الدليل اللي
+	// startedByUpdate بتقرا منه. الشرح الكامل عند startedByUpdate.
+	updatedSilently := startedByUpdate()
 	// نضّف نسخة قديمة فاضلة من تحديث سابق
 	cleanupOldBinary()
 	mux := newServer()
@@ -561,7 +564,10 @@ func main() {
 	// ⚠️ وهي غير `--startup`: دي بتفتح **النظام** لو المفتاح مفتوح.
 	// بعد التحديث مافيش حاجة تتفتح أصلًا — اللي دوس تحديث من تليفونه
 	// مش عايز يفتح حاجة على كمبيوتر هو مش قدامه.
-	afterUpdate := false
+	// ⚠️ بيتحدد من حتّتين: العلم اللي النسخة الجديدة بتتشغّل بيه
+	// (شغّال من التحديثة الجاية)، والاكتشاف الذاتي (شغّال دلوقتي حتى
+	// لو اللي حدّثنا نسخة قديمة). أي واحدة فيهم كفاية.
+	afterUpdate := updatedSilently
 	for _, a := range os.Args[1:] {
 		switch a {
 		case "--startup", "-startup":

@@ -187,6 +187,47 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     await wait(300);
     out.expRepeat = out.sent.length;
 
+    // ============================================================
+    // ⏱️ (14-17) الأمر الطازة بينفّذ حتى في أول لقطة
+    // ============================================================
+    // ⚠⚠ اتبلّغ بالنص: "انا فتحت جهاز وبعت تحديث مش راضي يروحله".
+    // الجهاز اللي بيفتح دلوقتي، أول لقطة عنده فيها الأمر اللي اتكتب
+    // من ثانيتين — وكان بيتسجّل كأنه قديم ويضيع.
+
+    // ---- (14) أمر طازة + أول لقطة = **بينفّذ** ----
+    reset();
+    out.calls.length = 0;
+    handleHelperCommand({ helperCmd: { id: 'f1', kind: 'update', at: Date.now() - 2000 } });
+    await wait(300);
+    out.freshFirst = out.calls.filter((c) => c.indexOf('/update/apply') !== -1).length;
+
+    // ⚠️ **من غير reset** عن قصد: بنجرّب نفس الأمر تاني على نفس
+    // الجلسة. أي تصفير هنا بيمسح ختم "اتنفّذ خلاص" والفحص يبقى فاضي.
+    out.calls.length = 0;
+    handleHelperCommand({ helperCmd: { id: 'f1', kind: 'update', at: Date.now() } });
+    await wait(300);
+    out.freshRepeat = out.calls.filter((c) => c.indexOf('/update/apply') !== -1).length;
+
+    // ---- (15) أمر قديم + أول لقطة = **مايتنفّذش** ----
+    reset();
+    out.calls.length = 0;
+    handleHelperCommand({ helperCmd: { id: 'f2', kind: 'update', at: Date.now() - 60 * 60 * 1000 } });
+    await wait(300);
+    out.staleFirst = out.calls.filter((c) => c.indexOf('/update/apply') !== -1).length;
+
+    // ---- (16) أمر من غير طابع وقت = بيتعامل كقديم (نسخة أقدم) ----
+    reset();
+    out.calls.length = 0;
+    handleHelperCommand({ helperCmd: { id: 'f3', kind: 'update' } });
+    await wait(300);
+    out.noStampFirst = out.calls.filter((c) => c.indexOf('/update/apply') !== -1).length;
+
+    // ---- (18) الأمر المتبعت عليه طابع وقت ----
+    out.sent.length = 0;
+    await sendHelperCommand(['z1'], 'update');
+    out.stampSent = out.sent[0] && typeof out.sent[0].cmd.at === 'number'
+      && Math.abs(Date.now() - out.sent[0].cmd.at) < 5000;
+
     // ---- (8) حالة الطابعة ----
     printerStateCache = null; printerStateAt = 0;
     out.calls.length = 0;
@@ -282,6 +323,27 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐⭐ والاستهداف على الفاتحين بس',
     /const onlineOthers = \(\) => others\(\)\.filter\(\(x\) => isStationOnline\(x\)\);/.test(core) &&
     /const targetsFor = \(src\) => onlineOthers\(\)/.test(core));
+
+  // ============================================================
+  // ⏱️ الأمر الطازة
+  // ============================================================
+  // ⚠⚠ ده اللي بيحل "فتحت جهاز وبعت تحديث مش راضي يروحله".
+  check('⭐⭐⭐⭐⭐ أمر اتبعت من ثانيتين بينفّذ حتى لو أول لقطة',
+    r.freshFirst === 1, r.freshFirst);
+  // ⚠⚠ والحارس الأصلي لسه مكانه: أمر من ساعة مايترجعش تاني —
+  // توحيد الإعدادات مرتين بيرجّع اللي المستخدم غيّره بينهم.
+  check('⭐⭐⭐⭐⭐ وأمر من ساعة **مايتنفّذش** في أول لقطة',
+    r.staleFirst === 0, r.staleFirst);
+  check('⭐⭐⭐⭐ وأمر من غير طابع وقت بيتعامل كقديم (الأأمن)',
+    r.noStampFirst === 0, r.noStampFirst);
+  check('⭐⭐⭐⭐⭐ والطازة برضه مابتتكررش',
+    r.freshRepeat === 0, r.freshRepeat);
+  check('⭐⭐⭐⭐ والأمر المتبعت عليه طابع وقت', r.stampSent === true, r.stampSent);
+
+  // ⚠⚠ الردود بتخص الأمر اللي اتبعت دلوقتي بس — الشرح في print-core.
+  const core2 = require('fs').readFileSync(require('path').join(__dirname, '..', 'js/print-core.js'), 'utf8');
+  check('⭐⭐⭐⭐⭐ والردود بتتفلتر بمعرّف الأمر (مش بترجع ردود قديمة)',
+    /String\(r\.id \|\| ''\) !== cmdId/.test(core2) && /let cmdId = '';/.test(core2));
 
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 

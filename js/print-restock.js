@@ -696,6 +696,13 @@ function sheetLastInkRow(cx, w, h) {
 
 async function renderSheetImage(html) {
   try {
+    // ⚠️⚠️ بايتات الخط **لازم** تكون جاهزة هنا، مش في الجهاز
+    // اللي طلب الطبعة. الصورة ممكن تترسم على جهاز تاني خالص (الطباعة
+    // عن بُعد)، ولو البايتات مش عنده الصورة هتترسم بخط الجهاز — والطول
+    // اللي اتقاس هيبقى لخط تاني، فالورقة تتقص.
+    // (والنداء متخزّن: بيرجع فورًا لو الخط جاهز.)
+    if (typeof ensureSheetFontReady === 'function') await ensureSheetFontReady();
+
     const MM_PX = 96 / 25.4;
     const cssW = Math.round(SHEET_PRINTABLE_MM * MM_PX);
     const devW = Math.round((SHEET_PRINTABLE_MM / 25.4) * SHEET_DPI);
@@ -740,7 +747,36 @@ async function renderSheetImage(html) {
       doc.open();
       doc.write(html);
       doc.close();
+
+      // ============================================================
+      // ⚠️⚠️⚠️ الخط بالبايتات **بيتحقن هنا بس**
+      // ============================================================
+      // الورقة نفسها شايلة @font-face **برابط** (عشان مايكبرش حجم أمر
+      // الطباعة — الشرح الكامل عند sheetFontFaceCSS). والرابط ده شغّال
+      // تمام في الإطار ده، لكنه **مايشتغلش** جوّه الصورة: الصفحة
+      // بتتسلسل XML وتترسم جوّه <foreignObject> في <img>، واللي جوّه
+      // <img> ممنوع يجيب أي ملف من بره.
+      //
+      // فبنحقن البايتات هنا، **قبل** القياس: كده الإطار والصورة
+      // بيقيسوا ويرسموا بنفس الخط بالظبط — ولو اختلفوا، الطول اللي
+      // اتقاس هيبقى لخط تاني والورقة هتتقص.
+      //
+      // ⚠️ وبتيجي **بعد** الورقة في الترتيب، فهي اللي بتكسب على
+      // الرابط (آخر @font-face بنفس العيلة والوزن هو اللي بينفّذ).
+      try {
+        const inlineCSS = typeof sheetFontFaceInlineCSS === 'function' ? sheetFontFaceInlineCSS() : '';
+        if (inlineCSS && doc.head) {
+          const st = doc.createElement('style');
+          st.textContent = inlineCSS;
+          doc.head.appendChild(st);
+        }
+      } catch (err) {
+        /* الخط زيادة — الورقة بتترسم بخط الجهاز وبتوصل */
+      }
+
       // ⚠️ قياسين مستقلين، وبناخد الأكبر — الشرح عند sheetContentBottom.
+      // (وsettledSheetHeight بتستنى doc.fonts.ready، فالخط اللي اتحقن
+      //  فوق بينزل قبل القياس.)
       const measured = await settledSheetHeight(doc);
       cssH = Math.max(measured, sheetContentBottom(doc));
       doc.querySelectorAll('script').forEach((el) => el.remove());
