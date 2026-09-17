@@ -101,7 +101,7 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐ والبصمة اللي بتتحفظ جاية من ترويسة اللي اتنزّل فعلًا',
     /X-Tazweed-Fingerprint/.test(pf));
   check('⭐ ومافيش رفع لو البصمة زي ما هي',
-    /fingerprint === uploadedFingerprint\(\)/.test(pf));
+    /st\.fingerprint === known/.test(pf));
 
   // ============================================================
   // 6) السجل — اتطلب بالنص إن العملية تبان إنها من البرنامج
@@ -244,6 +244,74 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   });
   check('⭐⭐ بيقول للبرنامج: بدأ / ماشي / خلص',
     prog.join(',') === 'start,working,done', prog);
+
+  // ============================================================
+  // 11ج) ⭐⭐⭐ نفس الملف مايترفعش تاني — حتى والأصناف مش متحمّلة
+  // ============================================================
+  // ⚠️⚠️ العطل اللي اتقاس واتصلّح، اتبلّغ بالنص:
+  //   "المساعد حاسسه انه بيرفع كذا مرة مفيش طريقة يعرف بيها ان رفع
+  //    الملف ده قبل كده"
+  //
+  // والسبب: البصمة في مستند meta، وmeta مابتتقرا غير جوّه loadProducts
+  // — واللي مابيشتغلش إلا لما تفتح شاشة الأصناف أو الطباعة. والفحص
+  // بيجري بعد الدخول بـ6 ثواني وانت لسه على الرئيسية، فالبصمة فاضية
+  // و"الملف اتغيّر" → ارفع. كل مرة.
+  //
+  // ⚠️ القياس قبل التصليح: 3 فتحات = 3 رفعات لنفس الملف بالظبط.
+  const dedup = await p.evaluate(async () => {
+    const out = { uploads: 0, metaReads: 0 };
+    state.profile = { role: 'owner' }; state.screen = 'home';
+    window.canManageProducts = () => true;
+    window.isServerReachable = () => true;
+    window.render = () => {};
+    window.logActivity = () => {};
+    window.parseProductsFileBuffer = async () => [{ name: 'ص', barcode: '1', price: 1 }];
+    let cloudFP = 'SAME';
+    window.saveProducts = async () => { out.uploads++; };
+    window.db = { collection: () => ({ doc: () => ({ get: async () => {
+      out.metaReads++;
+      return { exists: true, data: () => ({ count: 5, sourceFingerprint: cloudFP }) };
+    } }) }) };
+    const helper = (fp) => async (url) => {
+      const u = String(url);
+      if (u.endsWith('/products/file/progress')) return { ok: true, json: async () => ({}) };
+      if (u.endsWith('/products/file'))
+        return { ok: true, json: async () => ({ path: 'x', exists: true, fingerprint: fp, autoUpload: true }) };
+      return { ok: true, headers: { get: () => fp }, arrayBuffer: async () => new ArrayBuffer(8) };
+    };
+    // ⚠️ الأصناف **مش** متحمّلة — دي الحالة الطبيعية بعد الدخول
+    productsMeta = null; pfileKnownFP = null; pfileKnownAt = 0;
+    window.fetch = helper('SAME');
+    for (let i = 0; i < 3; i++) {
+      pfileState = null; pfileStateAt = 0;
+      await checkProductsFile({ force: true });
+    }
+    out.sameFile = out.uploads;
+
+    // الملف اتغيّر فعلًا
+    window.fetch = helper('NEW');
+    pfileState = null; pfileStateAt = 0; pfileKnownAt = 0;
+    await checkProductsFile({ force: true });
+    out.afterChange = out.uploads;
+
+    // القراءة وقعت (مفيش نت) = عند الشك مانرفعش
+    window.db = { collection: () => ({ doc: () => ({ get: async () => { throw new Error('offline'); } }) }) };
+    productsMeta = null; pfileKnownFP = null; pfileKnownAt = 0;
+    pfileState = null; pfileStateAt = 0;
+    await checkProductsFile({ force: true });
+    out.afterOffline = out.uploads;
+    return out;
+  });
+  check('⭐⭐⭐ نفس الملف + 3 فتحات للنظام = صفر رفع (والأصناف مش متحمّلة)',
+    dedup.sameFile === 0, dedup);
+  check('⭐⭐ ولما الملف يتغيّر فعلًا بيرفع مرة واحدة',
+    dedup.afterChange === 1, dedup);
+  check('⭐⭐⭐ ولما مانعرفش (القراءة وقعت) **مابنرفعش** — الشك مايستبدلش 47 ألف صنف',
+    dedup.afterOffline === 1, dedup);
+  check('⭐ والتأكد بيكلّف قراءة واحدة صغيرة مش تحميل الأصناف كلها',
+    dedup.metaReads <= 3, dedup);
+  check('⭐⭐ وفيه قراءة أخيرة قبل الرفع مباشرة (جهاز تاني يكون سبقنا)',
+    /uploadedFingerprint\(true\)/.test(pf));
 
   // ============================================================
   // 12) ⭐ الفحص بيتعاد — مش مرة واحدة بعد الدخول وخلاص
