@@ -177,9 +177,51 @@ async function uploadProductsFromHelper(onProgress, fallbackFingerprint) {
   return { count: list.length, fingerprint };
 }
 
-// البصمة اللي النظام شايل منها دلوقتي
-function uploadedFingerprint() {
-  return (productsMeta && productsMeta.sourceFingerprint) || '';
+// ============================================================
+// 🔑 البصمة اللي النظام شايل منها دلوقتي
+// ============================================================
+// ⚠️⚠️ العطل اللي بيتصلّح هنا، اتبلّغ بالنص:
+//   "في حاجه المساعد حاسسه انه بيرفع كذا مرة مفيش طريقة يعرف بيها
+//    ان رفع الملف ده قبل كده"
+//
+// وكان صح، والقياس أكّده: نفس الملف بالظبط اترفع **مرتين** في فتحتين
+// للنظام.
+//
+// والسبب: البصمة متخزّنة في مستند meta بتاع الأصناف، وmeta دي
+// مابتتقرا غير جوّه loadProducts — واللي **مابيشتغلش** إلا لما تفتح
+// شاشة الأصناف أو الطباعة. والفحص بيجري بعد الدخول بـ6 ثواني وانت
+// لسه على الشاشة الرئيسية، فالبصمة بتبقى فاضية، والفاضية مش بتساوي
+// بصمة الملف — يبقى "الملف اتغيّر" وارفع. كل مرة.
+//
+// فدلوقتي بنقرا مستند meta **لوحده** لما نحتاجه. وهو مستند واحد صغير
+// (عدد وتاريخ وبصمة) — مش الـ24 قطعة بتوع الأصناف.
+//
+// ⚠️ بترجّع null معناها "مش عارفين". والقاعدة عند الشك: **مانرفعش**.
+// رفع زيادة بيستبدل 47 ألف صنف على شك، والانتظار للفحص اللي بعده
+// أرخص بكتير.
+let pfileKnownFP = null;
+let pfileKnownAt = 0;
+const PFILE_FP_TTL_MS = 60000;
+
+async function uploadedFingerprint(fresh) {
+  // الأصناف متحمّلة خلاص؟ يبقى البصمة معانا من غير أي قراءة.
+  if (productsMeta && typeof productsMeta.sourceFingerprint === 'string') {
+    return productsMeta.sourceFingerprint;
+  }
+  if (!fresh && pfileKnownFP !== null && Date.now() - pfileKnownAt < PFILE_FP_TTL_MS) {
+    return pfileKnownFP;
+  }
+  try {
+    const snap = await db.collection('products').doc('meta').get();
+    const meta = snap.exists ? snap.data() : null;
+    pfileKnownFP = (meta && meta.sourceFingerprint) || '';
+    pfileKnownAt = Date.now();
+    return pfileKnownFP;
+  } catch (err) {
+    // مفيش نت أو القراءة وقعت = مش عارفين. مانرفعش.
+    console.warn('تعذّرت قراءة بصمة آخر رفع:', err && err.code);
+    return null;
+  }
 }
 
 // ============================================================
@@ -195,7 +237,9 @@ async function checkProductsFile(opts) {
   if (typeof canManageProducts === 'function' && !canManageProducts(state.profile)) return;
   const st = await productsFileState(o.force);
   if (!st || !st.path || !st.exists || !st.fingerprint) return;
-  if (st.fingerprint === uploadedFingerprint()) return;
+  const known = await uploadedFingerprint();
+  // ⚠️ null = مش عارفين. الشك مايبقاش سبب إننا نستبدل كل الأصناف.
+  if (known === null || st.fingerprint === known) return;
   if (!st.autoUpload) {
     // مقفول = مابنرفعش من ورا المستخدم. بنسأله.
     if (typeof onProductsFileChanged === 'function') onProductsFileChanged(st);
@@ -214,6 +258,21 @@ async function runProductsFileUpload(opts) {
     if (!o.silent && typeof render === 'function' && state.screen === 'products') render();
     return;
   }
+  // ============================================================
+  // ⚠️⚠️ قراءة أخيرة **قبل** الرفع مباشرة
+  // ============================================================
+  // البصمة المتخزّنة عندنا ممكن تكون قديمة بدقيقة، وفي الدقيقة دي
+  // جهاز تاني في المحل يكون رفع نفس الملف. من غير القراءة دي، كل
+  // جهاز عليه البرنامج هيرفع نفس الـ47 ألف صنف لوحده.
+  const st0 = pfileState;
+  if (st0 && st0.fingerprint) {
+    const now = await uploadedFingerprint(true);
+    if (now === null || now === st0.fingerprint) {
+      if (now === st0.fingerprint) pfileNote = '';
+      return;
+    }
+  }
+
   pfileBusy = true;
   pfileNote = '⏳ بيرفع ملف الأصناف من الكمبيوتر...';
   const paint = () => {
@@ -223,6 +282,10 @@ async function runProductsFileUpload(opts) {
   try {
     const r = await uploadProductsFromHelper(undefined, (pfileState && pfileState.fingerprint) || '');
     pfileDismissed = '';
+    // ⚠️ البصمة المحفوظة عندنا لازم تتحدّث **دلوقتي**: الفحص اللي بعده
+    // على طول (تغيير شاشة مثلًا) كان هيلاقي القديمة ويرفع تاني.
+    pfileKnownFP = r.fingerprint;
+    pfileKnownAt = Date.now();
     pfileNote = `✅ اترفع ملف الأصناف من الكمبيوتر — ${r.count} صنف.`;
   } catch (err) {
     console.error(err);
@@ -251,8 +314,14 @@ async function runProductsFileUpload(opts) {
 // إننا ناخد بالنا منه.
 function productsFileBannerHTML() {
   const st = pfileState;
+  // ⚠️ الشريط بيقرا من المحفوظ بس — مافيش قراءة من السحابة وقت الرسم:
+  // الشاشة بتترسم مع كل حرف بحث.
+  const known =
+    productsMeta && typeof productsMeta.sourceFingerprint === 'string'
+      ? productsMeta.sourceFingerprint
+      : pfileKnownFP;
   const pending =
-    st && st.path && st.exists && st.fingerprint && st.fingerprint !== uploadedFingerprint();
+    st && st.path && st.exists && st.fingerprint && known !== null && st.fingerprint !== known;
   const show = pending && st.fingerprint !== pfileDismissed;
   if (!pfileNote && !show) return '';
   return `
