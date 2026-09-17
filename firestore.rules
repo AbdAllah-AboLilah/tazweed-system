@@ -39,9 +39,23 @@ service cloud.firestore {
 
 
     // قوالب الرتب — لازم تفضل مطابقة لـ ROLE_PRESETS في permissions.js
+    //
+    // ⚠️⚠️ ومطابقة معناها **مفتاح بمفتاح**، مش "قريبة منها". العطل اللي
+    // حصل فعلًا: مدير الفرع هنا مكتوب "كل حاجة ما عدا أربعة"، وفي
+    // permissions.js كان مقفول عنده تاريخ آخر طبعة لورقة التزويد.
+    // فالشاشة بتخبّي الزرار والسحابة سايبة القراءة مفتوحة — والحساب اللي
+    // مافيش عنده قرار صريح للمفتاح (وده حال كل الحسابات اللي متسابة على
+    // "زي الرتبة") بياخد إجابتين مختلفتين من المكانين.
+    //
+    // ⚠️ وفي شاشة الحسابات، خيار "زي الرتبة" **مابيتخزّنش** — فالتعارض
+    // مكانش بيتصلّح بإنك تفتح الحساب وتحفظه. القفل الحقيقي كان لازم
+    // يتكتب هنا.
+    //
+    // 🛡️ وفيه فحص دلوقتي بيقارن الاتنين مفتاح بمفتاح ويفشل بالاسم:
+    // tests/perms-drift-test.js
     function presetHas(key) {
       return (role() in ['owner', 'admin'])
-        || (role() == 'branch_manager' && !(key in ['manageUsers', 'printerSetup', 'viewReports', 'remoteControl']))
+        || (role() == 'branch_manager' && !(key in ['manageUsers', 'printerSetup', 'viewReports', 'remoteControl', 'seeRestockLastPrint']))
         || (role() == 'supervisor' && key in ['manageCategories', 'addGrades', 'printLabel', 'printRestock', 'printScreen', 'remotePrint', 'viewProducts', 'excelTools', 'viewActivity'])
         || (role() == 'warehouse_keeper' && key in ['editBranchQty', 'editMainQty', 'addGrades', 'printLabel', 'printRestock', 'printScreen', 'viewProducts', 'viewActivity'])
         || (role() == 'print_operator' && key in ['printLabel', 'printScreen', 'remotePrint'])
