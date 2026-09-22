@@ -947,6 +947,18 @@ async function renderSheetImage(html) {
   }
 }
 
+// اسم أمر الطباعة: "ورقة تزويد — كريب سادة · بيجات"
+//
+// ⚠️ مقصوص عند 60 حرف: ده بيروح لطابور الويندوز، والاسم الطويل
+// بيتقص هناك من النص وبيبقى أوحش من إننا نقصّه إحنا.
+function restockJobName(cat, groupName) {
+  const bits = [String((cat && cat.name) || '').trim()];
+  const g = String(groupName || '').trim();
+  if (g) bits.push(g);
+  const tail = bits.filter(Boolean).join(' · ');
+  return ('ورقة تزويد' + (tail ? ' — ' + tail : '')).slice(0, 60);
+}
+
 function buildRestockBundle(cat, grades, names, withBase, filterMode) {
   const papers = names.map((name) => buildRestockHTML(cat, grades, name, withBase, filterMode));
 
@@ -979,7 +991,14 @@ function buildRestockBundle(cat, grades, names, withBase, filterMode) {
     // الأمر التلقائي بيتشال من الأجسام وبيتحط مرة واحدة على المستند كله
     browserHTML: wrap(printBodies + '<script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script>'),
     previewHTML: wrap(previewBodies),
-    jobs: papers.map((html) => ({ html, copies: 1 })),
+    // ⚠️ الاسم بيمشي مع كل ورقة: بيبان في طابور الويندوز وفي سجل
+    // الطباعة المحلي في البرنامج. "ورقة تزويد" لوحدها بتخلّي عشر
+    // أوراق شبه بعض في الاتنين.
+    jobs: papers.map((html, i) => ({
+      html,
+      copies: 1,
+      name: restockJobName(cat, names[i]),
+    })),
     count: papers.length,
   };
 }

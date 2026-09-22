@@ -157,3 +157,43 @@ func TestSinceTextIsReadableArabic(t *testing.T) {
 		}
 	}
 }
+
+// ⚠️⚠️ ده بالظبط اللي النظام بيعمله: عيّنة على طول بعد الطبعة،
+// وعيّنة تانية بعد 70 ثانية. لازم الاتنين دول يكفّوا عشان الحكم
+// يطلع — لو واحدة كفت يبقى الحكم بيتبنى على لا حاجة.
+func TestSystemTwoSampleFlowDetectsStuck(t *testing.T) {
+	clearQueueMemory()
+	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	// الطبعة اتبعتت، والورقة دخلت الطابور
+	first := queueJudge("XP-80C", 1, true, "", t0)
+	if first.Stuck {
+		t.Fatalf("أول عيّنة مستحيل تحكم: %+v", first)
+	}
+
+	// بعد 70 ثانية والورقة لسه مكانها
+	second := queueJudge("XP-80C", 1, true, "", t0.Add(70*time.Second))
+	if !second.Stuck {
+		t.Fatalf("العيّنتين المفروض يكفّوا: %+v", second)
+	}
+
+	// ⚠️ والحالة السليمة: الورقة خرجت
+	clearQueueMemory()
+	queueJudge("XP-80C", 1, true, "", t0)
+	ok := queueJudge("XP-80C", 0, true, "", t0.Add(70*time.Second))
+	if ok.Stuck {
+		t.Fatalf("الورقة خرجت والحكم قال واقف: %+v", ok)
+	}
+}
+
+// ⚠️⚠️ من غير العيّنة الأولى: سؤال واحد بعد 70 ثانية **عمره ما
+// هيقول واقف** — وده اللي خلّى العيّنة الأولى في النظام ضرورية.
+func TestOneSampleCanNeverDecide(t *testing.T) {
+	clearQueueMemory()
+	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	only := queueJudge("XP-80C", 3, true, "", t0.Add(70*time.Second))
+	if only.Stuck {
+		t.Fatalf("سؤال واحد حكم من غير ما يقارن بحاجة: %+v", only)
+	}
+	_ = t0
+}
