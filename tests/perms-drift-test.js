@@ -117,6 +117,35 @@ check('⭐ كل مفتاح ظاهر في شاشة الحسابات موجود ف
   missingFromPresets.length === 0, missingFromPresets);
 
 // ------------------------------------------------------------
+// ⭐⭐⭐ ومكان تالت بيقرا نفس القالب: دالة الإشعارات في السحابة
+// ------------------------------------------------------------
+// ⚠️⚠️ العطل اللي اتمسك في فحص أمان: canSendPending في السحابة كانت
+// بتقرا **القرار الصريح المتخزّن** على الحساب وبس، وترجّع "مسموح" لو
+// الخانة فاضية. والخانة بتبقى فاضية في الحالة الطبيعية، لأن خيار
+// "زي الرتبة" في شاشة الحسابات **مابيتخزّنش**.
+//
+// النتيجة المقيسة: موظف الطباعة والمستخدم العادي والمشرف كانوا بيقدروا
+// يرنّوا تليفون كل الموظفين، وقالبهم بيقول "مقفول".
+//
+// ⚠️ الدالة دي بتتنشر لوحدها في السحابة ومابتقراش js/permissions.js،
+// فعندها قايمة رتب مختصرة. الفحص ده هو اللي بيمنعها تفرق عن القالب.
+const notifyCore = fs.readFileSync(path.join(root, 'functions/notify-core.js'), 'utf8');
+const sendAllMatch = notifyCore.match(/SEND_ALL_ROLES\s*=\s*\[([^\]]*)\]/);
+const sendAll = sendAllMatch
+  ? sendAllMatch[1].split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean)
+  : null;
+
+check('⭐ الفحص لاقى قايمة الرتب في دالة الإشعارات', Array.isArray(sendAll) && sendAll.length > 0, sendAll);
+
+if (sendAll) {
+  const shouldSend = Object.keys(PRESETS).filter((r) => PRESETS[r].editMainQty === true);
+  const extra = sendAll.filter((r) => !shouldSend.includes(r));
+  const missing = shouldSend.filter((r) => !sendAll.includes(r));
+  check('⭐⭐⭐ اللي بيبعت للكل في السحابة = اللي قالبه بيسمح بتعديل المخزن الرئيسي',
+    extra.length === 0 && missing.length === 0, { extra, missing, sendAll, shouldSend });
+}
+
+// ------------------------------------------------------------
 // ⭐ اسم مفتاح غلط في القواعد = شرط عمره ما هيتحقق
 // ------------------------------------------------------------
 // ⚠️ ده بيمسك غلطة الكتابة: 'printLable' في القواعد مش هتطابق أي مفتاح
