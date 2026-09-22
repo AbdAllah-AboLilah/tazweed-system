@@ -562,6 +562,223 @@ function computeMovementReport() {
 // ============================================================
 // لمنشئ النظام بس (مفتاح viewReports)، وكل قسم بيتفتح ويتقفل بزراره —
 // عشان الشاشة ماتبقاش زحمة زي ما اتطلب.
+// ============================================================
+// 📊 ملخّص الشهر — ن٩
+// ============================================================
+// اتطلب في خريطة التطوير: "تقرير شهري مختصر".
+//
+// ⚠️⚠️ صفر قراءة زيادة: كل الأرقام دي من حاجتين متحمّلين أصلًا في
+// الشاشة دي — soldByMonth في gradeStats (القطع المباعة لكل درجة كل
+// شهر) والكميات الحالية في allGradesCache.
+//
+// ⚠️⚠️ وتلات حاجات الملخّص **مابيقولهاش** عن قصد، لأنها هتبقى كدب:
+//
+//   ١) نسبة تغيير للشهر الجاري. الشهر ده لسه ماخلصش — 22 يوم قصاد
+//      شهر كامل. "أقل بـ30%" في يوم 22 مش معناها إن البيع قلّ، معناها
+//      إن الشهر لسه فيه 8 أيام. النسبة بتبان للشهر اللي فات بس (شهر
+//      كامل قصاد شهر كامل).
+//
+//   ٢) "مااتباعش منها حاجة" لفئة **مالهاش أي أرقام** خالص. دي مش فئة
+//      واقفة — دي فئة إحنا مانعرفش عنها حاجة (نفس فرق "راكدة" و
+//      "مافيش عنها تاريخ" اللي في الأقسام تحت). بتتعدّ لوحدها.
+//
+//   ٣) الدرجات الخلصانة للشهر اللي فات. الرقم ده بيتقرا من الكميات
+//      **دلوقتي** — مالوش تاريخ، فبيبان للشهر الجاري بس.
+const MONTH_NAMES_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+  'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+const MONTH_TOP_N = 5;
+const MONTH_SUMMARY_KEY = 'tazweed_mv_month';
+
+function monthNameOf(key) {
+  const m = Number(String(key || '').split('-')[1]);
+  return MONTH_NAMES_AR[m - 1] || key;
+}
+
+// 0 = الشهر ده، 1 = اللي فات
+function getSummaryMonthOffset() {
+  try {
+    return localStorage.getItem(MONTH_SUMMARY_KEY) === '1' ? 1 : 0;
+  } catch (err) {
+    return 0;
+  }
+}
+
+function setSummaryMonthOffset(n) {
+  try {
+    localStorage.setItem(MONTH_SUMMARY_KEY, n === 1 ? '1' : '0');
+  } catch (err) {}
+}
+
+function computeMonthlySummary(offset) {
+  const grades = typeof allGradesCache !== 'undefined' && allGradesCache ? allGradesCache : null;
+  if (!grades || !movementStats) return null;
+  const now = new Date();
+  const key = movementMonthKey(new Date(now.getFullYear(), now.getMonth() - offset, 1));
+  const prevKey = movementMonthKey(new Date(now.getFullYear(), now.getMonth() - offset - 1, 1));
+  const isCurrent = offset === 0;
+
+  const cats = {};
+  (state.categories || []).forEach((c) => (cats[c.id] = c));
+
+  // لكل فئة: القطع المباعة، والدرجات اللي ليها أرقام، والبضاعة اللي فيها
+  const per = {};
+  let sold = 0;
+  let soldPrev = 0;
+  let outNow = 0;
+  grades.forEach((g) => {
+    if (!g.catId || !g.gradeId) return;
+    const c = (per[g.catId] = per[g.catId] || { sold: 0, tracked: 0, onHand: 0 });
+    const onHand = (Number(g.branchQty) || 0) + (Number(g.mainQty) || 0);
+    c.onHand += onHand;
+    if (onHand <= 0) outNow++;
+    const st = movementStats[gradeStatsId(g.catId, g.gradeId)];
+    if (!st) return;
+    c.tracked++;
+    const byMonth = st.soldByMonth || {};
+    const n = Number(byMonth[key]) || 0;
+    c.sold += n;
+    sold += n;
+    soldPrev += Number(byMonth[prevKey]) || 0;
+  });
+
+  const nameOf = (id) => (cats[id] && cats[id].name) || 'فئة اتشالت';
+  const top = Object.keys(per)
+    .filter((id) => per[id].sold > 0)
+    .map((id) => ({ name: nameOf(id), sold: per[id].sold }))
+    .sort((a, b) => b.sold - a.sold || a.name.localeCompare(b.name, 'ar'))
+    .slice(0, MONTH_TOP_N);
+
+  // ⚠️ واقفة = فيها بضاعة **و**ليها أرقام **و**مااتباعش منها ولا قطعة.
+  // الفئة اللي مالهاش أرقام خالص بتتعدّ لوحدها (الشرح فوق).
+  const still = [];
+  let noData = 0;
+  Object.keys(per).forEach((id) => {
+    const c = per[id];
+    if (c.onHand <= 0) return;
+    if (!c.tracked) {
+      noData++;
+      return;
+    }
+    if (c.sold === 0) still.push(nameOf(id));
+  });
+  still.sort((a, b) => a.localeCompare(b, 'ar'));
+
+  // ⚠️ النسبة للشهر الكامل بس — الشرح فوق (١).
+  const change =
+    !isCurrent && soldPrev > 0 ? Math.round(((sold - soldPrev) / soldPrev) * 100) : null;
+
+  return {
+    key,
+    name: monthNameOf(key),
+    prevName: monthNameOf(prevKey),
+    isCurrent,
+    dayOfMonth: now.getDate(),
+    daysInMonth: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
+    sold,
+    soldPrev,
+    change,
+    top,
+    still,
+    noData,
+    outNow: isCurrent ? outNow : null,
+  };
+}
+
+// نص عادي عشان يتنسخ ويتبعت على الواتساب من التليفون.
+// ⚠️ مافيش إيموچي في أول السطر عن قصد: في الواتساب العربي، الإيموچي
+// في أول السطر بيقلب اتجاه السطر كله ساعات والأرقام بتتلخبط.
+function monthlySummaryText(m) {
+  if (!m) return '';
+  const L = [];
+  L.push(`ملخّص شهر ${m.name}${m.isCurrent ? ` (لحد يوم ${m.dayOfMonth})` : ''}`);
+  L.push('');
+  let soldLine = `اتباع: ${m.sold} قطعة`;
+  if (m.change !== null) {
+    soldLine += m.change === 0 ? ` — زي ${m.prevName}` : ` — ${m.change > 0 ? 'أكتر' : 'أقل'} من ${m.prevName} بـ${Math.abs(m.change)}%`;
+  } else if (!m.isCurrent && m.soldPrev === 0) {
+    soldLine += ` — ${m.prevName} مالوش أرقام للمقارنة`;
+  }
+  L.push(soldLine);
+  if (m.isCurrent) L.push(`الشهر اللي فات (${m.prevName} كامل): ${m.soldPrev} قطعة`);
+  if (m.top.length) {
+    L.push('');
+    L.push('الأكتر بيعًا:');
+    m.top.forEach((t, i) => L.push(`${i + 1}. ${t.name} — ${t.sold}`));
+  }
+  if (m.still.length) {
+    L.push('');
+    L.push(`فيها بضاعة ومااتباعش منها حاجة (${m.still.length}):`);
+    L.push(m.still.join('، '));
+  }
+  if (m.outNow !== null) {
+    L.push('');
+    L.push(`درجات خلصت خالص دلوقتي: ${m.outNow}`);
+  }
+  return L.join('\n');
+}
+
+function monthlySummaryHTML(m) {
+  if (!m) return '';
+  const pct = m.change;
+  const changeHTML =
+    pct === null
+      ? ''
+      : pct === 0
+        ? `<span class="mv-m-chg">زي ${escapeHTML(m.prevName)}</span>`
+        : `<span class="mv-m-chg ${pct > 0 ? 'up' : 'down'}">${pct > 0 ? '▲' : '▼'} ${escapeHTML(Math.abs(pct))}% عن ${escapeHTML(m.prevName)}</span>`;
+  return `
+    <div class="mv-month">
+      <div class="mv-m-switch" role="tablist">
+        <button type="button" class="log-day ${m.isCurrent ? 'on' : ''}" data-mv-month="0">الشهر ده</button>
+        <button type="button" class="log-day ${m.isCurrent ? '' : 'on'}" data-mv-month="1">الشهر اللي فات</button>
+      </div>
+
+      <div class="mv-m-head">
+        <span class="mv-m-num">${escapeHTML(m.sold)}</span>
+        <span class="mv-m-unit">قطعة اتباعت في ${escapeHTML(m.name)}</span>
+        ${changeHTML}
+      </div>
+      ${
+        // ⚠️ الشهر الجاري لسه ماخلصش — لازم يتقال جنب الرقم مش تحت.
+        m.isCurrent
+          ? `<div class="mv-m-note">لحد يوم ${escapeHTML(m.dayOfMonth)} من ${escapeHTML(m.daysInMonth)} —
+               الشهر لسه ماخلصش، فمافيش مقارنة بالنسبة.
+               ${escapeHTML(m.prevName)} كامل كان <strong>${escapeHTML(m.soldPrev)}</strong> قطعة.</div>`
+          : ''
+      }
+
+      ${
+        m.top.length
+          ? `<div class="mv-m-title">🔥 الأكتر بيعًا</div>
+             <ol class="mv-m-top">${m.top
+               .map((t) => `<li><span>${escapeHTML(t.name)}</span><strong>${escapeHTML(t.sold)}</strong></li>`)
+               .join('')}</ol>`
+          : `<div class="mv-m-note">مافيش بيع متسجّل في ${escapeHTML(m.name)}.</div>`
+      }
+
+      ${
+        m.still.length
+          ? `<div class="mv-m-title">🧊 فيها بضاعة ومااتباعش منها حاجة <span class="mv-count">${escapeHTML(m.still.length)}</span></div>
+             <div class="mv-m-chips">${m.still.map((n) => `<span>${escapeHTML(n)}</span>`).join('')}</div>`
+          : ''
+      }
+      ${
+        m.noData
+          ? `<div class="mv-m-note">و<strong>${escapeHTML(m.noData)}</strong> فئة مالهاش أرقام حركة خالص —
+               مش محسوبة "مااتباعش"، إحنا بس مانعرفش عنها.</div>`
+          : ''
+      }
+      ${
+        m.outNow !== null
+          ? `<div class="mv-m-title">🔴 درجات خلصت خالص دلوقتي <span class="mv-count">${escapeHTML(m.outNow)}</span></div>`
+          : ''
+      }
+
+      <button type="button" class="btn" id="mv-month-copy" style="margin-top:12px; width:100%;">📋 انسخ الملخّص</button>
+      <div id="mv-month-copied" class="mv-m-note" style="text-align:center; min-height:1em;"></div>
+    </div>`;
+}
+
 function movementSectionHTML(key, icon, title, count, hint, bodyHTML, open) {
   return `
     <div class="mv-sec">
@@ -792,6 +1009,16 @@ function movementScreenHTML() {
         }
       </div>
 
+      ${(() => {
+        // 📊 ن٩ — مفتوح افتراضيًا: ده العنوان الرئيسي للشاشة. المقفول
+        // هو اللي المستخدم قفله بإيده بس (open.month === false).
+        const m = computeMonthlySummary(getSummaryMonthOffset());
+        return m
+          ? movementSectionHTML('month', '📊', `ملخّص شهر ${m.name}`, m.sold,
+              'البيع والأكتر بيعًا واللي واقف — تنسخه وتبعته', monthlySummaryHTML(m), open.month !== false)
+          : '';
+      })()}
+
       ${movementSectionHTML('fast', '🔥', 'بتسحب بسرعة', rep.fastCount,
         `الأكتر بيعًا خلال ${span.label}`, movementRowsHTML(rep.fast, 'fast'), open.fast)}
 
@@ -923,6 +1150,55 @@ function attachMovementEvents() {
       setMovementOpen(map);
     });
   });
+
+  // 📊 ن٩ — تبديل الشهر
+  document.querySelectorAll('[data-mv-month]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setSummaryMonthOffset(Number(btn.getAttribute('data-mv-month')));
+      renderFromData();
+    });
+  });
+
+  // 📋 النسخ — عشان يتبعت على الواتساب من التليفون
+  const copyBtn = document.getElementById('mv-month-copy');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', async () => {
+      const text = monthlySummaryText(computeMonthlySummary(getSummaryMonthOffset()));
+      const say = document.getElementById('mv-month-copied');
+      let ok = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          ok = true;
+        }
+      } catch (err) {
+        ok = false;
+      }
+      // ⚠️⚠️ الطريقة القديمة كاحتياطي: الـclipboard API بتترفض في
+      // حالات كتير (متصفح قديم، إذن مقفول، صفحة مش في المقدمة) — ولو
+      // الزرار مانسخش وقال "اتنسخ" يبقى كدب. فبنجرّب التانية، ولو
+      // الاتنين فشلوا بنقول كده صراحةً.
+      if (!ok) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly', '');
+          ta.style.cssText = 'position:fixed; top:0; opacity:0;';
+          document.body.appendChild(ta);
+          ta.select();
+          ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+        } catch (err) {
+          ok = false;
+        }
+      }
+      if (say) {
+        say.textContent = ok
+          ? '✅ اتنسخ — الزقه في الواتساب'
+          : '⚠️ المتصفح مارضيش ينسخ — اضغط مطوّل على الأرقام فوق وانسخها بإيدك';
+      }
+    });
+  }
 
   const spanEl = document.getElementById('mv-span');
   if (spanEl) {
