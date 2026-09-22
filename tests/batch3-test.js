@@ -131,11 +131,23 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     withGroup: gradeLabelText(state.grades[0], true),
     noGroup: gradeLabelText(state.grades[2], true),
     base: gradeLabelText({ isBase: true, name: 'أبيض', group: 'كيوي' }, true),
+    baseNoGroup: gradeLabelText({ isBase: true, name: 'أبيض', group: '' }, true),
+    baseOff: gradeLabelText({ isBase: true, name: 'أبيض', group: 'كيوي' }, false),
   }));
   check('من غير مجموعة: "درجة 1"', names.plain === 'درجة 1', names);
   check('⭐ مع المجموعة: "كيوي درجة 1"', names.withGroup === 'كيوي درجة 1', names);
   check('⭐ درجة من غير مجموعة مابتتغيّرش', names.noGroup === 'درجة 3', names);
-  check('⭐ الدرجة الأساسية بتفضل باسمها', names.base === 'أبيض', names);
+  // ⚠️⚠️ الفحص ده كان بيقول العكس (إن الأساسية تفضل "أبيض" لوحدها).
+  // اتبلّغ بالنص: "لما اجي اطبع ملصق درجة من الدرجات الاساسيه ... مش
+  // بتطبع ب اسم المجموعة زي الدرجات العاديه" — والسبب مشروح عند
+  // gradeLabelText في app.js.
+  check('⭐⭐⭐ الدرجة الأساسية بتاخد اسم المجموعة زي أي درجة',
+    names.base === 'كيوي أبيض', names);
+  // ⚠️ والحالتين دول اللي بيمنعوا التصليح يخرب حاجة تانية
+  check('⭐⭐ وأساسية من غير مجموعة بتفضل باسمها لوحده',
+    names.baseNoGroup === 'أبيض', names);
+  check('⭐⭐ والمفتاح لما يبقى مقفول، مافيش مجموعة خالص',
+    names.baseOff === 'أبيض', names);
 
   const groupOpt = await p.evaluate(async () => {
     window.__jobs = [];
