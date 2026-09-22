@@ -130,20 +130,50 @@ function draw(){
   document.getElementById('list').innerHTML = h;
 }
 
+// ⚠️⚠️ **مافيش** cache:'no-store' هنا — وده مقصود.
+//
+// العطل اللي اتصلّح: سفاري على الآيفون بيرفض الخيار ده مع no-cors
+// **على طول**، فكل المواقع كانت بتطلع "مش رادّة" — حتى الموقع اللي
+// الصفحة دي نفسها اتحمّلت منه. يعني الفحص كان بيكدب، وده أسوأ من
+// إنه مايشتغلش.
+//
+// والرقم العشوائي في الرابط بيكفي لوحده يمنع الرد المحفوظ.
 function one(url){
   return new Promise(function(resolve){
     var t0 = Date.now();
     var ctl = new AbortController();
-    var timer = setTimeout(function(){ ctl.abort(); }, TIMEOUT);
-    // ⚠️ no-cors: إحنا مش عايزين نقرا الرد، عايزين نعرف **وصلنا ولا لأ**.
-    // ورد 404 من السيرفر معناه إن الموقع رادّ — وده اللي بنقيسه.
+    var timedOut = false;
+    var timer = setTimeout(function(){ timedOut = true; ctl.abort(); }, TIMEOUT);
     fetch(url + (url.indexOf('?')<0?'?':'&') + 'tzcheck=' + Math.random().toString(36).slice(2), {
-      mode: 'no-cors', cache: 'no-store', signal: ctl.signal
+      mode: 'no-cors', signal: ctl.signal
     }).then(function(){
       clearTimeout(timer); resolve({ ok:true, ms: Date.now()-t0 });
     }).catch(function(){
-      clearTimeout(timer); resolve({ ok:false, ms: Date.now()-t0 });
+      clearTimeout(timer);
+      // ⚠️ الفشل الفوري (أقل من ربع ثانية من غير مهلة) **مش** قفل شبكة —
+      // الشبكة المقفولة بتسكت لحد ما الوقت يخلص. الفشل الفوري معناه إن
+      // المتصفح رفض الطلب من عنده.
+      var ms = Date.now()-t0;
+      resolve({ ok:false, ms: ms, instant: !timedOut && ms < 250 });
     });
+  });
+}
+
+// ============================================================
+// 🩺 فحص الأداة نفسها — قبل ما نصدّق أي نتيجة
+// ============================================================
+// ⚠️⚠️ الصورة دي بتتحمّل بالطريقة العادية للمتصفح (مش fetch). فلو
+// حمّلت، يبقى الموقع بتاعنا **واصل ومفيش كلام**. ولو الفحص فوق قال
+// إن نفس الموقع "مش رادّ"، يبقى العيب في الفحص مش في الشبكة —
+// وساعتها بنقول كده بالفم المليان بدل ما نطلّع قايمة غلط.
+function selfCheck(){
+  return new Promise(function(resolve){
+    var img = new Image();
+    var done = false;
+    var t = setTimeout(function(){ if(!done){ done=true; resolve(false); } }, TIMEOUT);
+    img.onload = function(){ if(!done){ done=true; clearTimeout(t); resolve(true); } };
+    img.onerror = function(){ if(!done){ done=true; clearTimeout(t); resolve(false); } };
+    img.src = 'https://abdallah-abolilah.github.io/tazweed-system/icon-192.png?tzcheck=' + Math.random().toString(36).slice(2);
   });
 }
 
@@ -166,6 +196,23 @@ document.getElementById('go').onclick = async function(){
   }
 
   var s = document.getElementById('sum');
+
+  // ⚠️⚠️ الأداة بتكدب؟ الصورة حمّلت من نفس الموقع اللي الفحص قال إنه
+  // "مش رادّ" — يبقى النتيجة كلها مش موثوقة ومانعرضهاش كأنها حقيقة.
+  var siteOk = await selfCheck();
+  var siteRow = results[0];
+  var allInstant = results.filter(function(r){ return !r.ok && r.instant; }).length >= results.length - 1;
+  if (siteOk && (!siteRow.ok || allInstant)) {
+    s.className = 'sum bad';
+    s.innerHTML = '\u26a0\ufe0f <b>الفحص نفسه مش شغّال على المتصفح ده — والنتيجة اللي فوق متتصدّقش.</b><br><br>'
+      + 'الدليل: الموقع بتاعنا <b>وصل فعلًا</b> (الصفحة دي نفسها اتحمّلت منه)، '
+      + 'والفحص قال إنه مش رادّ.<br><br>'
+      + 'ابعتلي الصورة دي وأنا أظبّط الأداة.';
+    document.getElementById('cp').style.display = 'block';
+    btn.disabled = false; btn.textContent = 'افحص تاني';
+    return;
+  }
+
   if (dead.length === 0 && slow.length === 0){
     s.className = 'sum good';
     s.innerHTML = '✅ <b>كل المواقع رادّة وبسرعة.</b><br>يبقى المشكلة مش في قفل المواقع — قوللي وأنا أدوّر في مكان تاني.';
