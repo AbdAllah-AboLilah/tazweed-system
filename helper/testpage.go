@@ -48,6 +48,22 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
  /* 📶 شريط تقدّم الرفع — الشرح عند uploadProgress في productsfile.go */
  .bar{height:9px;border-radius:999px;background:#e9ecef;overflow:hidden;margin-top:8px}
  .bar i{display:block;height:100%;background:var(--sage);border-radius:999px;transition:width .25s}
+ /* 🗂 التابات — الشرح عند شريط التابات تحت */
+ .tabs{display:flex;gap:5px;overflow-x:auto;padding:5px;background:var(--card);border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.07)}
+ .tabs button{flex:1 0 auto;background:transparent;color:var(--mut);font-weight:600;padding:10px 12px;white-space:nowrap;border-radius:9px;font-size:13.5px}
+ .tabs button[aria-selected="true"]{background:var(--sage);color:#fff}
+ /* ⚠️ العرض block مش flex: كل الكروت بتتعرض block أصلًا، والكارت
+    الوحيد اللي بيستخدم flex (الترويسة وزرار الحفظ) مالوش تاب. */
+ [data-tab]{display:none}
+ [data-tab].on{display:block}
+ /* 🧾 صفوف السجلات */
+ .lrow{display:flex;gap:9px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;flex-wrap:wrap}
+ .lrow:last-child{border-bottom:0}
+ .lrow .t{flex:1;min-width:150px;line-height:1.7}
+ .lrow .w{color:var(--mut);font-size:11.5px}
+ .lrow button{padding:6px 11px;font-size:12.5px}
+ .empty{color:var(--mut);font-size:12.5px;padding:10px 0}
+ code.fp{font-family:ui-monospace,Consolas,monospace;background:#eef0f2;padding:1px 6px;border-radius:5px;font-size:12px;letter-spacing:.5px}
 </style>
 
 <!-- ============================================================
@@ -69,7 +85,11 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
 
  <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
   <div>
-   <h1>&#127374; مساعد التزويد</h1>
+   <!-- ⚠️ كان مكتوب هنا 127374 وده رمز **فصيلة الدم AB** (🆎) —
+        غلطة رقم. رمز الطابعة هو 128424. اتصلّحت لما اتسأل عنها
+        بالنص: "ممكن تقولي الملصق اللي جنب جملة المساعد اللي هو AB
+        بيدل علي ايه". -->
+   <h1>&#128424;&#65039; مساعد التزويد</h1>
    <div class="sub">شغّال على الكمبيوتر ده — سيبه مفتوح والنظام هيلاقيه لوحده.</div>
   </div>
   <div style="display:flex;gap:6px;flex-wrap:wrap" id="pills">
@@ -77,7 +97,32 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
   </div>
  </div>
 
- <div class="card">
+ <!-- ============================================================
+      🗂 التابات
+      ============================================================
+      اتطلب بالنص: "يلا ابدا نفذ القايمه مع عمل التابات زي م اقترحت".
+
+      ⚠️ السبب: الصفحة كانت شريط واحد طويل. ومع «الأوراق المحفوظة»
+      و«سجل الطباعة» — واللي الاتنين بيكبروا مع كل طبعة — اللي
+      تحتهم كان هيتدفن تحت قايمة بتطول كل يوم.
+
+      ⚠️⚠️ واتفقنا على شرطين وهما مطبّقين بالحرف:
+        ١) زرار «احفظ الإعدادات» **بره التابات** — بيفضل تحت في كل
+           تاب، مهما بدّلت.
+        ٢) الحاجات اللي بتتحفظ لوحدها (التشغيل مع الويندوز، يفتح
+           النظام، مسار ملف الأصناف، الرفع التلقائي، تصاميم الأنواع)
+           **فضلت بتتحفظ لوحدها** — ولا سطر اتغيّر فيها.
+
+      ⚠️ ولا id واحد اتغيّر في أي خانة: كل المنطق تحت شغّال زي ما هو. -->
+ <div class="tabs" role="tablist" id="tabs">
+  <button role="tab" data-go="printer" aria-selected="true">&#128424; الطابعة</button>
+  <button role="tab" data-go="label" aria-selected="false">&#127991; الملصق</button>
+  <button role="tab" data-go="products" aria-selected="false">&#128230; الأصناف</button>
+  <button role="tab" data-go="logs" aria-selected="false">&#129534; السجلات</button>
+  <button role="tab" data-go="app" aria-selected="false">&#9881;&#65039; البرنامج</button>
+ </div>
+
+ <div class="card on" data-tab="printer">
   <div class="sec-title">&#128424; الطابعات والجهاز</div>
   <div class="sec-sub">أهم قسم — ده اللي بيخلي النظام يعرف يطبع على الكمبيوتر ده.</div>
   <div class="row">
@@ -91,9 +136,39 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
   <div class="note" style="margin-top:9px">الاسم بيمشي على كل المتصفحات اللي على الكمبيوتر ده — فالجهاز بيتحسب مرة واحدة في النظام بدل ما كل متصفح يبقى جهاز لوحده.</div>
  </div>
 
- <div class="card">
+ <!-- ============================================================
+      &#8987; الطابور الواقف — م٢
+      ============================================================
+      ⚠️⚠️ دي **مش** حالة الطابعة اللي تحت. حالة الطابعة بتسأل
+      التعريف، والتعريف بتاع ماكينتك بيرد صفر دايمًا (مقاس على
+      XP-235B: شغّالة / الرول برّه / الغطا مفتوح — كلهم صفر).
+
+      الطابور حاجة تانية: ده عدّاد **الويندوز** للأوامر اللي لسه
+      مامشيتش، وبيشتغل حتى لو التعريف أخرس. الطابعة مطفية أو
+      الكابل مقطوع؟ الأمر بيقعد، والنظام قال "اتبعت ✅" — والرقم
+      ده هو اللي بيقولك إنها واقفة.
+
+      الشرح الكامل في queuewatch.go. -->
+ <div class="card on" data-tab="printer">
+  <div class="sec-title">&#8987; طابور الطباعة</div>
+  <div class="sec-sub">الأوامر اللي راحت للويندوز ولسه مامشيتش. لو العدد واقف مكانه أكتر من دقيقة، فيه حاجة واقفة.</div>
+  <div class="row">
+   <button class="ghost" id="qgo">&#8987; شوف الطابور</button>
+   <label class="chk" style="padding:0;align-items:center"><input type="checkbox" id="qauto" checked>
+    <span style="font-size:12.5px">وشوفه لوحده كل نص دقيقة</span></label>
+  </div>
+  <div id="qout" style="font-size:13px;line-height:1.8;margin-top:9px;min-height:18px"></div>
+  <!-- ⚠️ الفحص التلقائي بيشتغل **وانت فاتح التاب ده بس** ويقف أول
+       ما تسيبه: البرنامج مافيهوش شغل في الخلفية، ومانفتحش واحد
+       من الباب الخلفي. -->
+  <div class="note" style="margin-top:8px">
+   ⚠️ العدد بيتقرا من الويندوز مش من الماكينة. يعني لو الطابعة مطفية
+   أو الكابل مقطوع، الأمر هيفضل واقف هنا — وده بالظبط اللي عايزين نشوفه.</div>
+ </div>
+
+ <div class="card" data-tab="label">
   <div class="sec-title">&#127991; الملصق</div>
-  <div class="sec-sub">شكل الملصق ومقاسه. كل حاجة هنا بتخص اللاصقات بس.</div>
+  <div class="sec-sub">شكل الملصق: أنهي تصميم لأنهي نوع، والمصمّم نفسه.</div>
 
   <div class="box">
    <div style="font-size:13px;font-weight:600;margin-bottom:3px">&#127912; التصاميم</div>
@@ -119,20 +194,10 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
   </div>
 
   <a class="big" href="/designer">&#127912; افتح مصمّم الملصق &mdash; حرّك أي حاجة بالمليمتر</a>
-
-  <hr class="hr">
-  <div style="font-size:12.5px;font-weight:600;margin-bottom:8px">معايرة الماكينة</div>
-  <div class="row">
-   <div style="flex:1;min-width:150px"><label>الفاصل بين اللاصقات (مم)</label>
-    <input id="gap" type="number" step="0.5" min="0" max="20" value="2"></div>
-   <div style="flex:1;min-width:150px"><label>اتجاه الملصق</label>
-    <select id="dir"><option value="1">1</option><option value="0">0</option></select></div>
-  </div>
-  <label class="chk" style="margin-top:6px"><input type="checkbox" id="flip">
-   <span>اقلب ألوان الملصق<small>افتحها بس لو اللاصقة طلعت سودا بالكامل.</small></span></label>
  </div>
 
- <div class="card">
+
+ <div class="card on" data-tab="printer">
   <div class="sec-title">&#129514; جرّب قبل ما تعتمد</div>
   <div class="sec-sub">بيطبعوا على الطابعة على طول — من غير نافذة طباعة.</div>
   <div class="row">
@@ -179,6 +244,23 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
     <small>&#9888; متفتحهاش غير لما تتأكد من التشخيص فوق. لو التعريف بيبلّغ غلط، الطباعة هتقف وانت مش عارف ليه.</small></span></label>
  </div>
 
+ <!-- ⚠️ المعايرة بقت في تاب «الطابعة» مش «الملصق»: دي بتظبّط
+      **الماكينة** (الفاصل بين اللاصقات، اتجاه السحب، قطبية النقط)
+      مش شكل الملصق. اللي بيدوّر عليها بيدوّر وهو بيعاير ماكينة
+      جديدة، مش وهو بيغيّر تصميم. -->
+ <div class="card on" data-tab="printer">
+  <div class="sec-title">&#128207; معايرة الماكينة</div>
+  <div class="sec-sub">تلات حاجات بتختلف من ماكينة لماكينة. متلمسهاش غير لو اللاصقة طلعت غلط.</div>
+  <div class="row">
+   <div style="flex:1;min-width:150px"><label>الفاصل بين اللاصقات (مم)</label>
+    <input id="gap" type="number" step="0.5" min="0" max="20" value="2"></div>
+   <div style="flex:1;min-width:150px"><label>اتجاه الملصق</label>
+    <select id="dir"><option value="1">1</option><option value="0">0</option></select></div>
+  </div>
+  <label class="chk" style="margin-top:6px"><input type="checkbox" id="flip">
+   <span>اقلب ألوان الملصق<small>افتحها بس لو اللاصقة طلعت سودا بالكامل.</small></span></label>
+ </div>
+
  <!-- ============================================================
       &#128230; ملف الأصناف
       ============================================================
@@ -188,7 +270,7 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
       ⚠️ مكانه هنا مش فوق: الشاشة مرتّبة من فوق لتحت بالأهمية —
       الطابعات (اللي من غيرها مافيش حاجة تشتغل)، الملصق، التجربة،
       وبعدين اللي بيتظبّط مرة وينسى. وده بيتظبّط مرة واحدة. -->
- <div class="card">
+ <div class="card" data-tab="products">
   <div class="sec-title">&#128230; ملف الأصناف</div>
   <div class="sec-sub">الملف اللي بيطلع من الـERP. البرنامج بيراقبه، والنظام بيقراه ويرفع الأصناف.</div>
 
@@ -223,7 +305,38 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
    إشعار على التليفون وتنبيه في شاشة الأصناف يسأله يرفع ولا لأ.</div>
  </div>
 
- <div class="card">
+ <!-- ============================================================
+      &#128196; الأوراق المحفوظة — م٤
+      ============================================================
+      اتطلب بالنص في خريطة التطوير: "حفظ ورقة التزويد على القرص —
+      آخر كام ورقة تتحفظ على الجهاز وتتطبع تاني من غير النظام ومن
+      غير نت".
+
+      ⚠️⚠️ دي أهم حاجة في التاب ده: الورقة ضاعت أو اتقطعت أو
+      الطابعة كانت مطفية — تدوس زرار وتخرج تاني، وانت **مش محتاج
+      النظام ولا نت ولا حتى تفتح المتصفح على الموقع**. -->
+ <div class="card" data-tab="logs">
+  <div class="sec-title">&#128196; الأوراق المحفوظة</div>
+  <div class="sec-sub">آخر أوراق تزويد اتطبعت من الكمبيوتر ده. اطبعها تاني من غير النظام ومن غير نت.</div>
+  <div id="sheets"></div>
+ </div>
+
+ <!-- ============================================================
+      &#129534; سجل الطباعة المحلي — م٥
+      ============================================================
+      ⚠️ النظام عنده سجل، بس هو في السحابة: عايز نت وحساب، وبيتكتب
+      لما الطبعة **تتبعت** مش لما تخرج. ده بيتكتب على الجهاز، وبيسجّل
+      اللي فشل كمان — وده اللي بيجاوب على "أنا دوست ومافيش ورقة طلعت". -->
+ <div class="card" data-tab="logs">
+  <div class="sec-title">&#129534; سجل الطباعة</div>
+  <div class="sec-sub">كل اللي اتطبع من الكمبيوتر ده — والنت مقطوع كمان.</div>
+  <div id="plog"></div>
+  <div class="row" style="margin-top:12px">
+   <button class="ghost" id="plog-clear">&#128465;&#65039; فضّي السجل والأوراق</button>
+  </div>
+ </div>
+
+ <div class="card" data-tab="app">
   <div class="sec-title">&#9881;&#65039; البرنامج</div>
   <label class="chk"><input type="checkbox" id="auto">
    <span>يشتغل لوحده مع الويندوز<small>في الخلفية، من غير ما يفتح الصفحة دي.</small></span></label>
@@ -262,6 +375,43 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
 
 </div>
 <script>
+// ============================================================
+// 🗂 تبديل التابات
+// ============================================================
+// ⚠️ التاب المفتوح بيتحفظ في المتصفح: لو كنت بتعاير ماكينة وبتعمل
+// ريفريش كل شوية، مايصحّش ترجع لأول تاب في كل مرة.
+//
+// ⚠️⚠️ والتاب اللي بيفتح افتراضيًا هو **الطابعة** زي ما اتفقنا —
+// لو المحفوظ مش موجود (تاب اتشال في نسخة أحدث) بنرجعله.
+const TABS=['printer','label','products','logs','app'];
+function showTab(name){
+  if(TABS.indexOf(name)<0) name='printer';
+  document.querySelectorAll('[data-tab]').forEach(el=>{
+    el.classList.toggle('on', el.getAttribute('data-tab')===name);
+  });
+  document.querySelectorAll('#tabs button').forEach(b=>{
+    b.setAttribute('aria-selected', b.getAttribute('data-go')===name ? 'true':'false');
+  });
+  try{ localStorage.setItem('tz-helper-tab',name); }catch(e){}
+  // ⚠️⚠️ كل تاب بيوقّف شغل التاب التاني: السؤال الدوري عن الطابور
+  // وعن الرفع مايفضلش شغّال وانت مش شايفه. ده نفس مبدأ البرنامج
+  // كله — مافيش شغل في الخلفية على الفاضي.
+  if(name==='printer'){ qMaybeStart(); } else { qStop(); }
+  if(name==='logs') loadPrintLog();
+}
+document.getElementById('tabs').addEventListener('click',(e)=>{
+  const b=e.target.closest('button[data-go]'); if(!b) return;
+  showTab(b.getAttribute('data-go'));
+});
+// ⚠️⚠️ فتح التاب المحفوظ **مش هنا** — هو في آخر السكربت خالص.
+// السبب اتقاس في متصفح حقيقي: showTab بتنده على qMaybeStart
+// وloadPrintLog، ودول بيلمسوا متغيّرات متعرّفة بـconst تحت. الدالة
+// نفسها بترتفع لفوق (hoisting) لكن المتغيّر لأ — فالنداء من هنا
+// كان بيطلّع 14 خطأ في الكونسول:
+//   ReferenceError: Cannot access 'qOut' before initialization
+// ونتيجته إن تاب «الطابعة» بيفتح **من غير ما يسأل عن الطابور**،
+// وتاب «السجلات» بيفضل فاضي لحد ما تدوس عليه تاني.
+
 const out=document.getElementById('out'),sel=document.getElementById('p'),go=document.getElementById('go');
 const lsel=document.getElementById('l'),sout=document.getElementById('sout');
 const say=(t,c)=>{out.textContent=t;out.className=c||''};
@@ -465,7 +615,7 @@ go.onclick=async()=>{
   go.disabled=true;say('بيتبعت...');
   try{
     const r=await fetch('/print',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({printer:sel.value,png:png,name:'ورقة تجربة'})});
+      body:JSON.stringify({printer:sel.value,png:png,name:'ورقة تجربة',test:true})});
     const j=await r.json();
     say(j.ok?'\u2705 اتبعتت: '+j.width+'x'+j.height+' نقطة، '+j.bytes+' بايت.\n\nقيس الورقة بالمسطرة: آخر رقم شايفه المفروض يكون قريب من '+mm+'مم.':'\u274c '+(j.error||'مش عارف'),j.ok?'ok':'bad');
   }catch(e){say('\u274c '+e,'bad');}
@@ -499,7 +649,7 @@ lgo.onclick=async()=>{
   try{
     const r=await fetch('/label',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({printer:lsel.value,widthMm:38,heightMm:25,name:'ملصق تجربة',
-        labels:[{png:png,copies:1}]})});
+        test:true,labels:[{png:png,copies:1}]})});
     const j=await r.json();
     say(j.ok?'\u2705 اتبعت ملصق واحد: '+j.width+'x'+j.height+' نقطة، '+j.bytes+' بايت.\n\nلو اللاصقة طلعت سودا بالكامل، علّم على "اقلب ألوان الملصق" فوق واحفظ وجرّب تاني.':'\u274c '+(j.error||'مش عارف'),j.ok?'ok':'bad');
   }catch(e){say('\u274c '+e,'bad');}
@@ -603,6 +753,9 @@ function pfDrawLast(st){
   if(!st||!st.lastUploadMs){ pfLast.textContent=''; return; }
   pfLast.innerHTML='\u2705 آخر رفع: <b>'+pfStamp(st.lastUploadMs)+'</b>'
     +(st.lastUploadCount?(' &mdash; '+pfNum(st.lastUploadCount)+' صنف'):'')
+    // 🔢 ن٣ — الرقم القصير بتاع اللي اترفع. نفس الرقم بيتكتب في
+    // النظام في سطر "آخر تحديث"، فبتقارن بالعين من غير ما تفتح ملف.
+    +(st.lastUploadShort?('<br>رقم المرفوع: <code class="fp">'+st.lastUploadShort+'</code>'):'')
     // ⚠️⚠️ السطر ده هو اللي بيمنع أخطر لبس: تاريخ لوحده بيخلي اللي
     // بيقرا يفتكر إن اللي في النظام هو اللي في الملف — وممكن يكون
     // حفظ الملف بعدين والرفع لسه مااتعملش.
@@ -630,8 +783,12 @@ function pfShow(st,quiet){
   if(!st.path){ if(!quiet){ pfOut.textContent='مافيش ملف متظبّط لسه.'; pfOut.className=''; } return; }
   if(st.error){ pfOut.textContent='\u274c '+st.error; pfOut.className='bad'; return; }
   if(st.exists){
+    // ⚠️⚠️ الرقم القصير هنا هو بتاع **الملف اللي على القرص دلوقتي**.
+    // واللي في سطر آخر رفع تحت هو بتاع **اللي اترفع**. الاتنين جنب
+    // بعض عن قصد: متطابقين = اللي في النظام هو اللي في الملف.
     pfOut.innerHTML='\u2705 الملف موجود &mdash; <b>'+pfSize(st.size)+'</b>'
-      +'<br>آخر تعديل: '+pfWhen(st.modifiedMs);
+      +'<br>آخر تعديل: '+pfWhen(st.modifiedMs)
+      +(st.shortCode?('<br>رقم الملف: <code class="fp">'+st.shortCode+'</code>'):'');
     pfOut.className='ok';
   }
 }
@@ -683,4 +840,156 @@ pfAuto.onchange=async(e)=>{
     pfOut.className='ok';
   }catch(err){ pfOut.textContent='\u274c '+err; pfOut.className='bad'; e.target.checked=!on; }
 };
+
+// ============================================================
+// ⏳ الطابور الواقف — م٢
+// ============================================================
+// ⚠️⚠️ السؤال كل نص دقيقة **وانت فاتح التاب ده بس**، وبيقف أول ما
+// تسيبه أو تقفل الصفحة. البرنامج مافيهوش شغل في الخلفية، ومانفتحش
+// واحد من الباب الخلفي عشان شاشة.
+const qOut=document.getElementById('qout'), qGo=document.getElementById('qgo'),
+      qAuto=document.getElementById('qauto');
+let qTimer=null;
+const Q_EVERY_MS=30000;
+
+function qDraw(j){
+  if(!j){ return; }
+  if(j.error){ qOut.textContent='\u274c '+j.error; qOut.className='bad'; return; }
+  if(!j.supported){ qOut.textContent=j.summary; qOut.className=''; return; }
+  if(j.stuck){
+    qOut.innerHTML='<b>'+j.summary+'</b>'
+      +'<div class="note" style="margin-top:8px">لو الورقة مش بتخرج: شوف الطابعة مولّعة والكابل واصل،'
+      +' وبعدين افتح <b>الأجهزة والطابعات</b> في الويندوز وافضي الطابور واطبع الورقة تاني'
+      +' من <b>السجلات &gt; الأوراق المحفوظة</b>.</div>';
+    qOut.className='bad';
+    return;
+  }
+  qOut.textContent=j.summary; qOut.className=j.jobs>0?'':'ok';
+}
+async function qCheck(){
+  try{ qDraw(await (await fetch('/printer/queue')).json()); }
+  catch(e){ qOut.textContent='\u274c '+e; qOut.className='bad'; }
+}
+function qStop(){ if(qTimer){ clearInterval(qTimer); qTimer=null; } }
+function qMaybeStart(){
+  qCheck();
+  qStop();
+  if(qAuto && qAuto.checked) qTimer=setInterval(qCheck,Q_EVERY_MS);
+}
+if(qGo) qGo.onclick=qCheck;
+if(qAuto) qAuto.onchange=()=>{ if(qAuto.checked) qMaybeStart(); else qStop(); };
+
+// ============================================================
+// 🧾 الأوراق المحفوظة (م٤) + سجل الطباعة (م٥)
+// ============================================================
+const sheetsBox=document.getElementById('sheets'), plogBox=document.getElementById('plog');
+
+function plWhen(ms){
+  try{ return new Date(ms).toLocaleString('ar-EG',{weekday:'long',month:'numeric',day:'numeric',
+    hour:'numeric',minute:'2-digit'}); }
+  catch(e){ return new Date(ms).toLocaleString(); }
+}
+// ⚠️ النص اللي جاي من النظام (اسم الفئة) بيتعرض في innerHTML —
+// فلازم يعدّي على تهريب. نفس قاعدة escapeHTML في النظام.
+function esc(t){
+  return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+// ⚠️⚠️ الاسم اللي النظام بيبعته بيبدأ بنفس الكلمة ("ورقة تزويد")،
+// فلو كتبناهم ورا بعض السطر بيطلع "ورقة تزويد ورقة تزويد — كريب".
+// بنشيل البداية المكررة والشرطة اللي وراها.
+const KIND={restock:{i:'\ud83d\udcc4',t:'ورقة تزويد'},
+            label:{i:'\ud83c\udff7\ufe0f',t:'ملصقات'},
+            test:{i:'\ud83e\uddea',t:'تجربة'}};
+function kindOf(k){ return KIND[k]||{i:'\ud83d\udda8\ufe0f',t:k||'طبعة'}; }
+function trimName(name,kindText){
+  let t=String(name||'').trim();
+  if(t.indexOf(kindText)===0) t=t.slice(kindText.length);
+  return t.replace(/^[\s\u2014\u2013-]+/,'').trim();
+}
+
+function drawSheets(entries){
+  const rows=entries.filter(e=>e.sheet);
+  if(!rows.length){
+    sheetsBox.innerHTML='<div class="empty">مافيش أوراق محفوظة لسه — أول ورقة تزويد تطبعها هتتحفظ هنا.</div>';
+    return;
+  }
+  // ⚠️ الورقة الواحدة ممكن يكون ليها أكتر من سطر (اتطبعت تاني)،
+  // فبنوريها **مرة واحدة** بأحدث تاريخ. من غير كده القايمة بتمتلي
+  // بنفس الورقة مكررة.
+  const seen={}, uniq=[];
+  rows.forEach(e=>{ if(!seen[e.sheet]){ seen[e.sheet]=1; uniq.push(e); } });
+  sheetsBox.innerHTML=uniq.map(e=>
+    '<div class="lrow">'
+    +'<div class="t"><b>'+esc(e.name||'ورقة تزويد')+'</b>'
+    +'<div class="w">'+plWhen(e.ms)+'</div></div>'
+    +'<a class="btn ghost" target="_blank" href="/print/sheet?name='+encodeURIComponent(e.sheet)+'"'
+    +' style="padding:6px 11px;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--ink);font-size:12.5px">\ud83d\udc41\ufe0f بصّ عليها</a>'
+    +'<button class="ghost" data-sheet="'+esc(e.sheet)+'">\ud83d\udda8\ufe0f اطبعها تاني</button>'
+    +'</div>').join('');
+}
+
+function drawLog(entries){
+  if(!entries.length){
+    plogBox.innerHTML='<div class="empty">السجل فاضي.</div>';
+    return;
+  }
+  plogBox.innerHTML=entries.map(e=>{
+    const k=kindOf(e.kind), rest=trimName(e.name,k.t);
+    const bits=[];
+    if(e.count) bits.push(e.count+' لاصقة');
+    if(e.printer) bits.push(esc(e.printer));
+    return '<div class="lrow"><div class="t">'
+      +(e.ok?'':'<span class="bad">\u274c فشلت \u2014 </span>')
+      +'<b>'+k.i+' '+esc(k.t)+'</b>'+(rest?(' '+esc(rest)):'')
+      +'<div class="w">'+plWhen(e.ms)+(bits.length?(' \u00b7 '+bits.join(' \u00b7 ')):'')
+      +(e.error?(' \u00b7 '+esc(e.error)):'')+'</div></div></div>';
+  }).join('');
+}
+
+async function loadPrintLog(){
+  try{
+    const j=await (await fetch('/print/log')).json();
+    const ents=j.entries||[];
+    drawSheets(ents); drawLog(ents);
+  }catch(e){
+    sheetsBox.innerHTML='<div class="bad" style="font-size:12.5px">\u274c '+e+'</div>';
+    plogBox.innerHTML='';
+  }
+}
+
+// ⚠️ الطبع من هنا بيتبع نفس مسار /print بالظبط — نفس الطابعة
+// المحفوظة ونفس القص. الشرح في handleSheetReprint.
+sheetsBox.addEventListener('click',async(e)=>{
+  const b=e.target.closest('button[data-sheet]'); if(!b) return;
+  const old=b.textContent;
+  b.disabled=true; b.textContent='بيطبع...';
+  try{
+    const r=await (await fetch('/print/sheet/reprint',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:b.getAttribute('data-sheet')})})).json();
+    b.textContent=r.ok?'\u2705 اتبعتت':'\u274c '+(r.error||'مش عارف');
+    if(r.ok) loadPrintLog();
+  }catch(err){ b.textContent='\u274c '+err; }
+  setTimeout(()=>{ b.disabled=false; b.textContent=old; },2500);
+});
+
+// ⚠️⚠️ التأكيد مش زوّاقة: ده بيمسح الأوراق المحفوظة كمان، ودي
+// الحاجة الوحيدة اللي بتخلّي ورقة تترجع من غير نت. دوسة غلط هنا
+// مالهاش تراجع.
+document.getElementById('plog-clear').onclick=async()=>{
+  if(!confirm('هيتمسح السجل كله والأوراق المحفوظة معاه — ومش هينفع ترجّعهم. أكيد؟')) return;
+  try{ await fetch('/print/log/clear',{method:'POST'}); loadPrintLog(); }catch(e){}
+};
+
+// ============================================================
+// 🗂 وأخيرًا: افتح التاب المحفوظ
+// ============================================================
+// ⚠️⚠️ آخر سطر في السكربت عن قصد — الشرح فوق عند showTab. كل حاجة
+// showTab بتلمسها لازم تكون اتعرّفت قبلها.
+(function(){
+  let saved='printer';
+  try{ saved=localStorage.getItem('tz-helper-tab')||'printer'; }catch(e){}
+  showTab(saved);
+})();
 </script></html>`
