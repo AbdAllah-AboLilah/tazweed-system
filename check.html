@@ -110,7 +110,18 @@ var HOSTS = [
 
 // ⚠️ 7 ثواني: الموقع المقفول مابيرجّعش خطأ — بيفضل ساكت لحد ما الوقت
 // يخلص. ده بالظبط اللي بيخلي النظام يعلّق على شاشة فاضية.
-var TIMEOUT = 7000;
+// ⚠️ 5 ثواني بدل 7: الموقع المقفول بيسكت، بس 5 كفاية نحكم عليه —
+// والفرق بيبان في وقت الفحص كله.
+var TIMEOUT = 5000;
+
+// ⚠️⚠️ الفحص كان **واحد ورا التاني**: 13 موقع × 7 ثواني = دقيقة ونص
+// استنى قدام شاشة شكلها واقفة. اتبلّغ بالنص: "بتاخد وقت كبير".
+//
+// دلوقتي 4 مع بعض — يعني أسوأ حالة ~20 ثانية بدل 91.
+// وليه 4 مش 13 دفعة واحدة: عشان النتيجة تفضل معبّرة. لو بعتنا 13 نداء
+// في نفس اللحظة على نت ضعيف، هيزاحموا بعض والوقت اللي هيتقاس يبقى
+// وقت الزحمة مش وقت الموقع.
+var PARALLEL = 4;
 var results = [];
 
 function host(u){ try { return new URL(u).hostname; } catch(e){ return u; } }
@@ -122,6 +133,7 @@ function draw(){
     var ico = r ? (r.ok ? '✅' : '❌') : '⏳';
     var ms = r ? (r.ok ? r.ms+' م.ث' : 'مش رادّ') : '';
     var cls = r && !r.ok ? 'bad' : (r && r.ms > 2500 ? 'bad' : '');
+    /* ⏳ = لسه، عشان الشاشة ماتبانش واقفة */
     h += '<div class="row"><div class="ico">'+ico+'</div>'
       + '<div class="nm"><b>'+host(HOSTS[i][1])+'</b>'
       + '<small>'+HOSTS[i][0]+(HOSTS[i][2]?' — <b style="display:inline">لازم</b>':'')+'</small></div>'
@@ -179,15 +191,32 @@ function selfCheck(){
 
 document.getElementById('go').onclick = async function(){
   var btn = this;
-  btn.disabled = true; btn.textContent = 'بيفحص...';
+  btn.disabled = true; btn.textContent = 'بيفحص... استنى ٢٠ ثانية';
   results = []; draw();
   document.getElementById('sum').innerHTML = '';
   document.getElementById('cp').style.display = 'none';
 
-  for (var i=0;i<HOSTS.length;i++){
-    results[i] = await one(HOSTS[i][1]);
-    draw();
+  // ⭐ الموقع بتاعنا الأول وبطريقة تانية خالص (صورة عادية مش fetch):
+  // دي أهم معلومة، وبتوصل في ثانية بدل ما تستنى الفحص كله.
+  var siteOk = await selfCheck();
+  var head = document.getElementById('sum');
+  head.className = siteOk ? 'sum good' : 'sum bad';
+  head.innerHTML = siteOk
+    ? '✅ <b>الموقع بتاعنا واصل.</b> بنكمّل باقي المواقع...'
+    : '❌ <b>الموقع بتاعنا نفسه مش واصل.</b> بنكمّل باقي المواقع...';
+
+  // بدفعات: 4 مع بعض
+  var idx = 0;
+  async function worker(){
+    while (idx < HOSTS.length){
+      var i = idx++;
+      results[i] = await one(HOSTS[i][1]);
+      draw();
+    }
   }
+  var crew = [];
+  for (var w=0; w<PARALLEL; w++) crew.push(worker());
+  await Promise.all(crew);
 
   var dead = [], slow = [], deadNeeded = 0;
   for (var j=0;j<HOSTS.length;j++){
@@ -199,7 +228,6 @@ document.getElementById('go').onclick = async function(){
 
   // ⚠️⚠️ الأداة بتكدب؟ الصورة حمّلت من نفس الموقع اللي الفحص قال إنه
   // "مش رادّ" — يبقى النتيجة كلها مش موثوقة ومانعرضهاش كأنها حقيقة.
-  var siteOk = await selfCheck();
   var siteRow = results[0];
   var allInstant = results.filter(function(r){ return !r.ok && r.instant; }).length >= results.length - 1;
   if (siteOk && (!siteRow.ok || allInstant)) {
