@@ -120,7 +120,14 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
       if (t.indexOf('/status') !== -1) {
         return { ok: true, json: async () => ({ app: 'tazweed-helper', version: '1.5.0', printers: ['P'] }) };
       }
-      if (t.indexOf('/print') !== -1) { helperPrints++; return { ok: true, json: async () => ({ ok: true }) }; }
+      // ⚠️⚠️ /printer/queue **قبل** /print: الاتنين فيهم "/print"،
+      // والفحص كان بيعدّ سؤال الطابور (م٢) كأنه ورقة تانية اتطبعت —
+      // فطلّع "2 طبعة" والحقيقة طبعة واحدة وعيّنة طابور. الترتيب ده
+      // بيخلّي كل نداء يتعدّ في مكانه الصح.
+      if (t.indexOf('/printer/queue') !== -1) {
+        return { ok: true, json: async () => ({ stuck: false, jobs: 0, summary: 'الطابور فاضي' }) };
+      }
+      if (t.endsWith('/print')) { helperPrints++; return { ok: true, json: async () => ({ ok: true }) }; }
       return realFetch(u, o);
     };
     window.getSavedPrinter = () => 'P';

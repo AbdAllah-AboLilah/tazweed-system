@@ -363,6 +363,45 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐ السجل بيتقرا **مرة واحدة** (3 صفحات لـ2300)', bf.pages >= 3 && bf.pages <= 5, bf);
   check('الكتابة على دفعات', bf.batches >= 1, bf);
 
+  // ============================================================
+  // ⭐⭐⭐ اسم المجموعة جنب الدرجة
+  // ============================================================
+  // اتبلّغ بالنص: "في حركة المخزن لما بتفتح فئة فيها مجموعات بيكتب
+  // الدرجات بدون ما اشوف الدرجة دي تخص انهي مجموعة في الفئة".
+  //
+  // ⚠️⚠️ السبب كان في dashboard.js مش هنا: النسخة المختصرة من الدرجات
+  // (allGradesCache) كانت **بتشيل** حقل المجموعة. فالفحص بيتأكد من
+  // الاتنين: إن الحقل بيوصل، وإن الشاشة بتكتبه.
+  const grp = await p.evaluate(() => {
+    const out = {};
+    state.categories = [{ id: 'c1', name: 'كريب' }];
+    allGradesCache = [
+      { catId: 'c1', gradeId: 'k56', number: 56, group: 'كيوي', branchQty: 3, mainQty: 0 },
+      { catId: 'c1', gradeId: 'n56', number: 56, group: 'نصار', branchQty: 3, mainQty: 0 },
+      { catId: 'c1', gradeId: 'wb', isBase: true, name: 'أبيض', number: -3, group: 'كيوي', branchQty: 2, mainQty: 0 },
+      { catId: 'c1', gradeId: 'g7', number: 7, group: '', branchQty: 2, mainQty: 0 },
+      // ⚠️ درجة قديمة من غير رقم — الشكل القديم كان بيتعامل معاها
+      { catId: 'c1', gradeId: 'old', name: '12', branchQty: 2, mainQty: 0 },
+    ];
+    movementStats = {};
+    const rep = computeMovementReport();
+    out.labels = rep.unknown.flatMap((gp) => gp.rows.map((x) => x.label));
+    return out;
+  });
+  check('⭐⭐⭐ نفس رقم الدرجة في مجموعتين بيبان مختلف',
+    grp.labels.indexOf('كيوي درجة 56') !== -1 && grp.labels.indexOf('نصار درجة 56') !== -1, grp);
+  check('⭐⭐ والدرجة الأساسية بتبان باسمها ومجموعتها (مش "درجة أبيض")',
+    grp.labels.indexOf('كيوي أبيض') !== -1, grp);
+  check('⭐⭐ والفئة اللي مالهاش مجموعات اسمها زي ما هو', grp.labels.indexOf('درجة 7') !== -1, grp);
+  check('⭐⭐⭐ والدرجة القديمة من غير رقم مابتطلعش "undefined"',
+    grp.labels.indexOf('درجة 12') !== -1 && !grp.labels.some((l) => /undefined/.test(l)), grp);
+
+  // ⚠️⚠️ والحقل لازم يوصل من المصدر — مش بس الشاشة تعرف تكتبه.
+  const dashSrc = fs.readFileSync('js/dashboard.js', 'utf8');
+  const cacheBlock = (dashSrc.match(/allGradesCache = latest\.docs\.map\([\s\S]*?\}\);/) || [''])[0];
+  check('⭐⭐⭐ النسخة المختصرة من الدرجات بتحتفظ بالمجموعة',
+    /group:\s*g\.group/.test(cacheBlock), cacheBlock.slice(0, 120));
+
   await b.close();
 
   // ---- القواعد لازم تفضل متطابقة مع permissions.js ----

@@ -295,7 +295,11 @@ function clearHelperDesignCache() {
 }
 
 // بترجّع true لو الورقة راحت للطابعة عن طريق البرنامج.
-async function printSheetViaHelper(html) {
+//
+// ⚠️ `jobName` بيوصل لحتتين: طابور الويندوز (اللي بتفتحه لما الورقة
+// تقف)، وسجل الطباعة المحلي في البرنامج. "ورقة تزويد" لوحدها في
+// الاتنين بتخلّي عشر أوراق شبه بعض — الاسم بيقول أنهي فئة.
+async function printSheetViaHelper(html, jobName) {
   if (typeof getPrintTweak !== 'function' || !getPrintTweak('sheetHelper')) return false;
   if (typeof renderSheetImage !== 'function') return false;
 
@@ -330,7 +334,7 @@ async function printSheetViaHelper(html) {
       body: JSON.stringify({
         printer,
         png: shot.image.replace(/^data:image\/\w+;base64,/, ''),
-        name: 'ورقة تزويد',
+        name: jobName || 'ورقة تزويد',
       }),
       signal: ctl.signal,
     });
@@ -339,6 +343,9 @@ async function printSheetViaHelper(html) {
     if (res.ok && out.ok) {
       setPrintOutcome(true, 'اتطبعت من البرنامج المساعد.');
       notePrintRoute('helper');
+      // ⏳ م٢ — نشوف الورقة مشيت من الطابور ولا قعدت. الشرح عند
+      // watchPrintQueue.
+      if (typeof watchPrintQueue === 'function') watchPrintQueue();
       return true;
     }
     // ⚠️⚠️ الحالة الخطيرة: البرنامج **طبع فعلًا** بس إحنا مقدرناش
@@ -400,7 +407,7 @@ async function printSheetsViaHelper(list, onProgress) {
 
   let done = 0;
   for (let i = 0; i < list.length; i++) {
-    const ok = await printSheetViaHelper(list[i].html);
+    const ok = await printSheetViaHelper(list[i].html, list[i].name);
     if (!ok) {
       // ⚠️ الفشل **قبل** أول ورقة = رجوع نضيف لـQZ. مافيش ورق اتحرق.
       if (done === 0) return false;
@@ -2403,6 +2410,63 @@ async function readHelperPrinterState() {
   printerStateCache = out;
   printerStateAt = Date.now();
   return out;
+}
+
+// ============================================================
+// ⏳ الطابور الواقف — م٢، الجزء اللي في النظام
+// ============================================================
+// البرنامج بيعدّ أوامر الطباعة اللي في ويندوز ولسه مامشيتش، وبيقول
+// "واقف" لما نفس العدد يفضل مكانه أكتر من دقيقة (الشرح الكامل في
+// helper/queuewatch.go).
+//
+// ⚠️⚠️ والنظام بيقول "اتبعت ✅" بمجرد ما البايتات تروح لويندوز —
+// واللي بيحصل بعد كده هو مش شايفه. الطابعة مطفية؟ الكابل مقطوع؟
+// الورقة قاعدة في الطابور وصاحب المحل واقف مستنيها.
+//
+// ⚠️ والبرنامج بياخد **عيّنة مع كل سؤال** (مافيش شغل في الخلفية
+// عنده)، فلازم نسأل مرتين: واحدة على طول بعد الطبعة عشان نسجّل
+// العدد، وواحدة بعد دقيقة عشان نشوف اتحرّك ولا لأ. سؤال واحد
+// مايقدرش يحكم — مافيش حاجة يقارن بيها.
+//
+// ⚠️ النداءين على 127.0.0.1 ومهلتهم قصيرة — الجهاز اللي مافيهوش
+// البرنامج بيعدّي على طول، والتكلفة على سرعة النظام صفر.
+const QUEUE_SETTLE_MS = 70000;
+let queueCheckTimer = null;
+
+async function readHelperQueue() {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), HELPER_PROBE_MS);
+    const res = await fetch(HELPER_URL + '/printer/queue', { signal: ctl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    // البرنامج مش شغّال أو النداء اتأخّر — مفيش كلام، ده طبيعي.
+    return null;
+  }
+}
+
+// بتتنده **بعد** ما الورقة تتبعت بنجاح.
+function watchPrintQueue() {
+  // ⚠️ العيّنة الأولى دلوقتي حالًا: من غيرها السؤال اللي بعد دقيقة
+  // بيبقى أول عيّنة، ومفيش حاجة يقارن بيها — فعمره ما هيقول "واقف".
+  readHelperQueue();
+
+  // ⚠️ طبعة جديدة بتلغي الفحص القديم: الأوراق بتتبعت ورا بعض،
+  // ومانعملش فحص لكل ورقة.
+  if (queueCheckTimer) clearTimeout(queueCheckTimer);
+  queueCheckTimer = setTimeout(async () => {
+    queueCheckTimer = null;
+    const q = await readHelperQueue();
+    if (!q || !q.stuck) return;
+    showPrintNotice(
+      (q.summary || 'فيه أمر طباعة واقف في الويندوز') +
+        ' — شوف الطابعة مولّعة والكابل واصل. الورقة محفوظة في البرنامج وتقدر تطبعها تاني من السجلات.',
+      15000,
+      'warn'
+    );
+  }, QUEUE_SETTLE_MS);
 }
 
 // ============================================================

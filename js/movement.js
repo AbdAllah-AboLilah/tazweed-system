@@ -437,7 +437,29 @@ function computeMovementReport() {
     const st = stats[gradeStatsId(g.catId, g.gradeId)] || null;
     const cat = cats[g.catId] || null;
     const catName = (cat && cat.name) || (st && st.categoryName) || 'بدون فئة';
-    const label = `درجة ${g.name || g.number || ''}`;
+    // ⚠️ اسم المجموعة قبل الدرجة ("كيوي درجة 56") — نفس الدالة اللي
+    // بتكتب اسم الدرجة على الملصق، مش نسخة تانية منها. الفئة اللي
+    // مالهاش مجموعات بيفضل اسمها زي ما هو بالحرف.
+    //
+    // ⚠️ كانت هنا `درجة ${g.name || g.number}` — ودي كمان كانت بتكتب
+    // "درجة أبيض" للدرجة الأساسية، وgradeDisplayName بتكتبها "أبيض"
+    // زي باقي النظام.
+    //
+    // ⚠️⚠️ ودرجة **من غير رقم** بترجع للشكل القديم. اتقاس: gradeLabelText
+    // على درجة مافيهاش number بتكتب "درجة undefined" — لأن
+    // gradeDisplayName بتقرا الاسم للأساسية بس. كل طرق الإضافة في
+    // النظام بتكتب الرقم، بس درجة قديمة أو جاية من استيراد ممكن
+    // ماتكونش. والشكل القديم كان بيتعامل معاها (g.name || g.number).
+    //
+    // ⚠️ ومش بنصلّح ده جوه gradeDisplayName نفسها: الدالة دي هي اللي
+    // بتكتب الاسم **على الملصق المطبوع**، والملصق مايتلمسش من غير
+    // موافقة صاحب المشروع.
+    const hasNumber = g.number !== undefined && g.number !== null && g.number !== '';
+    const group = g.group ? String(g.group).trim() : '';
+    const label =
+      typeof gradeLabelText === 'function' && (hasNumber || (g.isBase && g.name))
+        ? gradeLabelText(g, true)
+        : `${group ? group + ' ' : ''}درجة ${g.name || g.number || ''}`;
 
     // ---- بتسحب بسرعة ----
     const soldSpan = st && st.soldByMonth

@@ -90,8 +90,13 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     const notices = [];
     const realNotice = window.showPrintNotice;
     window.showPrintNotice = (m) => notices.push(String(m));
+    calls.length = 0;
     out.refuseResult = await printSheetViaHelper('<p>ورقة</p>');
     out.refuseSaid = notices.join(' | ');
+    // ⚠️ الطبعة اللي مااتأكدتش مافيش ورقة ننتظرها في الطابور —
+    // فالسؤال عن الطابور مالوش لازمة، وإنذار "واقف" بعده هيبقى
+    // إنذار على حاجة مش موجودة أصلًا.
+    out.refuseQueueCalls = calls.filter((c) => c.url.indexOf('/printer/queue') > -1).length;
 
     // ولو الاتصال اتقطع خالص — نفس المنطق
     mode = 'down';
@@ -167,7 +172,17 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     r.offResult === false && r.offCalls === 0, [r.offResult, r.offCalls]);
   check('⭐⭐⭐ والمفتاح مفتوح → الورقة راحت للبرنامج', r.onResult === true, r.onResult);
   check('⭐⭐ وبينده الحالة الأول وبعدين الطباعة',
-    JSON.stringify(r.onCalls) === JSON.stringify(['GET /status', 'POST /print']), r.onCalls);
+    // ⚠️⚠️ النداء التالت (/printer/queue) اتضاف في م٢ وهو **ضروري**:
+    // البرنامج بياخد عيّنة من الطابور مع كل سؤال (مافيش شغل في
+    // الخلفية عنده)، فالعيّنة دي هي اللي السؤال اللي بعد دقيقة
+    // هيقارن بيها. من غيرها، السؤال اللي بعد دقيقة بيبقى أول عيّنة
+    // وعمره ما هيقول "واقف". (helper/queuewatch.go)
+    JSON.stringify(r.onCalls) === JSON.stringify(['GET /status', 'POST /print', 'GET /printer/queue']),
+    r.onCalls);
+  check('⭐⭐⭐ والعيّنة الأولى من الطابور بتتاخد **بعد** الطبعة مش قبلها',
+    r.onCalls.indexOf('GET /printer/queue') === r.onCalls.length - 1, r.onCalls);
+  check('⭐⭐⭐ والطبعة الفاشلة مابتسألش عن الطابور (مافيش ورقة تنتظرها)',
+    r.refuseQueueCalls === 0, r.refuseQueueCalls);
   check('⭐⭐ والطباعة POST مش GET', r.printIsPost);
   check('⭐⭐⭐⭐ والحالة بتتفحص **مرة واحدة** مش مع كل طبعة',
     r.repeatStatusCalls === 0 && r.repeatPrintCalls === 2, [r.repeatStatusCalls, r.repeatPrintCalls]);
@@ -184,6 +199,81 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐ ومابيروحش لـQZ بعدها (مش طبعتين)', r.remoteSkippedQZ);
   check('⭐⭐⭐ مفتاح الورقة لوحده مايوديش الملصق للبرنامج', r.labelTouchedHelper === false);
   check('⭐ والمفتاح مقفول افتراضيًا', r.defaultOff);
+
+  // ============================================================
+  // ⏳ م٢ — التنبيه لما الورقة تقعد في الطابور
+  // ============================================================
+  // ⚠️⚠️ الحاجة اللي الفحص ده موجود عشانها: النظام بيقول "اتبعت ✅"
+  // بمجرد ما البايتات تروح لويندوز. لو الطابعة مطفية أو الكابل
+  // مقطوع، الورقة بتقعد في الطابور وصاحب المحل واقف مستنيها —
+  // والنظام ساكت.
+  const q = await p.evaluate(async () => {
+    const out = {};
+    const notices = [];
+    const realNotice = window.showPrintNotice;
+    window.showPrintNotice = (t) => notices.push(String(t));
+    const realFetch = window.fetch;
+    let reply = { stuck: false, jobs: 0, summary: 'الطابور فاضي' };
+    const asked = [];
+    window.fetch = async (url) => {
+      asked.push(String(url));
+      return { ok: true, json: async () => reply };
+    };
+
+    // ⚠️ بنستعجل المهلة بدل ما نستنى 70 ثانية حقيقية
+    const realTimeout = window.setTimeout;
+    window.setTimeout = (fn, ms) => realTimeout(fn, ms >= 60000 ? 5 : ms);
+
+    // (١) الطابور ماشي → مفيش أي كلام
+    watchPrintQueue();
+    await new Promise((r) => realTimeout(r, 60));
+    out.quietWhenMoving = notices.length === 0;
+    out.sampledTwice = asked.filter((u) => u.indexOf('/printer/queue') > -1).length === 2;
+
+    // (٢) الطابور واقف → تنبيه
+    notices.length = 0;
+    reply = { stuck: true, jobs: 2, stuckSeconds: 130, summary: '⚠️ فيه 2 أمر طباعة واقف في الويندوز من 2 دقيقة' };
+    watchPrintQueue();
+    await new Promise((r) => realTimeout(r, 60));
+    out.warned = notices.join(' | ');
+
+    // (٣) ⚠️ البرنامج مش شغّال → سكوت تام، مش رسالة خطأ
+    notices.length = 0;
+    window.fetch = async () => { throw new Error('مفيش اتصال'); };
+    watchPrintQueue();
+    await new Promise((r) => realTimeout(r, 60));
+    out.quietWhenHelperDown = notices.length === 0;
+
+    window.setTimeout = realTimeout;
+    window.fetch = realFetch;
+    window.showPrintNotice = realNotice;
+    return out;
+  });
+  check('⭐⭐⭐ الطابور ماشي → النظام ساكت', q.quietWhenMoving, q);
+  check('⭐⭐⭐ وبياخد **عيّنتين**: واحدة بعد الطبعة وواحدة بعد دقيقة',
+    q.sampledTwice, q);
+  check('⭐⭐⭐ الطابور واقف → بيقول، وبيقول العدد والمدة',
+    /واقف/.test(q.warned) && /2 أمر/.test(q.warned) && /دقيقة/.test(q.warned), q);
+  check('⭐⭐ وبيقول له يعمل إيه (الورقة محفوظة وتتطبع تاني)',
+    /الورقة محفوظة/.test(q.warned) && /السجلات/.test(q.warned), q);
+  check('⭐⭐⭐ والبرنامج مش شغّال → سكوت تام مش رسالة خطأ',
+    q.quietWhenHelperDown, q);
+
+  // ⚠️ واسم أمر الطباعة بيقول أنهي فئة — بيبان في طابور الويندوز
+  // وفي سجل الطباعة المحلي.
+  const jobName = await p.evaluate(() => ({
+    withGroup: restockJobName({ name: 'كريب سادة لوكس' }, 'بيجات'),
+    noGroup: restockJobName({ name: 'شيفون مطرز' }, ''),
+    noCat: restockJobName(null, ''),
+    long: restockJobName({ name: 'ط'.repeat(200) }, 'م'.repeat(50)).length,
+  }));
+  check('⭐⭐ اسم أمر الطباعة فيه الفئة والمجموعة',
+    jobName.withGroup === 'ورقة تزويد — كريب سادة لوكس · بيجات', jobName);
+  check('⭐ ومن غير مجموعة بيبقى الفئة بس',
+    jobName.noGroup === 'ورقة تزويد — شيفون مطرز', jobName);
+  check('⭐ ومن غير فئة بيفضل مقروء', jobName.noCat === 'ورقة تزويد', jobName);
+  check('⭐⭐ والاسم الطويل بيتقص عند 60 (طابور الويندوز بيقصّه أوحش)',
+    jobName.long === 60, jobName);
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();
