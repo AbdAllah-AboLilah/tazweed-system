@@ -556,6 +556,38 @@ function editUserRole(uid) {
         ${categoryAccessHTML(user)}
       </div>
 
+      <!-- ============================================================
+           🔢 الكمية على ورقة التزويد — الشرح عند RESTOCK_QTY_MODES
+           في js/print-restock.js
+           ============================================================
+           اتطلب بالنص: "مفتاح افتحه ل اللي انا عاوزه".
+
+           ⚠️⚠️ ده **مش** مفتاح صلاحية (perms): مابيفتحش ولا بيقفل أي
+           حاجة في السحابة — الكميات أصلًا بيشوفها الحساب في الشاشة.
+           ده بيحدد **شكل الورقة اللي بيطبعها** الحساب ده بس. ومكتوب
+           في وثيقة الحساب، وfirestore.rules بتمنع أي حد غير الأدمن
+           يعدّلها — يعني محدش يقدر يفتحه لنفسه.
+
+           ⚠️ والسطر اللي تحت بيقول التمن بالأرقام اللي اتقاست، عشان
+           اللي بيفتحه يعرف إن الورقة هتطول قبل ما يطبع. -->
+      <div class="field">
+        <label>🔢 يطبع الكمية جنب الدرجة في ورقة التزويد؟</label>
+        <select class="input" id="eu-restock-qty">
+          <option value="" ${!user.restockQty ? 'selected' : ''}>لأ — الورقة زي ما هي</option>
+          <option value="branch" ${user.restockQty === 'branch' ? 'selected' : ''}>كمية الفرع</option>
+          <option value="main" ${user.restockQty === 'main' ? 'selected' : ''}>كمية الرئيسي</option>
+          <option value="both" ${user.restockQty === 'both' ? 'selected' : ''}>الاتنين (الفرع فوق والرئيسي تحت)</option>
+        </select>
+        <div style="font-size:11px; color:var(--text-secondary); margin-top:4px; line-height:1.7;">
+          ده بيفتح <strong>الاختيار</strong> بس: وقت الطباعة هيلاقي علامة
+          «اطبع الكميات» <strong>مش متعلّم عليها</strong> — يعلّم عليها للطبعة
+          اللي عايزها بكميات، والمرة الجاية بترجع مشالة.
+          <br>لما يعلّم عليها، الورقة بتنزل من <strong>٤ أعمدة لـ٣</strong> عشان
+          الكمية تدخل من غير ما تاخد من مكان الكتابة، و<strong>بتطول</strong>:
+          فئة ٤٠ درجة بتبقى حوالي ٩ سم بدل ٦.٥ (والاتنين حوالي ١٠ سم).
+        </div>
+      </div>
+
       <div class="field">
         <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
           <input type="checkbox" id="eu-shared" ${user.sharedAccount ? 'checked' : ''} />
@@ -692,6 +724,13 @@ function editUserRole(uid) {
         sharedAccount: document.getElementById('eu-shared').checked,
         categoryAccess: readCategoryAccess(),
         perms,
+        // 🔢 الكمية على ورقة التزويد — الشرح عند الخانة فوق.
+        // ⚠️ قيمة من القايمة بس — أي حاجة تانية بتتحفظ فاضية (مقفول).
+        restockQty: ['branch', 'main', 'both'].indexOf(
+          (document.getElementById('eu-restock-qty') || {}).value
+        ) > -1
+          ? document.getElementById('eu-restock-qty').value
+          : '',
       });
       await logActivity({ action: 'edit_user', categoryName: user.name || '', newValue: role });
       close();

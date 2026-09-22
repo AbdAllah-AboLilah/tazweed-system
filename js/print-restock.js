@@ -327,7 +327,107 @@ const HATCH_CELL_LITE = `<svg class="hatch"><rect width="100%" height="100%" fil
 // بيتبعت لـQZ مع الورقة ويتحسب في حجم الرسالة (حد التقسيم 44 كيلو) —
 // وكمان بيلخبط الفحوصات اللي بتدوّر على كلمات جوه الـHTML.
 // groupName: اسم مجموعة ألوان واحدة عشان تتطبع لوحدها، أو '' للورقة كلها.
-function buildRestockHTML(cat, grades, groupName, withBase, filterMode) {
+// ============================================================
+// 🔢 الكمية على ورقة التزويد — مفتاح لكل حساب
+// ============================================================
+// اتطلب بالنص: "ممكن نضيف اوبشن ب مفتاح افتحه ل اللي انا عاوزه بردوا
+// المفتاح بيخص اني اطبع الكمية اللي موجوده عندي في الفرع او المخزن
+// الرئيسي او الاتنين مع بعض في خانة الفارغه اللي جنب الدرجة".
+//
+// واتوافق على الشكل ده بعد ما اتقاست الورقة الحقيقية:
+//
+//   ٤ أعمدة (زي ما هي): الخانة 14.88 مم = رقم 2.53 + كتابة 11.82
+//   ٣ أعمدة (المفتاح مفتوح): الخانة ~21 مم = رقم + كمية + كتابة أوسع
+//
+// ⚠️⚠️ يعني الكمية **مابتاخدش من مكان الكتابة** — الورقة بتنزل عمود
+// عشان الاتنين يدخلوا، ومساحة الكتابة بتكبر. التمن: الورقة بتطول.
+// اتقال بالنص ده قبل التنفيذ: "ماشي اعمل اقتراحك الاخير فيها".
+//
+// ⚠️⚠️ مقفول = **الورقة بايت ببايت زي ما كانت**. مافيش ولا حرف زيادة
+// في الـHTML ولا في التنسيقات — فيه فحص بيقارن الاتنين.
+//
+// ⚠️ والمفتاح على **الحساب** مش على الجهاز: "افتحه ل اللي انا
+// عاوزه". وبيتكتب من شاشة الحسابات بس — firestore.rules بتمنع أي حد
+// غير الأدمن يعدّل وثيقة حساب (غير lastSeen بتاعه). يعني محدش يقدر
+// يفتحه لنفسه.
+const RESTOCK_QTY_MODES = ['branch', 'main', 'both'];
+const RESTOCK_QTY_LEGEND = {
+  branch: 'الرقم جنب الدرجة = كمية الفرع',
+  main: 'الرقم جنب الدرجة = كمية الرئيسي',
+  both: 'الرقمين جنب الدرجة: فوق = الفرع، تحت = الرئيسي',
+};
+
+function restockQtyMode() {
+  const p = typeof state !== 'undefined' && state ? state.profile : null;
+  const m = p && p.restockQty;
+  return RESTOCK_QTY_MODES.indexOf(m) > -1 ? m : '';
+}
+
+// ⚠️ الكمية المش موجودة بتتكتب "–" مش "0": الصفر معناه "الرف فاضي"،
+// والحقل المش موجود معناه "مانعرفش". نفس الفرق اللي gradeIsOut فوق
+// بتعمله بالظبط — ولو اتعاملوا زي بعض، درجة قديمة من غير كميات
+// هتتطبع "0" وحد يروح يطلب لها تزويد وهي مليانة.
+function restockQtyValue(v) {
+  if (v === undefined || v === null || v === '') return '–';
+  const n = Number(v);
+  return isFinite(n) ? String(n) : '–';
+}
+
+// ============================================================
+// ⚠️⚠️ «الاتنين» = رقمين **فوق بعض** — والسبب قياس
+// ============================================================
+// أول نسخة كانت "4/12" جنب بعض. اتقاست على الورقة الحقيقية (40 درجة،
+// كميات لحد 3 خانات) وده اللي طلع — أضيق خانة كتابة في الورقة:
+//
+//     النهارده (المفتاح مقفول) ...... 10.35 مم
+//     جنب بعض، 3 أعمدة ............... 6.66 مم   ← الكتابة صغرت التلت
+//     فوق بعض، 3 أعمدة ............... 10.50 مم  ← زي النهارده
+//     جنب بعض، عمودين ................ 17.58 مم  (بس الورقة +5 سم)
+//
+// والشرط اللي الميزة كلها اتوافق عليه كان "الكمية مابتاخدش من مكان
+// الكتابة". جنب بعض كسره. فوق بعض بيحافظ عليه، والتمن ورق أطول.
+//
+// ⚠️ وكمان "4/12" كنص كان فيه فخ تاني: الأرقام بتترسم من الشمال
+// لليمين حتى في صفحة عربي، فالـ4 بتقف على **الشمال** — واللي بيقرا
+// عربي بيبدأ من اليمين فبيقرا 12 الأول ويفتكرها الفرع. فوق بعض
+// مافيهاش الفخ ده خالص: الفرع فوق، والرئيسي تحت، وسطر في راس
+// الورقة بيقول كده.
+function restockQtyCell(g, mode) {
+  if (!mode) return '';
+  if (mode === 'both') {
+    return (
+      `<span class="qty qty-both"><i>${escapeHTML(restockQtyValue(g.branchQty))}</i>` +
+      `<i>${escapeHTML(restockQtyValue(g.mainQty))}</i></span>`
+    );
+  }
+  const v = mode === 'main' ? g.mainQty : g.branchQty;
+  return `<span class="qty"><i>${escapeHTML(restockQtyValue(v))}</i></span>`;
+}
+
+// ⚠️ مافيش ولا تعليق جوه النص ده: التنسيقات دي بتتبعت لـQZ كنص،
+// والتعليقات بتتحسب في حجم الرسالة (الشرح عند اللافتة تحت).
+//
+// ⚠️⚠️ `.grid:not(.base-grid)` مش `.grid`: شبكة الأساسية فيها
+// الكلاسين الاتنين، و`.grid{column-count:3}` جاية **بعد**
+// `.base-grid{column-count:2}` في الترتيب — فكانت هتكسبها وتقلب
+// شبكة الأسماء لـ3 أعمدة والأسماء متتقصّش.
+const RESTOCK_QTY_CSS =
+  '.grid:not(.base-grid){column-count:3}' +
+  '.row .qty{display:flex;align-items:center;justify-content:center;gap:1px;' +
+  'padding:1px 2px;font-size:9px;font-weight:normal;white-space:nowrap;' +
+  'border-inline-start:1px solid #000}' +
+  '.row .qty i{font-style:normal}' +
+  '.row .qty-both{flex-direction:column;gap:0;line-height:1.05}';
+
+// ⚠️⚠️ الكميات بتتطبع **بس** لو الاتنين: المفتاح مفتوح للحساب **و**
+// الطبعة دي طالباها صراحةً (withQty === true — العلامة في شاشة "تطبع
+// أنهي جزء؟"). اتطلب بالنص إن العلامة تبقى مشالة كل مرة، فأي نداء
+// مش طالبها صراحةً بيطلّع الورقة العادية.
+//
+// ⚠️ وده بيقفل باب تاني كمان: أي مكان في النظام بيبني الورقة من غير
+// ما يعدّي على الشاشة (طباعة عن بُعد، معاينة) مش هيطلّع كميات لوحده.
+function buildRestockHTML(cat, grades, groupName, withBase, filterMode, withQty) {
+  const qtyMode = withQty === true ? restockQtyMode() : '';
   // ⭐ اسم اليوم جنب التاريخ — الورقة بتتعلّق على الرف وبتتقارن بغيرها،
   // و"السبت" أسرع في القراية من "٢٠٢٦/٩/٥" وانت ماسك الورقة في إيدك.
   // ⚠️ التاريخ والوقت نفسهم **مالمسناهمش** — بس بنزوّد اليوم قبلهم.
@@ -360,12 +460,16 @@ function buildRestockHTML(cat, grades, groupName, withBase, filterMode) {
   // الورقة بتتبعت لـQZ كنص، والمسافات دي بتتحسب في حجم الرسالة زي أي
   // حرف تاني. الشكل المنسّق كان بيزوّد ~40 بايت على الصف — يعني 10 كيلو
   // في فئة 245 درجة، من فراغات مالهاش أي أثر على الطباعة.
+  // ⚠️ restockQtyCell بترجّع نص فاضي والمفتاح مقفول — فالصف بيطلع
+  // بايت ببايت زي ما كان.
   const rowHTML = (g) =>
     `<div class="row"><span class="num">${escapeHTML(g.number)}</span>` +
+    restockQtyCell(g, qtyMode) +
     `<span class="blank">${gradeIsOut(g) ? hatchCell : ''}</span></div>`;
 
   const baseRowHTML = (g) =>
     `<div class="row"><span class="num base-num">${escapeHTML(g.name || '')}</span>` +
+    restockQtyCell(g, qtyMode) +
     `<span class="blank">${gradeIsOut(g) ? hatchCell : ''}</span></div>`;
 
   // جسم المجموعة الواحدة: شبكة الأرقام، وتحتها شبكة أسماء الأساسية.
@@ -481,7 +585,7 @@ function buildRestockHTML(cat, grades, groupName, withBase, filterMode) {
         @media print {
           body { padding: 1mm; }
         }
-      </style>
+      ${qtyMode ? RESTOCK_QTY_CSS : ''}</style>
     </head>
     <body>
       ${HATCH_DEFS}
@@ -489,7 +593,9 @@ function buildRestockHTML(cat, grades, groupName, withBase, filterMode) {
         <div class="tab-name">${escapeHTML(sheetTitle)}</div>
         ${cat.itemName ? `<div class="item-name">${escapeHTML(cat.itemName)}</div>` : ''}
         <div class="time">${escapeHTML(now)}</div>
-        ${lastPrintAt ? `<div class="last-print">آخر طبعة قبل دي: ${escapeHTML(lastPrintAt)}</div>` : ''}
+        ${lastPrintAt ? `<div class="last-print">آخر طبعة قبل دي: ${escapeHTML(lastPrintAt)}</div>` : ''}${
+          qtyMode ? `<div class="last-print">${escapeHTML(RESTOCK_QTY_LEGEND[qtyMode])}</div>` : ''
+        }
       </div>
       ${
         // ============================================================
@@ -959,8 +1065,8 @@ function restockJobName(cat, groupName) {
   return ('ورقة تزويد' + (tail ? ' — ' + tail : '')).slice(0, 60);
 }
 
-function buildRestockBundle(cat, grades, names, withBase, filterMode) {
-  const papers = names.map((name) => buildRestockHTML(cat, grades, name, withBase, filterMode));
+function buildRestockBundle(cat, grades, names, withBase, filterMode, withQty) {
+  const papers = names.map((name) => buildRestockHTML(cat, grades, name, withBase, filterMode, withQty));
 
   const bodyOf = (html) => {
     const m = html.match(/<body>([\s\S]*?)<\/body>/i);
@@ -1041,8 +1147,12 @@ function chooseRestockGroup(cat, grades) {
     // والتاني بيطلّع ورقة فاضية.
     const needsFilterChoice = outCount > 0 && availCount > 0;
 
-    if (!needsGroupChoice && !hasBase && !needsFilterChoice) {
-      resolve({ group: '', withBase: false, filterMode: '' });
+    // 🔢 المفتاح مفتوح للحساب ده = فيه اختيار "بكميات ولا من غيرها"،
+    // فالشاشة لازم تظهر حتى لو مافيش أي اختيار تاني.
+    const qtyMode = restockQtyMode();
+
+    if (!needsGroupChoice && !hasBase && !needsFilterChoice && !qtyMode) {
+      resolve({ group: '', withBase: false, filterMode: '', withQty: false });
       return;
     }
 
@@ -1061,10 +1171,17 @@ function chooseRestockGroup(cat, grades) {
             ? `<div style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;">🗓️ آخر طبعة: <strong>${escapeHTML(lastLine)}</strong></div>`
             : ''
         }
-        <div style="font-size:12px; color:var(--text-secondary); margin-bottom:10px; line-height:1.7;">
-          اسم المجموعة هيتكتب في عنوان الورقة
-          (مثال: ${escapeHTML(cat.name)} — ${escapeHTML(options[0])})
-        </div>
+        ${
+          // ⚠️ السطر ده بيشرح **المجموعات** بس. الشاشة بقت بتظهر كمان
+          // لفئة مالهاش مجموعات خالص (عشان اختيار الكميات)، ولو السطر
+          // فضل، كان هيكتب مثال على مجموعة مش موجودة.
+          needsGroupChoice
+            ? `<div style="font-size:12px; color:var(--text-secondary); margin-bottom:10px; line-height:1.7;">
+                 اسم المجموعة هيتكتب في عنوان الورقة
+                 (مثال: ${escapeHTML(cat.name)} — ${escapeHTML(options[0])})
+               </div>`
+            : '<div style="margin-bottom:10px;"></div>'
+        }
         <div class="dialog-body" style="display:flex; flex-direction:column; gap:8px;">
           <button class="btn btn-primary" data-rg-mode="all">📄 الورقة كلها (<span data-rg-count="all">${escapeHTML(totalRelevant)}</span> درجة)</button>
           ${
@@ -1112,6 +1229,31 @@ function chooseRestockGroup(cat, grades) {
               : ''
           }
           ${
+            // ============================================================
+            // 🔢 بكميات ولا من غيرها — للطبعة دي بس
+            // ============================================================
+            // ⚠️⚠️ **مش متعلّم عليه** افتراضيًا، و**مابيتحفظش**. اتطلب بالنص:
+            // "انا عاوز الافتراضي بتاع الشيك بوكس بتاع الكميات يبقي متشال
+            // من عليه علامة الصح حتي لو علمت عليه مرة لما افتح الفئة تاني
+            // واجي اطبعها الاقيه بردوا مش متعلم عليه".
+            //
+            // يعني المفتاح اللي في الحساب بيفتح **الاختيار** بس، والطبعة
+            // نفسها بتفضل عادية لحد ما تعلّم بإيدك — كل مرة من الأول.
+            // نفس منطق "اللي خلص بس" تحت بالظبط.
+            //
+            // ⚠️ فمفيش هنا `checked` ولا قراية من أي حاجة محفوظة. ومتحطش —
+            // الفحص بيمسكها.
+            qtyMode
+              ? `<label class="print-opt" style="justify-content:center; margin-bottom:8px;">
+                   <input type="checkbox" id="rg-with-qty" />
+                   <span><strong>اطبع الكميات جنب الدرجات</strong><br>
+                     <span class="print-opt-hint">${escapeHTML(
+                       qtyMode === 'both' ? 'الفرع والرئيسي' : qtyMode === 'main' ? 'كمية الرئيسي' : 'كمية الفرع'
+                     )} — للطبعة دي بس، والورقة بتنزل ٣ أعمدة وبتطول</span></span>
+                 </label>`
+              : ''
+          }
+          ${
             hasBase
               ? `<label class="print-opt" style="justify-content:center; margin-bottom:8px;">
                    <input type="checkbox" id="rg-with-base" ${savedBase ? 'checked' : ''} />
@@ -1140,6 +1282,10 @@ function chooseRestockGroup(cat, grades) {
       const el = overlay.querySelector('#rg-with-base');
       const withBase = !!(el && el.checked);
       const filterMode = modeOf();
+      // ⚠️ من غير الخانة (المفتاح مقفول) = الورقة العادية. ومعاها =
+      // اللي انت علّمت عليه **في الطبعة دي**.
+      const qEl = overlay.querySelector('#rg-with-qty');
+      const withQty = !!(qEl && qEl.checked);
       if (overlay.parentNode) document.body.removeChild(overlay);
       if (group === null) {
         resolve(null);
@@ -1149,7 +1295,7 @@ function chooseRestockGroup(cat, grades) {
       if (el) {
         Promise.resolve(saveSharedPrintSettings({ restockWithBase: withBase })).catch(() => {});
       }
-      resolve({ group, withBase, filterMode });
+      resolve({ group, withBase, filterMode, withQty });
     };
     // ============================================================
     // ⚠️⚠️ الأرقام على الأزرار **لازم تتحدّث مع المفاتيح**
@@ -1227,7 +1373,7 @@ async function printRestockPaper(cat, grades) {
 
   const choice = await chooseRestockGroup(cat, grades);
   if (!choice) return;
-  const { group: groupName, withBase, filterMode } = choice;
+  const { group: groupName, withBase, filterMode, withQty } = choice;
 
   // ⚠️⚠️ ورقة فاضية = ورق محروق وحيرة. لو مفيش ولا درجة ناقصة، بنقولها
   // **قبل** المعاينة بدل ما يطبع ورقة عنوان من غير أرقام.
@@ -1246,7 +1392,7 @@ async function printRestockPaper(cat, grades) {
   if (groupName === RESTOCK_EACH_GROUP) {
     const names = restockGroupNames(cat, grades, withBase, filterMode);
     if (!names.length) return;
-    const bundle = buildRestockBundle(cat, grades, names, withBase, filterMode);
+    const bundle = buildRestockBundle(cat, grades, names, withBase, filterMode, withQty);
 
     // معاينة واحدة مجمّعة: كل الورق ورا بعض بخط فاصل بينهم.
     const okAll = await showPrintPreview(bundle.previewHTML, {
@@ -1266,7 +1412,7 @@ async function printRestockPaper(cat, grades) {
     return;
   }
 
-  const html = buildRestockHTML(cat, grades, groupName, withBase, filterMode);
+  const html = buildRestockHTML(cat, grades, groupName, withBase, filterMode, withQty);
 
   // معاينة قبل الطباعة — نفس فكرة الملصق: تشوف اللي هيطلع قبل ما تحرق ورق.
   // ورقة التزويد ممكن تبقى متر كامل لو الفئة فيها 165 درجة.
@@ -1301,7 +1447,7 @@ async function printRestockPaper(cat, grades) {
       showPrintNotice(
         `📄 الفئة كبيرة على أمر طباعة واحد — هتتقسّم على ${names.length} ورقة (كل مجموعة لوحدها).`
       );
-      const bundle = buildRestockBundle(cat, grades, names, withBase, filterMode);
+      const bundle = buildRestockBundle(cat, grades, names, withBase, filterMode, withQty);
       const sentSplit = await deliverPrint(
         'restock', bundle.jobs, null, 'width=700,height=800', bundle.browserHTML,
         restockLogSpec(cat, '', bundle.count, filterMode)
