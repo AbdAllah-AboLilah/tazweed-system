@@ -125,6 +125,41 @@ function productsUpdatedText() {
   return by ? `${when} — بواسطة ${by}` : when;
 }
 
+// ============================================================
+// 🔢 رقم الملف القصير — ن٣
+// ============================================================
+// اتطلب بالنص: "ايه رايك تكتب جوه بعد التحديث تكتب جواه التاريخ
+// والوقت بحيث لو مش متاكد تبص جوه ملف الاكسل تلاقي ان نفس اللي انت
+// رفعته قبل كده ... او حتي تكتب اي دي ارقام مثلا وكل مرة ترفع تكتب
+// رقم بعده وتميز بيه بره".
+//
+// ⚠️⚠️ ومش بنكتب جوه ملف الإكسل: الملف بيتولّد من الـERP، وأي حاجة
+// نكتبها جواه بتتمسح أول مرة يتصدّر تاني — وكمان مش من حقنا نعدّل
+// ملف بيطلع من برنامج تاني.
+//
+// فالرقم **بيتطلّع من الملف** مش بيتكتب جواه: أول 8 حروف من بصمته.
+// نفس الملف = نفس الرقم دايمًا، وأي حرف يتغيّر جواه = رقم مختلف.
+//
+// ⚠️ لازم يطابق shortFP في helper/productsfile.go بالحرف (8 حروف،
+// كبيرة). الرقم ده بيتقارن **بالعين** بين شاشة النظام وشاشة
+// البرنامج، ولو الاتنين كتبوه بشكل مختلف تبقى المقارنة نفسها بايظة.
+const PRODUCTS_SHORT_LEN = 8;
+
+function productsShortCode() {
+  const fp = productsMeta && productsMeta.sourceFingerprint;
+  if (typeof fp !== 'string' || fp.length < PRODUCTS_SHORT_LEN) return '';
+  return fp.slice(0, PRODUCTS_SHORT_LEN).toUpperCase();
+}
+
+// ⚠️ سطر جاهز للعرض — مكتوب مرة واحدة عشان الشاشتين يقولوا نفس
+// الكلام بنفس الشكل.
+function productsShortCodeHTML() {
+  const code = productsShortCode();
+  if (!code) return '';
+  return `<div class="prod-code">🔢 رقم الملف: <code>${escapeHTML(code)}</code>` +
+    ` <span class="prod-code-hint">— لازم يطابق اللي في البرنامج المساعد</span></div>`;
+}
+
 function readChunks(snap) {
   const chunks = [];
   let meta = null;
@@ -760,6 +795,12 @@ function productsScreenHTML() {
           }
           ${isBarcodeScanSupported() ? `<button class="btn" id="products-scan-btn">📷 مسح</button>` : ''}
           ${canManageProducts(state.profile) ? `<button class="btn" id="products-import-btn">📥 تحديث الملف</button>` : ''}
+          <!-- ⬆️ الرفع اليدوي من البرنامج المساعد — الشرح عند
+               productsManualUploadHTML في js/products-file.js.
+               ⚠️ جنب "تحديث الملف" عن قصد: الاتنين بيعملوا نفس
+               الحاجة (يستبدلوا كل الأصناف)، الفرق إن ده بياخد الملف
+               من الكمبيوتر وده بيطلب منك ملف بإيدك. -->
+          ${typeof productsManualUploadHTML === 'function' ? productsManualUploadHTML() : ''}
         </div>
         <div style="font-size:12px; color:var(--text-secondary); margin-top:10px;">
           إجمالي الأصناف: <strong>${escapeHTML(total)}</strong>
@@ -769,6 +810,7 @@ function productsScreenHTML() {
               ? `<div class="prod-updated">📅 آخر تحديث للملف: ${escapeHTML(productsUpdatedText())}</div>`
               : ''
           }
+          ${productsShortCodeHTML()}
         </div>
       </div>
 

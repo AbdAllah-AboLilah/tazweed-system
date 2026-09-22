@@ -418,7 +418,8 @@ function printWorkHTML() {
           // ⚠️ مكانه هنا عن قصد: تحت أزرار الأدوات، مش جنب زرار الطباعة —
           // عشان مايزاحمش الفعل الأساسي في الشاشة.
           typeof productsUpdatedText === 'function' && productsUpdatedText()
-            ? `<div class="prod-updated">📅 آخر تحديث لملف الأصناف: ${escapeHTML(productsUpdatedText())}</div>`
+            ? `<div class="prod-updated">📅 آخر تحديث لملف الأصناف: ${escapeHTML(productsUpdatedText())}</div>` +
+              (typeof productsShortCodeHTML === 'function' ? productsShortCodeHTML() : '')
             : ''
         }
       </div>

@@ -38,6 +38,10 @@ const state = {
   printCart: [], // [{ key, product, qty }] — سلة شاشة الطباعة
   undoCount: 0, // عدد الحركات المتاحة للتراجع (من الحفظ المحلي)
   activityLog: [],
+  // 🔎 البحث في السجل (ن٨) — بيدوّر في المحمّل بس، الشرح عند
+  // logEntryText. ⚠️ مش بيتحفظ في ذاكرة المتصفح عن قصد: كلمة بحث
+  // قديمة بتفضل مطبّقة بعد أيام وانت مش واخد بالك ليه السجل ناقص.
+  logSearch: '',
   // فيه سجل أقدم من اللي محمّل؟ وكام سطر وصل فعلًا؟
   logHasMore: false,
   logLoaded: 0,
@@ -1291,8 +1295,25 @@ function sideMenuHTML() {
         ${chip('out', '🔴 خلصت', counts.out)}
       </div>
 
-      <input class="input side-search" id="side-search" placeholder="ابحث عن فئة..."
-             value="${escapeHTML(state.categorySearch || '')}" />
+      <!-- ============================================================
+           ❌ زرار مسح البحث
+           ============================================================
+           اتطلب بالنص: "ممكن كمان نضيف زير X اللي هو في خانة البحث
+           بتاع الفئة وانا ببحث عن فئة وخلصت كتابة بعد لما بخلص مش
+           لازم افضل امسح حرف حرف اضغط علي اكس يمسح اللي مكتوب زي
+           البحث عن درجة في فئة معينه كده".
+
+           ⚠️ نفس شكل ونفس منطق زرار بحث الدرجة بالحرف (grade-search-clear)
+           — عشان اللي يتعلّمه في شاشة يلاقيه نفسه في التانية. -->
+      <div class="side-search-row">
+        <input class="input side-search" id="side-search" placeholder="ابحث عن فئة..."
+               value="${escapeHTML(state.categorySearch || '')}" />
+        ${
+          state.categorySearch
+            ? `<button class="btn side-search-clear" id="side-search-clear" title="مسح البحث">✕</button>`
+            : ''
+        }
+      </div>
 
       <div class="side-list">
         ${
@@ -2645,6 +2666,49 @@ function activityEntryParts(entry) {
   return { when, itemLabel, detailLabel };
 }
 
+// ============================================================
+// 🔎 البحث في سجل العمليات — ن٨
+// ============================================================
+// ⚠️⚠️ البحث بيشتغل على **اللي محمّل قدامك بس** — مش على السحابة.
+//
+// والسبب مش كسل: البحث في السحابة معناه استعلام جديد مع كل حرف،
+// وده قراءات بتتحسب عليك في الباقة المجانية، وبطء في كل ضغطة زرار.
+// والسجل أصلًا بيتحمّل على دفعات وانت اللي بتقرر تجيب أكتر.
+//
+// ⚠️ وعشان كده **السطر اللي تحت الشباك بيقول كده صراحةً**: من غير
+// الجملة دي، حد يدوّر على عملية من شهرين، مايلاقيهاش، ويفتكر إنها
+// ماحصلتش خالص — وهي محصلة ومش محمّلة.
+//
+// ⚠️⚠️ والبحث **مش** على الـHTML اللي بيتعرض: activityEntryParts
+// بترجّع نص مهرّب (escapeHTML)، يعني "شركة & أولاد" جواها
+// "&amp;". لو دوّرنا في النص ده، اللي يكتب "&" هيلاقي كل سطر فيه
+// أي رمز مهرّب. فبنرجّع النص لأصله الأول.
+function unescapeForSearch(html) {
+  return String(html || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    // ⚠️ &amp; آخر واحدة عن قصد: لو اتعملت الأول، "&amp;lt;" كانت
+    // هتبقى "&lt;" وبعدين "<" — وده نص مش موجود أصلًا في السطر.
+    .replace(/&amp;/g, '&');
+}
+
+// نص السطر كامل للبحث — الفئة والدرجة والعملية والشخص والوقت.
+//
+// ⚠️ بيتبني من activityEntryParts نفسها مش من الحقول الخام: كده أي
+// نوع عملية جديد بيبقى قابل للبحث **لوحده** من غير ما حد يفتكر
+// يضيفه هنا. ودي غلطة سهلة تحصل — حصلت فعلًا مع "undo" اللي كان
+// بيطلع خام في السجل.
+function logEntryText(entry) {
+  const parts = activityEntryParts(entry);
+  return normalizeArabic(
+    unescapeForSearch(`${parts.itemLabel} ${parts.detailLabel} ${parts.when} ${entryWho(entry)}`)
+  );
+}
+
 function activityLogHTML() {
   const kinds = getLogKinds();
   const tab = getLogTab();
@@ -2653,6 +2717,9 @@ function activityLogHTML() {
   const pageSize = getLogPageSize();
 
   const all = state.activityLog || [];
+  // ⚠️ بنطبّع الكلمة **مرة واحدة** بره الحلقة: مع 500 سطر، التطبيع
+  // جوه الحلقة معناه 500 نداء زيادة على كل حرف بتكتبه.
+  const q = normalizeArabic(state.logSearch || '');
   const rows = all.filter((e) => {
     const kind = LOG_KIND_OF[e.action];
     // تاب قسم معيّن = القسم ده بس، والشيك بوكس مالهاش دعوة.
@@ -2669,7 +2736,7 @@ function activityLogHTML() {
     if (e.pending) return true;
     const t = e.timestamp && e.timestamp.toDate ? e.timestamp.toDate().getTime() : 0;
     return t >= cutoff;
-  });
+  }).filter((e) => !q || logEntryText(e).indexOf(q) > -1);
 
   const counts = {};
   LOG_KINDS.forEach((k) => (counts[k.key] = 0));
@@ -2709,6 +2776,25 @@ function activityLogHTML() {
             ? `<button class="btn" id="log-more">⬇️ اعرض أكتر</button>`
             : ''
         }
+      </div>
+
+      <!-- ============================================================
+           🔎 البحث — ن٨
+           ============================================================
+           ⚠️ نفس شكل ومنطق بحث الدرجة وبحث الفئة بالحرف: زرار ✕
+           بيبان لما يكون فيه كلام، والمؤشر بيفضل في الخانة بعد
+           الرسم عشان الكيبورد مايقفلش في التليفون. -->
+      <div class="log-row" style="margin-top:8px;">
+        <div class="grade-search-row" style="flex:1; margin-bottom:0;">
+          <input class="input grade-search" id="log-search" inputmode="search"
+                 value="${escapeHTML(state.logSearch || '')}"
+                 placeholder="🔎 ابحث في اللي محمّل — فئة، درجة، اسم، أو كلمة..." />
+          ${
+            state.logSearch
+              ? `<button class="btn grade-search-clear" id="log-search-clear" title="مسح البحث">✕</button>`
+              : ''
+          }
+        </div>
       </div>
 
       <div class="log-tabs" role="tablist">
@@ -2762,13 +2848,30 @@ function activityLogHTML() {
             ? `<br>وبالفلترة باين <strong>${escapeHTML(rows.length)}</strong> منهم.`
             : ''
         }
+        ${
+          // ⚠️⚠️ أهم سطر في الميزة دي: البحث بيدوّر في المحمّل بس.
+          // من غيره، اللي يدوّر على عملية قديمة ومايلاقيهاش هيفتكر
+          // إنها ماحصلتش — وهي محصلة ومش محمّلة.
+          state.logSearch
+            ? `<br>🔎 البحث بيدوّر في <strong>${escapeHTML(all.length)}</strong> عملية المحمّلة${
+                state.logHasMore
+                  ? ' — <strong>مش في السجل كله</strong>. لو مالقيتش اللي بتدوّر عليه، دوس ⬇️ اعرض أكتر أو وسّع المدة الأول.'
+                  : ' — ودول كل اللي موجود.'
+              }`
+            : ''
+        }
       </div>
     </div>`;
 
   if (!rows.length) {
-    return `${toolbar}<div class="home-empty" style="padding:2rem; text-align:center;">${
-      all.length ? 'مفيش عمليات في المدة/الأقسام دي.' : 'لا يوجد أي عمليات مسجّلة بعد.'
-    }</div>`;
+    // ⚠️ الرسالة بتقول السبب الحقيقي: "مفيش نتيجة للبحث" غير "مفيش
+    // عمليات في المدة دي" — والاتنين بيتصلّحوا بطريقة مختلفة.
+    const why = state.logSearch
+      ? `مفيش نتيجة لـ«${escapeHTML(state.logSearch)}» في الـ${escapeHTML(all.length)} عملية المحمّلة.`
+      : all.length
+        ? 'مفيش عمليات في المدة/الأقسام دي.'
+        : 'لا يوجد أي عمليات مسجّلة بعد.';
+    return `${toolbar}<div class="home-empty" style="padding:2rem; text-align:center;">${why}</div>`;
   }
 
   // ============================================================
@@ -2825,6 +2928,33 @@ function activityLogHTML() {
 }
 
 function attachActivityLogEvents() {
+  // 🔎 البحث — نفس منطق بحث الدرجة: بنسجّل الحرف فورًا ونأجّل الرسم.
+  const logSearch = document.getElementById('log-search');
+  if (logSearch) {
+    let timer = null;
+    logSearch.addEventListener('input', () => {
+      state.logSearch = logSearch.value;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        renderFromData();
+        const again = document.getElementById('log-search');
+        if (again) {
+          again.focus();
+          again.setSelectionRange(again.value.length, again.value.length);
+        }
+      }, 200);
+    });
+  }
+  const logSearchClear = document.getElementById('log-search-clear');
+  if (logSearchClear) {
+    logSearchClear.addEventListener('click', () => {
+      state.logSearch = '';
+      renderFromData();
+      const again = document.getElementById('log-search');
+      if (again) again.focus();
+    });
+  }
+
   document.querySelectorAll('[data-log-days]').forEach((btn) => {
     btn.addEventListener('click', () => {
       setLogDays(btn.getAttribute('data-log-days'));
@@ -3177,6 +3307,21 @@ function attachDashboardEvents() {
           again.setSelectionRange(again.value.length, again.value.length);
         }
       }, 200);
+    });
+  }
+
+  // ⚠️ نفس منطق grade-search-clear بالحرف: بنفضّي الحالة ونعيد الرسم،
+  // والزرار نفسه بيختفي لأنه مربوط بوجود نص أصلًا.
+  const sideSearchClear = document.getElementById('side-search-clear');
+  if (sideSearchClear) {
+    sideSearchClear.addEventListener('click', () => {
+      state.categorySearch = '';
+      render();
+      // ⚠️⚠️ بنرجّع التركيز على الخانة بعد الرسم: اللي بيمسح غالبًا
+      // بيكتب تاني على طول، والكيبورد في التليفون بيتقفل مع الرسم —
+      // فمن غير السطر ده بيضطر يدوس على الخانة تاني.
+      const again = document.getElementById('side-search');
+      if (again) again.focus();
     });
   }
 
@@ -6638,6 +6783,9 @@ function init() {
       state.activeCategoryId = null;
       state.screen = 'home';
       state.activityLog = [];
+      // ⚠️ وكلمة البحث كمان: اللي يدخل بعده مايلاقيش السجل مفلتر
+      // بكلمة حد تاني كتبها.
+      state.logSearch = '';
       // ⚠️ اللي حمّل 500 سطر وخرج، اللي يدخل بعده مايبدأش بـ500.
       logPages = 1;
       state.logHasMore = false;

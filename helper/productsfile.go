@@ -365,6 +365,39 @@ func handleProductsFilePick(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============================================================
+// ⬆️ زرار «ارفع دلوقتي» — POST /products/upload-now
+// ============================================================
+// اتطلب بالنص: "ممكن تضيف زرار رفع في البرنامج المساعد عشان لو مش
+// متاكد انه رفع اضغط عليه يرفع علي طول يعني رفع يدوي".
+//
+// ⚠️⚠️ والبرنامج **مايقدرش يرفع** — مالوش أي مفتاح سحابة، وده تقسيم
+// شغل ثابت في المشروع كله (إيده على الجهاز، والنظام إيده على
+// السحابة). فزرار «ارفع» هنا لو ادّعى إنه رفع يبقى بيكدب.
+//
+// فاللي بيعمله فعلًا: بيفتح النظام في المتصفح على علامة ?upload=1،
+// والنظام — وهو اللي معاه الحساب — بيرفع على طول. النتيجة اللي
+// المستخدم شايفها هي اللي طلبها بالظبط: دوسة واحدة والرفع بدأ.
+func handleProductsUploadNow(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST بس"})
+		return
+	}
+	info := productsFileInfo()
+	// ⚠️ مافيش ملف = مافيش حاجة تترفع. بنقول السبب بدل ما نفتح
+	// المتصفح على صفحة هتقعد تدوّر على ملف مش موجود.
+	if !info.Exists {
+		msg := info.Error
+		if msg == "" {
+			msg = "مافيش ملف أصناف متظبّط على الجهاز ده"
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"error": msg})
+		return
+	}
+	openBrowser(systemURL + "?upload=1")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "opened": true})
+}
+
+// ============================================================
 // 📶 النظام بيقول للبرنامج إن الرفع ماشي
 // ============================================================
 // POST /products/file/progress
