@@ -5,6 +5,7 @@
 // **إنذار كاذب** مش عطل في الملصق — الشرح الكامل والدليل عند decodeCell
 // تحت. لو رجع أحمر تاني، اقرا الشرح ده قبل ما تلمس الملصق نفسه.
 const { chromium } = require('playwright');
+const fs = require('fs');
 const jsQR = require('jsqr');
 const { PNG } = require('pngjs');
 const pass = [], fail = [];
@@ -218,6 +219,58 @@ function qrClearance(dataUrl) {
     out.movedRename = r3.moved; out.skippedRename = r3.skipped;
     return out;
   });
+  // ============================================================
+  // 1ب) ⭐⭐⭐ حذف المجموعة بياخد درجاتها معاه
+  // ============================================================
+  // اتبلّغ بالنص: "لما بحذف مجموعة جوه فئة معينه المفروض تنحذف بالدرجات
+  // اللي جوها مش الدرجات اللي جوه تطلع بره الفئة في الحالة دي هلاقي
+  // درجات متكرر".
+  //
+  // وقبل كده كانت الدرجات بترجع **من غير مجموعة** بدل ما تتمسح — يعني
+  // نفس رقم الدرجة يبقى موجود مرتين في الفئة.
+  const del = await p.evaluate(async () => {
+    const rows = [
+      { id:'a', d:{ number:2, group:'كيوي' } },
+      { id:'b', d:{ number:2, group:'نصار' } },
+      { id:'c', d:{ number:3, group:'كيوي' } },
+      { id:'d', d:{ number:9, group:''     } },
+      { id:'e', d:{ isBase:true, name:'أبيض', number:-3, group:'كيوي' } },
+    ];
+    window.__rows = rows;
+    window.__gradeDocs = rows.map(x => ({ id:x.id, ref:{ id:x.id }, data: () => x.d }));
+    window.db.batch = () => ({
+      update(){}, set(){},
+      delete: (ref) => { window.__rows = window.__rows.filter(r => r.id !== ref.id); },
+      commit: () => Promise.resolve(),
+    });
+
+    const inKiwi = await gradesInGroup('c1', 'كيوي');
+    await deleteGradeDocs(inKiwi);
+    return {
+      found: inKiwi.length,
+      left: window.__rows.map(r => (r.d.isBase ? r.d.name : r.d.number) + '@' + (r.d.group || 'بره')).sort().join(' , '),
+      empty: (await gradesInGroup('c1', 'مجموعة مش موجودة')).length,
+    };
+  });
+  check('⭐⭐ بيلاقي كل درجات المجموعة (والأساسية معاهم)', del.found === 3, del);
+  check('⭐⭐⭐ ودرجات المجموعة **اتمسحت** — مطلعتش بره',
+    del.left === '2@نصار , 9@بره', del);
+  check('⭐⭐ ودرجات المجموعات التانية مالهاش دعوة', /2@نصار/.test(del.left), del);
+  check('⭐ ومجموعة فاضية = مافيش حاجة تتحذف', del.empty === 0, del);
+
+  // ⚠️ حارس على الزرار نفسه: سهل إن حد يرجّع السلوك القديم (الدرجات
+  // تطلع بره بدل ما تتمسح) وهو فاكر إنه بيحمي بيانات — والنتيجة رقم
+  // درجة مكرر في الفئة.
+  const appSrc = fs.readFileSync(__dirname + '/../js/app.js', 'utf8');
+  const delAt = appSrc.indexOf("querySelectorAll('[data-group-del]')");
+  const delBlock = appSrc.slice(delAt, delAt + 2600);
+  check('⭐⭐⭐ زرار حذف المجموعة بيمسح الدرجات فعلًا',
+    /deleteGradeDocs\(/.test(delBlock), null);
+  check('⭐⭐ ومابقاش بينقلهم لبره المجموعة',
+    !/assignGroupToGrades\([^)]*''/.test(delBlock), null);
+  check('⭐⭐ والتأكيد بيقول العدد وإنه مالوش تراجع',
+    /مالوش تراجع/.test(delBlock) && /docs\.length/.test(delBlock), null);
+
   check('الحالة الأولية: 2 في تلات مجموعات',
     move.before === '2@جاد , 2@كيوي , 2@نصار , 3@كيوي , 9@نصار', move.before);
   check('⭐ "كل المجموعات": الرقم مابقاش يتكرر في الهدف',

@@ -2344,7 +2344,7 @@ const LOG_KINDS = [
   { key: 'qty',     icon: '📦', label: 'الكميات',  actions: ['edit', 'bulk_branch_qty'] },
   { key: 'restock', icon: '🔄', label: 'التزويد',  actions: ['request_shortage', 'cancel_shortage', 'fulfill_shortage', 'mark_out_of_stock', 'reset_available'] },
   { key: 'add',     icon: '➕', label: 'إضافة',    actions: ['add_category', 'add_grade', 'add_base_grades'] },
-  { key: 'del',     icon: '🗑️', label: 'حذف',      actions: ['delete_category', 'delete_grade'] },
+  { key: 'del',     icon: '🗑️', label: 'حذف',      actions: ['delete_category', 'delete_grade', 'delete_grade_bulk'] },
   { key: 'info',    icon: '⚙️', label: 'بيانات',   actions: ['edit_category_info', 'set_critical_qty'] },
   { key: 'print',   icon: '🖨️', label: 'طباعة',    actions: ['print'] },
   // ⚠️ العمليتين دول كانوا **مالهمش قسم ولا نص** — فكانوا بيطلعوا في
@@ -2585,6 +2585,15 @@ function activityEntryParts(entry) {
     // الاستيراد بالإيد وصاحب المحل مش هيعرف مين رفع.
     itemLabel = '';
     detailLabel = `📦 ملف الأصناف اترفع من البرنامج المساعد — ${escapeHTML(Number(entry.newValue) || 0)} صنف`;
+  } else if (entry.action === 'delete_grade_bulk') {
+    // ⚠️ دي كانت بتطلع في السجل **باسمها الخام** (delete_grade_bulk) —
+    // نفس اللي حصل مع التراجع بالظبط: العملية بتتسجّل ومفيش حد بيرسم
+    // سطرها. لقيتها وأنا بشتغل على حذف المجموعة.
+    itemLabel = cat + (entry.gradeGroup ? ` · ${escapeHTML(entry.gradeGroup)}` : '');
+    detailLabel = entry.gradeGroup
+      ? `🗑 حذف المجموعة بدرجاتها — ${escapeHTML(Number(entry.newValue) || 0)} درجة`
+      : `🗑 حذف ${escapeHTML(Number(entry.newValue) || 0)} درجة`;
+    if (entry.oldValue) detailLabel += `: ${escapeHTML(entry.oldValue)}`;
   } else if (entry.action === 'undo') {
     // ============================================================
     // ↩️ التراجع — كان بيطلع في السجل كلمة "undo" وبس
@@ -4616,10 +4625,45 @@ function openColorGroupsDialog(categoryId) {
       btn.addEventListener('click', () =>
         safeAsync(async () => {
           const name = btn.getAttribute('data-group-del');
-          if (!confirm(`تحذف مجموعة "${name}"؟ الدرجات مش هتتمسح — هترجع تحت "${UNGROUPED_LABEL}".`)) return;
+          const docs = await gradesInGroup(categoryId, name);
+
+          // مجموعة فاضية: مافيش حاجة تتحذف، فمافيش داعي لتحذير مخيف.
+          if (!docs.length) {
+            if (!confirm(`تحذف مجموعة "${name}"؟ (مافيش درجات جواها)`)) return;
+            saveGroups(currentGroups().filter((n) => n !== name));
+            say('✅ المجموعة اتشالت.');
+            setTimeout(draw, 150);
+            return;
+          }
+
+          // ⚠️ نفس شكل تأكيد الحذف الجماعي: العدد والأسماء وإنه مالوش
+          // تراجع — الحذف ده بياخد الكميات معاه.
+          const names = docs.slice(0, 8).map((d) => gradeDisplayName(d.data())).join('، ');
+          const more = docs.length > 8 ? ` و${docs.length - 8} غيرهم` : '';
+          const ok = confirm(
+            `هتحذف مجموعة "${name}" ومعاها ${docs.length} درجة نهائيًا:\n${names}${more}\n\n` +
+              `الكميات هتروح معاهم، والحذف ده مالوش تراجع. تكمّل؟`
+          );
+          if (!ok) return;
+
+          await deleteGradeDocs(docs);
           saveGroups(currentGroups().filter((n) => n !== name));
-          const moved = (await assignGroupToGrades(categoryId, null, null, '', name)).moved;
-          say(`✅ المجموعة اتشالت، و${moved} درجة رجعت من غير مجموعة.`);
+
+          // السجل حاجة ثانوية — فشله مايلغيش نجاح الحذف نفسه.
+          try {
+            logActivity({
+              action: 'delete_grade_bulk',
+              categoryId,
+              categoryName: (state.categories.find((c) => c.id === categoryId) || {}).name || '',
+              gradeGroup: name,
+              newValue: docs.length,
+              oldValue: docs.map((d) => gradeDisplayName(d.data())).join('، ').slice(0, 400),
+            });
+          } catch (err) {
+            console.warn('تعذّر تسجيل حذف المجموعة:', err);
+          }
+
+          say(`✅ المجموعة اتشالت ومعاها ${docs.length} درجة.`);
           setTimeout(draw, 150);
         }, 'حذف المجموعة')
       );
@@ -4794,6 +4838,37 @@ async function assignGroupToGrades(categoryId, from, to, group, onlyFromGroup, g
     skipped: skippedNumbers.length,
     skippedNumbers: [...new Set(skippedNumbers)].sort((a, b) => Number(a) - Number(b)),
   };
+}
+
+// ------------------------------------------------------------
+// 🗑 حذف مجموعة **بدرجاتها**
+// ------------------------------------------------------------
+// اتطلب بالنص: "لما بحذف مجموعة جوه فئة معينه المفروض تنحذف بالدرجات
+// اللي جوها مش الدرجات اللي جوه تطلع بره الفئة في الحالة دي هلاقي
+// درجات متكرر".
+//
+// ⚠️ وقبل كده كانت الدرجات **بترجع من غير مجموعة** بدل ما تتمسح. وده
+// كان قرار (والتأكيد كان بيقوله صراحةً)، بس نتيجته العملية إن نفس رقم
+// الدرجة يبقى موجود مرتين في الفئة — مرة كانت في المجموعة ومرة بره.
+//
+// ⚠️⚠️ والحذف ده **مالوش تراجع**: التراجع مبني على حركة واحدة على درجة
+// واحدة. عشان كده التأكيد بيكتب العدد والأسماء قبل أي حذف — نفس اللي
+// بيحصل في الحذف الجماعي (شوف deleteSelectedGrades).
+//
+// ⚠️ وبنقرا الدرجات من السحابة مش من الذاكرة: الشاشة دي ممكن تتفتح
+// لفئة مش المفتوحة حاليًا، وساعتها state.grades بتاعة فئة تانية.
+async function gradesInGroup(categoryId, groupName) {
+  const snap = await db.collection('categories').doc(categoryId).collection('grades').get();
+  return snap.docs.filter((d) => ((d.data().group || '') === groupName));
+}
+
+async function deleteGradeDocs(docs) {
+  // دفعات من 400 — الحد الأقصى للدفعة الواحدة في Firestore هو 500.
+  for (let i = 0; i < docs.length; i += 400) {
+    const batch = db.batch();
+    docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
 }
 
 // ------------------------------------------------------------

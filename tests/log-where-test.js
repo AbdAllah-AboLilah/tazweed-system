@@ -165,6 +165,31 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐⭐⭐ وnotify.js فعلًا بيقرا g.group',
     /group \? group \+ ' ' : ''/.test(notifySrc), null);
 
+  // ============================================================
+  // ⭐⭐ الحذف الجماعي كان بيطلع في السجل **باسمه الخام**
+  // ============================================================
+  // نفس اللي حصل مع التراجع بالظبط: العملية بتتسجّل ومفيش حد بيرسم
+  // سطرها، فبتقع على شبكة الأمان اللي بتكتب اسم العملية زي ما هو.
+  // اتلقت وإحنا بنشتغل على "حذف المجموعة بدرجاتها".
+  const bulk = await p.evaluate(() => ({
+    group: activityEntryParts({
+      action: 'delete_grade_bulk', categoryName: 'كريب', gradeGroup: 'كيوي',
+      newValue: 3, oldValue: 'درجة 2، درجة 3، أبيض',
+    }),
+    plain: activityEntryParts({
+      action: 'delete_grade_bulk', categoryName: 'كريب',
+      newValue: 5, oldValue: 'درجة 1، درجة 2',
+    }),
+  }));
+  check('⭐⭐⭐ حذف المجموعة مابقاش اسم خام في السجل',
+    bulk.group.detailLabel.indexOf('delete_grade_bulk') === -1, bulk.group);
+  check('⭐⭐ وبيقول إنها مجموعة بدرجاتها والعدد',
+    /المجموعة بدرجاتها/.test(bulk.group.detailLabel) && /3 درجة/.test(bulk.group.detailLabel), bulk.group);
+  check('⭐ واسم المجموعة في عنوان السطر', bulk.group.itemLabel.indexOf('كيوي') !== -1, bulk.group);
+  check('⭐⭐ والحذف الجماعي العادي (من غير مجموعة) مقروء كمان',
+    /حذف 5 درجة/.test(bulk.plain.detailLabel) &&
+    bulk.plain.detailLabel.indexOf('delete_grade_bulk') === -1, bulk.plain);
+
   check('⭐ مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();
