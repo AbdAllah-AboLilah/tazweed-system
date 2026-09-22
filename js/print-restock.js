@@ -135,6 +135,8 @@ function countRestockFilter(grades, withBase, mode) {
 // null = مالمناش الحاجة دي من السحابة لسه. {} = حاولنا ومفيش/فشلت.
 let restockPrintStamps = null;
 let restockStampsPromise = null;
+// ⚠️⚠️ القراءة وقعت؟ لازم نعرف — والشرح عند restockStampsFailed() تحت.
+let restockStampsError = false;
 
 // بتقرا المجموعة مرة واحدة في الجلسة (مستند صغير لكل فئة، 39 فئة).
 // ⚠️ مافيش onSnapshot عن قصد: ده مستمع دايم زيادة على شاشة السرعة
@@ -151,11 +153,22 @@ async function loadRestockPrintStamps(force) {
         if (at) map[d.id] = at;
       });
       restockPrintStamps = map;
+      restockStampsError = false;
     } catch (err) {
       console.warn('تعذّر قراءة تواريخ طباعة ورق التزويد:', err);
       // ⚠️ {} مش null: null معناها "حاول تاني"، فأي قطع نت كان هيخلّي
       // كل طبعة تحاول تقرا من الأول وتأخّر الشاشة.
       restockPrintStamps = restockPrintStamps || {};
+      // ⚠️⚠️ بس لازم **نفضل عارفين إنها وقعت**.
+      //
+      // اللي بيحصل من غير السطر ده: القراءة تفشل (مفيش نت، أو
+      // الصلاحية مقفولة)، الخريطة تبقى {}، وcategoryIsStale ترد
+      // "واقفة" على **كل** فئة — فقايمة "واقفة من مدة" بتطلع فيها
+      // كل فئات المحل، والشاشة بتقولها بثقة وهي مش عارفة حاجة.
+      //
+      // ودي بالظبط نوع الكدب اللي المشروع ده بيتجنّبه: الشاشة تقول
+      // حاجة مؤكّدة وهي مبنية على لا معلومة.
+      restockStampsError = true;
     }
     restockStampsPromise = null;
     return restockPrintStamps;
@@ -175,6 +188,43 @@ function canSeeRestockLastPrint() {
   const profile = typeof state !== 'undefined' && state ? state.profile : null;
   if (typeof isOwner === 'function' && isOwner(profile)) return true;
   return typeof can === 'function' && can(profile, 'seeRestockLastPrint') === true;
+}
+
+// ============================================================
+// ⏳ الفئات الواقفة من مدة — ن٤
+// ============================================================
+// اتطلب في خريطة التطوير: "الفئات الواقفة من مدة (بتستخدم تواريخ
+// restockPrints الموجودة أصلًا)".
+//
+// ⚠️⚠️ وده **مش استعلام جديد**: التواريخ دي متخزّنة أصلًا عشان سطر
+// "آخر طبعة قبل دي" اللي في الورقة، وبتتقرا مرة واحدة في الجلسة.
+// الميزة دي بتقرا نفس الخريطة اللي في الذاكرة — تكلفتها صفر قراءة.
+//
+// ⚠️ والقراءة **كسولة**: مابتحصلش غير لما حد يدوس على الفلتر فعلًا.
+// مانحملش 39 مستند على كل فتحة عشان زرار ممكن محدش يدوسه.
+const RESTOCK_STALE_DAYS = 30;
+
+// ⚠️⚠️ الفئة اللي **عمرها ما اتطبعت** بتتحسب واقفة. ودي مقصودة:
+// السؤال هو "أنهي فئة محدش راجعها بقاله مدة"، واللي عمرها ما
+// اتراجعت جوابها "أيوه" من باب أولى.
+function categoryIsStale(catId, days) {
+  const limit = (days || RESTOCK_STALE_DAYS) * 86400000;
+  const at = restockPrintStamps && restockPrintStamps[catId];
+  if (!at) return true;
+  const t = new Date(at).getTime();
+  if (isNaN(t)) return true;
+  return Date.now() - t >= limit;
+}
+
+// بترجّع true لو الخريطة اتحمّلت خلاص (يعني الفلتر يقدر يشتغل).
+function restockStampsReady() {
+  return restockPrintStamps !== null;
+}
+
+// ⚠️ بترجّع true لو آخر محاولة قراءة وقعت — والقايمة ساعتها **مش
+// مضمونة**، لأن كل فئة بتبان "واقفة" في غياب التواريخ.
+function restockStampsFailed() {
+  return restockStampsError === true;
 }
 
 function restockLastPrintText(catId) {

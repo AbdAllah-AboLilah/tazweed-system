@@ -151,8 +151,95 @@ function productsShortCode() {
   return fp.slice(0, PRODUCTS_SHORT_LEN).toUpperCase();
 }
 
-// ⚠️ سطر جاهز للعرض — مكتوب مرة واحدة عشان الشاشتين يقولوا نفس
-// الكلام بنفس الشكل.
+// ============================================================
+// ⚠️ الفئات اللي باركودها اختفى من ملف الـERP — ن٥
+// ============================================================
+// اتطلب في خريطة التطوير: "تنبيه لو صنف مستخدم في فئة اختفى من ملف
+// الـERP".
+//
+// ⚠️⚠️ ليه دي مهمة: الفئة بتاخد اسم الصنف وسعره من الباركود ده،
+// والملصق بيطبع السعر ده على ورق بيروح للزباين. لو الصنف اتشال من
+// الـERP (اتلغى، أو الباركود اتغيّر)، الفئة بتفضل شغّالة **بآخر
+// سعر عرفته** ومحدش واخد باله — يعني ملصقات بسعر قديم.
+//
+// ⚠️ والرفع استبدال كامل، فالصنف اللي اتشال من الملف بيختفي من
+// النظام فعلًا — مافيش أي حاجة تانية بتقول كده.
+//
+// ⚠️⚠️ والفحص ده **في الذاكرة بالكامل**: بيقارن قايمة الفئات
+// (موجودة أصلًا من الاشتراك) بقايمة الأصناف (متحمّلة أصلًا في
+// شاشة الأصناف). صفر قراءة زيادة.
+function categoriesMissingFromProducts() {
+  if (!productsCache || !productsCache.length) return [];
+  const cats = (typeof state !== 'undefined' && state && state.categories) || [];
+  if (!cats.length) return [];
+  // ============================================================
+  // ⚠️⚠️ نفس التطبيع اللي بيستخدمه الماسح بالظبط
+  // ============================================================
+  // `normalizeBarcode` بتشيل الأصفار اللي في الأول، لأن "012133"
+  // و"12133" **نفس الباركود عمليًا** (الشرح مكتوب جنبها من قبلنا،
+  // وnormalizeBarcode هي اللي findProductByBarcode شغّالة بيها).
+  //
+  // ولو قارنّا بالنص الخام زي ما كانت أول نسخة من الدالة دي: فئة
+  // مكتوب فيها "012133" وصنف في الملف "12133" كانت هتطلع "مفقودة"
+  // — والماسح شايفهم واحد. يعني إنذار كداب على فئة سليمة تمامًا،
+  // وده بالظبط اللي الميزة دي مفروض تمنعه مش تعمله.
+  //
+  // ⚠️ مجموعة مش بحث في القايمة: 39 فئة × 47 ألف صنف = 1.8 مليون
+  // مقارنة. المجموعة بتخلّيها 47 ألف + 39.
+  const have = new Set();
+  productsCache.forEach((p) => {
+    if (!p) return;
+    const b = normalizeBarcode(p.barcode);
+    if (b) have.add(b);
+    // ⚠️ و`code` كمان: findProductByBarcode بتدوّر في الاتنين
+    // (استيرادات قديمة كانت بتحفظ كود منفصل)، ولو دوّرنا في واحد
+    // بس هنطلّع مفقودة على فئة الماسح بيلاقيها.
+    const c = normalizeBarcode(p.code);
+    if (c) have.add(c);
+  });
+  return cats.filter((c) => {
+    const b = normalizeBarcode(c && c.barcodeNumber);
+    // ⚠️ الفئة اللي مالهاش باركود أصلًا **مش** ناقصة — دي فئة
+    // محدش ربطها بصنف، وحالة عادية تمامًا.
+    if (!b) return false;
+    return !have.has(b);
+  });
+}
+
+function missingProductsBannerHTML() {
+  const missing = categoriesMissingFromProducts();
+  if (!missing.length) return '';
+  // ⚠️ بنعرض 8 أسماء بالكتير: لو 30 فئة مربوطة بملف غلط، القايمة
+  // الكاملة بتدفن الشاشة — والرقم لوحده كفاية عشان تعرف إن فيه
+  // مشكلة كبيرة.
+  const shown = missing.slice(0, 8);
+  const rest = missing.length - shown.length;
+  return `
+    <div class="card missing-prod">
+      <div class="missing-prod-head">⚠️ ${escapeHTML(missing.length)} فئة باركودها مش موجود في ملف الأصناف</div>
+      <div class="missing-prod-body">
+        الفئات دي بتاخد اسمها وسعرها من الباركود، والباركود ده مش في الملف الحالي —
+        يعني ممكن تطبع <strong>بسعر قديم</strong>.
+        <div class="missing-prod-list">
+          ${shown
+            .map(
+              (c) =>
+                `<span class="missing-prod-chip">${escapeHTML(c.name || '—')} <code>${escapeHTML(
+                  c.barcodeNumber || ''
+                )}</code></span>`
+            )
+            .join('')}
+          ${rest > 0 ? `<span class="missing-prod-chip">و${escapeHTML(rest)} غيرها</span>` : ''}
+        </div>
+        <div class="missing-prod-fix">
+          الحل: افتح الفئة ← ⚙️ الفئة ← تعديل البيانات ← 🔎 اختار من الأصناف، واربطها بالباركود الجديد.
+        </div>
+      </div>
+    </div>`;
+}
+
+// ⚠️ سطر جاهز للعرض — مكتوب مرة واحدة عشان الشاشتين (الأصناف
+// والطباعة) يقولوا نفس الكلام بنفس الشكل.
 function productsShortCodeHTML() {
   const code = productsShortCode();
   if (!code) return '';
@@ -815,6 +902,11 @@ function productsScreenHTML() {
       </div>
 
       ${typeof productsFileBannerHTML === 'function' ? productsFileBannerHTML() : ''}
+
+      <!-- ⚠️ ن٥ — الفئات اللي باركودها اختفى. مكانها هنا مش في شاشة
+           الفئة: الفحص محتاج قايمة الأصناف متحمّلة، وهي مابتتحمّلش
+           غير في الشاشة دي وشاشة الطباعة. -->
+      ${missingProductsBannerHTML()}
 
       ${
         results.length

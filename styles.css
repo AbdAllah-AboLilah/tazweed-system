@@ -2577,6 +2577,101 @@ tr.grade-base td:first-child {
 /* 🔢 رقم الملف القصير — ن٣. الشرح عند productsShortCode في
    js/products.js. ⚠️ بخط ثابت العرض: الرقم بيتقارن حرف بحرف مع
    شاشة تانية، والخط المتناسب بيخلّي 1 وl شبه بعض. */
+/* ============================================================
+   ⚠️ الفئات اللي باركودها اختفى من الملف — ن٥
+   ============================================================
+   ⚠️ بلون الخطر مش التنبيه: دي مش "معلومة حلوة تعرفها" — دي فئة
+   بتطبع سعر ممكن يكون قديم على ورق بيروح للزباين. */
+.missing-prod {
+  margin-bottom: 12px;
+  border-inline-start: 3px solid var(--danger-text);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.missing-prod-head {
+  font-weight: 700;
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+.missing-prod-body {
+  font-size: 12.5px;
+  line-height: 1.8;
+  margin-top: 4px;
+}
+
+.missing-prod-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.missing-prod-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.missing-prod-chip code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.missing-prod-fix {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+/* ⏳ سطر توضيح تحت شرائح الفلتر — ن٤ */
+.side-hint {
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  padding: 0 4px 8px;
+}
+
+/* ⚠️ لما القراءة توقع: السطر بيتلوّن عشان العين ماتعديش عليه —
+   القايمة اللي تحته مش مضمونة. */
+.side-hint-bad {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+/* ============================================================
+   📝 ملاحظة على الفئة — ن٦
+   ============================================================
+   ⚠️ لونها مميّز عن باقي السطور: دي حاجة **حد كتبها بإيده** عشان اللي
+   جاي يقراها، ولو بنفس لون المعلومات الثابتة عين اللي بيقرا هتعدّي
+   عليها زي ما بتعدّي على "الباركود: —". */
+.cat-note {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.7;
+  padding: 8px 11px;
+  margin-bottom: 8px;
+  border-radius: 9px;
+  /* ⚠️ بمتغيّرات النظام مش بألوان مكتوبة: الألوان دي معرّفة تاني
+     في الوضع الليلي (وفي التباين العالي)، والقيمة المكتوبة بالإيد
+     كانت هتفضل فاتحة على خلفية سودا. */
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-inline-start: 3px solid var(--warning-text);
+  /* ⚠️ ملاحظة طويلة بتلف مش بتزحلق الشاشة — الشاشة الرئيسية
+     بتتقرا من التليفون. */
+  overflow-wrap: anywhere;
+}
+
 .prod-code {
   font-size: 12px;
   color: var(--text-secondary);

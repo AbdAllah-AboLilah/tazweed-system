@@ -190,6 +190,199 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ والمؤشر بيفضل في الخانة (الكيبورد مايقفلش في التليفون)', catSearch.focusKept, catSearch);
   await boot();
 
+  // ============================================================
+  // 3ج) ⏳ ن٤ — الفئات الواقفة من مدة
+  // ============================================================
+  // ⚠️⚠️ الفحص ده بيحرس تلات حاجات، والتانية والتالتة أهم من الأولى:
+  //   ١) الفلترة بتشتغل صح
+  //   ٢) الشريحة **مقفولة** على اللي مش مسموح له يشوف تاريخ آخر طبعة
+  //      — القايمة دي مشتقّة بالكامل من نفس التواريخ، فلو بانت لحد
+  //      مش مسموح له، تبقى نفس المعلومة اتسرّبت من باب تاني
+  //   ٣) وهي بتحمّل، بتعرض **الكل** مش قايمة فاضية — القايمة
+  //      الفاضية بتبان كأن مافيش ولا فئة واقفة، وده كدب
+  const stale = await p.evaluate(async () => {
+    const out = {};
+    state.sideMenuOpen = true;
+    state.categorySearch = '';
+    state.categories = [
+      { id: 'c1', name: 'عمرها ما اتطبعت', order: 1 },
+      { id: 'c2', name: 'اتطبعت امبارح', order: 2 },
+      { id: 'c3', name: 'اتطبعت من شهرين', order: 3 },
+    ];
+    state.pendingByCategory = {}; state.outByCategory = {}; state.lowStockByCategory = {};
+    state.categoryFilter = 'stale';
+
+    // (١) وهي بتحمّل
+    restockPrintStamps = null;
+    const loading = sideMenuHTML();
+    out.loadingHint = loading.indexOf('بيحمّل تواريخ') !== -1;
+    out.loadingShowsAll = (loading.match(/side-item-name/g) || []).length;
+
+    // (٢) بعد التحميل
+    restockPrintStamps = {
+      c2: new Date(Date.now() - 1 * 86400000).toISOString(),
+      c3: new Date(Date.now() - 60 * 86400000).toISOString(),
+    };
+    const html = sideMenuHTML();
+    out.staleHasNeverPrinted = html.indexOf('عمرها ما اتطبعت') !== -1;
+    out.staleHasOld = html.indexOf('اتطبعت من شهرين') !== -1;
+    out.staleHidesFresh = html.indexOf('اتطبعت امبارح') === -1;
+    out.count = (html.match(/side-item-name/g) || []).length;
+    out.says30 = html.indexOf('30') !== -1;
+
+    // (٣) الدالة نفسها
+    out.judge = {
+      never: categoryIsStale('مش_موجودة'),
+      fresh: categoryIsStale('c2'),
+      old: categoryIsStale('c3'),
+    };
+
+    // ============================================================
+    // (٤) ⚠️⚠️ القراءة وقعت = الشاشة بتقول إن القايمة مش مضمونة
+    // ============================================================
+    // من غير ده: القراءة تفشل (مفيش نت أو الصلاحية مقفولة)، الخريطة
+    // تبقى {}، وكل فئة في المحل بتطلع "واقفة" — والشاشة بتقولها
+    // بثقة وهي مش عارفة حاجة.
+    // ⚠️⚠️ بنخلّي القراءة **تقع فعلًا** مش بنحط العلم بإيدينا: الفحص
+    // اللي بيحط العلم بنفسه بيعدّي حتى لو الـcatch مابيسجّلهوش خالص
+    // (جرّبناه معكوس وعدّى — وعشان كده اتغيّر).
+    const realCollection = db.collection.bind(db);
+    db.collection = (name) =>
+      name === 'restockPrints'
+        ? { get: () => Promise.reject(new Error('permission-denied')) }
+        : realCollection(name);
+    restockPrintStamps = null;
+    restockStampsPromise = null;
+    restockStampsError = false;
+    await loadRestockPrintStamps(true);
+    db.collection = realCollection;
+    out.failFlagSet = restockStampsFailed() === true;
+    const failed = sideMenuHTML();
+    out.failSays = failed.indexOf('مش مضمونة') !== -1;
+    out.failMarked = failed.indexOf('side-hint-bad') !== -1;
+    out.failStillLists = (failed.match(/side-item-name/g) || []).length;
+    // ⚠️ والقراءة الناجحة بعدها بتفضّي العلم — مش بيفضل عالق للأبد
+    const rows = {
+      c2: new Date(Date.now() - 1 * 86400000).toISOString(),
+      c3: new Date(Date.now() - 60 * 86400000).toISOString(),
+    };
+    db.collection = (name) =>
+      name === 'restockPrints'
+        ? {
+            get: () =>
+              Promise.resolve({
+                forEach: (fn) => Object.keys(rows).forEach((k) => fn({ id: k, data: () => ({ at: rows[k] }) })),
+              }),
+          }
+        : realCollection(name);
+    restockPrintStamps = null;
+    restockStampsPromise = null;
+    await loadRestockPrintStamps(true);
+    db.collection = realCollection;
+    out.flagClears = restockStampsFailed() === false;
+    out.readBack = restockPrintStamps && restockPrintStamps.c3 === rows.c3;
+    out.okNoWarning = sideMenuHTML().indexOf('مش مضمونة') === -1;
+
+    // (٥) ⚠️⚠️ الشريحة مقفولة على اللي مايشوفش التاريخ
+    const before = state.profile;
+    state.profile = { name: 'ع', role: 'supervisor', perms: { seeRestockLastPrint: false } };
+    out.chipHiddenForOthers = sideMenuHTML().indexOf('data-cat-filter="stale"') === -1;
+    state.profile = before;
+    out.chipShownForOwner = sideMenuHTML().indexOf('data-cat-filter="stale"') !== -1;
+    state.categoryFilter = 'all';
+    return out;
+  });
+  check('⭐⭐ الفئة اللي عمرها ما اتطبعت بتتحسب واقفة',
+    stale.staleHasNeverPrinted && stale.judge.never === true, stale);
+  check('⭐⭐ واللي اتطبعت من شهرين كمان', stale.staleHasOld && stale.judge.old === true, stale);
+  check('⭐⭐ واللي اتطبعت امبارح مابتبانش', stale.staleHidesFresh && stale.judge.fresh === false, stale);
+  check('⭐ والعدد صح', stale.count === 2, stale);
+  check('⭐ والسطر بيقول المدة', stale.says30, stale);
+  // ⚠️⚠️ الفحصين دول منفصلين عن قصد: الأول على السطر اللي بيقول
+  // "بيحمّل"، والتاني على إن القايمة **مش فاضية** وهي بتحمّل. لو
+  // اتجمعوا في فحص واحد، كسر واحد فيهم بيبان كأنه كسر التاني.
+  check('⭐⭐⭐ وهي بتحمّل بتقول "بيحمّل" مش بتسكت', stale.loadingHint, stale);
+  check('⭐⭐⭐ وبتعرض الكل مش قايمة فاضية (القايمة الفاضية كدب)',
+    stale.loadingShowsAll === 3, stale);
+  check('⭐⭐⭐ والشريحة مقفولة على اللي مايشوفش تاريخ آخر طبعة',
+    stale.chipHiddenForOthers && stale.chipShownForOwner, stale);
+  check('⭐⭐⭐ القراءة لما توقع فعلًا: العلم بيتسجّل', stale.failFlagSet, stale);
+  check('⭐⭐⭐ والشاشة بتقول إن القايمة مش مضمونة',
+    stale.failSays && stale.failMarked, stale);
+  check('⭐⭐ والقراءة الناجحة بعدها بتفضّي العلم', stale.flagClears, stale);
+  check('⭐ والتواريخ بتوصل فعلًا', stale.readBack, stale);
+  check('⭐⭐ وبرضه بيعرض اللي عنده (مش شاشة فاضية)', stale.failStillLists > 0, stale);
+  check('⭐⭐ والتحذير مابيبانش لما القراءة تنجح', stale.okNoWarning, stale);
+  await boot();
+
+  // ============================================================
+  // 3د) 📝 ن٦ — ملاحظة على الفئة
+  // ============================================================
+  const note = await p.evaluate(async () => {
+    const out = {};
+    state.categories = [
+      { id: 'c1', name: 'كريب', itemName: 'كريب', barcodeNumber: '28144',
+        sellingPrice: 85, minQty: 2, note: 'المورد وقف اللون ده — متطلبوش' },
+      { id: 'c2', name: 'شيفون', itemName: 'شيفون', barcodeNumber: '99', sellingPrice: 60, minQty: 1 },
+    ];
+    state.activeCategoryId = 'c1';
+    state.showEditCategoryInfoForm = false;
+    const shown = categoryInfoBarHTML();
+    out.shows = shown.indexOf('المورد وقف اللون ده') !== -1 && shown.indexOf('cat-note') !== -1;
+
+    // ⚠️ فئة من غير ملاحظة: مافيش سطر فاضي بياخد مساحة
+    state.activeCategoryId = 'c2';
+    out.emptyNoLine = categoryInfoBarHTML().indexOf('cat-note') === -1;
+
+    // ⚠️⚠️ الملاحظة بتعدّي على التهريب: اسم فيه <script> مايتنفّذش
+    state.categories[1].note = '<img src=x onerror="window.__pwned=1">';
+    const dirty = categoryInfoBarHTML();
+    out.escaped = dirty.indexOf('<img') === -1 && dirty.indexOf('&lt;img') !== -1;
+
+    // الخانة في نموذج التعديل
+    state.activeCategoryId = 'c1';
+    state.showEditCategoryInfoForm = true;
+    const form = categoryInfoBarHTML();
+    out.fieldExists = form.indexOf('id="edit-category-note"') !== -1;
+    out.fieldHasValue = form.indexOf('المورد وقف اللون ده') !== -1;
+    out.fieldCapped = form.indexOf('maxlength="200"') !== -1;
+    state.showEditCategoryInfoForm = false;
+
+    // ⚠️⚠️ الحفظ من غير ملاحظة **مايمسحش** الملاحظة الموجودة
+    // ⚠️ بنلبس على **مجموعة الفئات بس**: logActivity بتكتب في
+    // activityLog كمان، ولو لبسنا على db كلها بتقع.
+    const realCollection = db.collection.bind(db);
+    let patchNoNote = null, patchWithNote = null;
+    db.collection = (name) => {
+      if (name !== 'categories') return realCollection(name);
+      return { doc: () => ({ update: (d) => {
+        if (!patchNoNote) patchNoNote = d;
+        patchWithNote = d;
+        return Promise.resolve();
+      } }) };
+    };
+    await updateCategoryInfo('c1', 'كريب', '28144', 0, 85, 2);           // من غير ملاحظة
+    out.keepsNote = patchNoNote && !('note' in patchNoNote);
+    await updateCategoryInfo('c1', 'كريب', '28144', 0, 85, 2, 'جديدة');  // بملاحظة
+    out.savesNote = patchWithNote && patchWithNote.note === 'جديدة';
+    // ⚠️ والقص عند 200 حرف
+    await updateCategoryInfo('c1', 'كريب', '28144', 0, 85, 2, 'ط'.repeat(500));
+    out.capped = patchWithNote && patchWithNote.note.length === 200;
+    db.collection = realCollection;
+    return out;
+  });
+  check('⭐⭐ الملاحظة بتبان في شاشة الفئة', note.shows, note);
+  check('⭐ وفئة من غير ملاحظة مافيهاش سطر فاضي', note.emptyNoLine, note);
+  check('⭐⭐⭐ والملاحظة بتعدّي على التهريب (مافيش HTML بيتنفّذ)', note.escaped, note);
+  check('⭐⭐ والخانة موجودة في نموذج التعديل وفيها القيمة', note.fieldExists && note.fieldHasValue, note);
+  check('⭐ ومحدودة بـ200 حرف في الخانة', note.fieldCapped, note);
+  check('⭐⭐⭐ والحفظ من غير ملاحظة مايمسحش الملاحظة الموجودة', note.keepsNote, note);
+  check('⭐⭐ والحفظ بملاحظة بيحفظها', note.savesNote, note);
+  check('⭐⭐ والنص الطويل بيتقص عند 200', note.capped, note);
+  await p.reload();
+  await p.waitForFunction(() => typeof render === 'function');
+  await boot();
+
   // ---------- 4) الشريط المختصر ----------
   const ctx = await p.evaluate(async () => {
     const box = document.querySelector('[data-keep-scroll]') || document.scrollingElement;

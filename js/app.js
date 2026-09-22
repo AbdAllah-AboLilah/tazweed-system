@@ -1244,6 +1244,21 @@ function sideMenuHTML() {
     if (filter === 'pending' && !flags.pending) return false;
     if (filter === 'out' && !flags.out) return false;
     if (filter === 'low' && !flags.low) return false;
+    // ⏳ ن٤ — الفئات الواقفة من مدة. الشرح عند categoryIsStale في
+    // js/print-restock.js.
+    //
+    // ⚠️⚠️ والخريطة وهي **لسه مااتحمّلتش** بتدّي نفس نتيجة "عمرها ما
+    // اتطبعت" — يعني كل الفئات بتبان، مش قايمة فاضية. وده مقصود:
+    // القايمة الفاضية بتبان كأن مافيش ولا فئة واقفة، والسطر اللي
+    // فوق القايمة بيقول "بيحمّل" لحد ما توصل.
+    //
+    // ⚠️ كان فيه هنا شرط صريح بـrestockStampsReady() — اتشال لأنه
+    // **مابيغيّرش أي حاجة**: جرّبناه معكوس وشيلناه والنتيجة واحدة
+    // بالحرف. وسطر مابيعملش حاجة أسوأ من مفيش: اللي يقراه بيفتكر
+    // إن فيه حالة بيتعامل معاها.
+    if (filter === 'stale' && typeof categoryIsStale === 'function' && !categoryIsStale(cat.id)) {
+      return false;
+    }
     if (search && normalizeArabic(cat.name).indexOf(search) === -1) return false;
     return true;
   });
@@ -1293,6 +1308,22 @@ function sideMenuHTML() {
         ${chip('pending', '🟡 مطلوب تزويد', counts.pending)}
         ${chip('low', '🟠 قرّبت تخلص', counts.low)}
         ${chip('out', '🔴 خلصت', counts.out)}
+        <!-- ============================================================
+             ⏳ الفئات الواقفة من مدة — ن٤
+             ============================================================
+             ⚠️⚠️ الشريحة دي بتبان **بس** للي بيشوف تاريخ آخر طبعة
+             (canSeeRestockLastPrint). مش زوّاقة: القايمة دي مشتقّة
+             بالكامل من نفس التواريخ، فلو بانت لحد مش مسموح له
+             يشوف التاريخ، تبقى نفس المعلومة اتسرّبت من باب تاني.
+
+             ⚠️ ومافيهاش عدد جنبها زي الباقي: العدد معناه إننا نحمّل
+             التواريخ على كل فتحة، وده 39 قراءة عشان رقم صغير محدش
+             طلبه. القراءة بتحصل لما تدوس. -->
+        ${
+          typeof canSeeRestockLastPrint === 'function' && canSeeRestockLastPrint()
+            ? chip('stale', '⏳ واقفة من مدة', 0)
+            : ''
+        }
       </div>
 
       <!-- ============================================================
@@ -1314,6 +1345,25 @@ function sideMenuHTML() {
             : ''
         }
       </div>
+
+      ${
+        filter === 'stale'
+          ? `<div class="side-hint${
+              typeof restockStampsFailed === 'function' && restockStampsFailed() ? ' side-hint-bad' : ''
+            }">${
+              typeof restockStampsReady === 'function' && !restockStampsReady()
+                ? '⏳ بيحمّل تواريخ آخر طبعة...'
+                : typeof restockStampsFailed === 'function' && restockStampsFailed()
+                  ? // ⚠️⚠️ القراءة وقعت = القايمة دي **مش مضمونة**. من غير
+                    // السطر ده، كل فئات المحل بتطلع "واقفة" والشاشة بتقولها
+                    // بثقة وهي مش عارفة حاجة. (الشرح عند restockStampsFailed.)
+                    '⚠️ مقدرتش أقرا تواريخ آخر طبعة — القايمة دي <strong>مش مضمونة</strong>. جرّب لما النت يرجع.'
+                  : `الفئات اللي مااتطبعتش ورقة تزويد ليها بقالها <strong>${escapeHTML(
+                      typeof RESTOCK_STALE_DAYS === 'number' ? RESTOCK_STALE_DAYS : 30
+                    )}</strong> يوم أو أكتر — واللي عمرها ما اتطبعت.`
+            }</div>`
+          : ''
+      }
 
       <div class="side-list">
         ${
@@ -1626,6 +1676,23 @@ function categoryInfoBarHTML() {
             <input class="input" type="number" id="edit-category-min-qty" min="0" value="${escapeHTML(cat.minQty || 0)}" />
             <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">0 = من غير تنبيه</div>
           </div>
+          <!-- ============================================================
+               📝 ملاحظة على الفئة — ن٦
+               ============================================================
+               اتطلب في خريطة التطوير: "ملاحظة على الفئة يشوفها الكل".
+
+               ⚠️ سطر واحد مش صندوق كبير عن قصد: دي ملاحظة زي "المورد
+               وقف اللون ده" أو "الدرجات الجديدة في الطريق" — مش مكان
+               لتاريخ الفئة. والحد 200 حرف بيمنع إن حد يلزق فيها صفحة
+               تدفن اللي تحتها في الشاشة.
+               ⚠️⚠️ وبتتكتب بصلاحية manageCategories زي باقي بيانات
+               الفئة — مش بصلاحية جديدة تبقى ديكور في السحابة. -->
+          <div class="field" style="flex:1 0 100%; min-width:200px; margin-bottom:0;">
+            <label>📝 ملاحظة على الفئة (الكل هيشوفها)</label>
+            <input class="input" id="edit-category-note" maxlength="200"
+                   placeholder="مثلاً: المورد وقف اللون ده — متطلبوش"
+                   value="${escapeHTML(cat.note || '')}" />
+          </div>
           <button class="btn" type="button" id="pick-product-edit">🔎 اختار من الأصناف</button>
           <button class="btn btn-primary" type="submit">حفظ</button>
           <button class="btn" type="button" id="cancel-edit-category-info">إلغاء</button>
@@ -1635,7 +1702,11 @@ function categoryInfoBarHTML() {
 
   // الأزرار كلها اتنقلت لقايمتين في شريط الأدوات تحت (🖨️ طباعة / ⚙️ الفئة).
   // السطر ده بقى معلومة بس — بتتقرا نادرًا، فمابياخدش مساحة أزرار.
+  // ⚠️ الملاحظة **فوق** سطر المعلومات مش تحته: دي حاجة حد كتبها عشان
+  // اللي جاي يقراها، والسطر اللي تحتها معلومات ثابتة بتتقرا نادرًا.
+  const note = String(cat.note || '').trim();
   return `
+    ${note ? `<div class="cat-note">📝 ${escapeHTML(note)}</div>` : ''}
     <div class="cat-info-line">
       <span>اسم الصنف: <strong>${escapeHTML(cat.itemName || '—')}</strong></span>
       <span>الباركود: <strong>${escapeHTML(cat.barcodeNumber || '—')}</strong></span>
@@ -3286,8 +3357,21 @@ function attachDashboardEvents() {
 
   document.querySelectorAll('[data-cat-filter]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      state.categoryFilter = btn.getAttribute('data-cat-filter');
+      const key = btn.getAttribute('data-cat-filter');
+      state.categoryFilter = key;
       render();
+      // ⚠️⚠️ التحميل **بعد** الرسم مش قبله: الشاشة بتتحرّك على طول
+      // وبتقول "بيحمّل"، والقايمة بتتحدّث أول ما التواريخ توصل.
+      // لو استنينا القراءة الأول، الدوسة كانت هتبان كأنها مامشيتش.
+      if (key === 'stale' && typeof loadRestockPrintStamps === 'function') {
+        loadRestockPrintStamps()
+          .then(() => {
+            // ⚠️ بنرسم تاني **بس** لو هو لسه واقف على نفس الفلتر:
+            // اللي غيّر رأيه وبدّل وهو بيحمّل مايترسمش تحت إيده.
+            if (state.categoryFilter === 'stale') render();
+          })
+          .catch(() => {});
+      }
     });
   });
 
@@ -4173,7 +4257,11 @@ function attachDashboardEvents() {
       const originalPrice = Number(document.getElementById('edit-category-original-price').value) || 0;
       const sellingPrice = Number(document.getElementById('edit-category-selling-price').value) || 0;
       const minQty = Number(document.getElementById('edit-category-min-qty').value) || 0;
-      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber, originalPrice, sellingPrice, minQty);
+      // ⚠️ 200 حرف زي الخانة بالظبط: الخانة بتمنع الكتابة، بس نسخ ولزق
+      // من التليفون بيعدّي أحيانًا — فالقص هنا كمان.
+      const noteEl = document.getElementById('edit-category-note');
+      const note = noteEl ? noteEl.value.trim().slice(0, 200) : '';
+      await updateCategoryInfo(state.activeCategoryId, itemName, barcodeNumber, originalPrice, sellingPrice, minQty, note);
       state.showEditCategoryInfoForm = false;
       render();
     });
@@ -5391,17 +5479,19 @@ async function openBaseGradesDialog(categoryId) {
   });
 }
 
-async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalPrice, sellingPrice, minQty) {
-  fireWrite(
-    db.collection('categories').doc(categoryId).update({
-      itemName: itemName || '',
-      barcodeNumber: barcodeNumber || '',
-      originalPrice: originalPrice || 0,
-      sellingPrice: sellingPrice || 0,
-      minQty: Number(minQty) || 0,
-    }),
-    'تعديل بيانات الفئة'
-  );
+async function updateCategoryInfo(categoryId, itemName, barcodeNumber, originalPrice, sellingPrice, minQty, note) {
+  // ⚠️⚠️ `note` معامل **اختياري** عن قصد: فيه نداء تاني للدالة دي من
+  // "اختار من الأصناف"، ولو خلّيناه إجباري كان هيبعت undefined ويمسح
+  // ملاحظة حد كتبها. مش موجود = الملاحظة زي ما هي.
+  const patch = {
+    itemName: itemName || '',
+    barcodeNumber: barcodeNumber || '',
+    originalPrice: originalPrice || 0,
+    sellingPrice: sellingPrice || 0,
+    minQty: Number(minQty) || 0,
+  };
+  if (note !== undefined) patch.note = String(note || '').slice(0, 200);
+  fireWrite(db.collection('categories').doc(categoryId).update(patch), 'تعديل بيانات الفئة');
   logActivity({ action: 'edit_category_info', categoryId, itemName, barcodeNumber });
 }
 
