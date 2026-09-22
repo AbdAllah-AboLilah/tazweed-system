@@ -309,9 +309,40 @@ check('📤 ووسمه لوحده مش وسم فئة ولا العام', () => {
 // ⚠⚠ الصلاحية بتتفحص في السحابة: القواعد بتسمح لأي حد يكتب
 // المستند ده لنفسه، فالشاشة لوحدها مش حارس.
 check('📤 اللي صلاحيته مقفولة بالاسم مايبعتش', () => {
-  assert.strictEqual(canSendPending({ perms: { editMainQty: false } }), false);
+  assert.strictEqual(canSendPending({ role: 'owner', perms: { editMainQty: false } }), false);
   assert.strictEqual(canSendPending(null), false);
-  assert.strictEqual(canSendPending({ perms: {} }), true);
+});
+
+// ============================================================
+// ⚠️⚠️ الرتبة هي اللي بتحكم لما مافيش قرار صريح
+// ============================================================
+// العطل اللي اتمسك في فحص أمان على المشروع كله: الدالة كانت بتقرا
+// القرار الصريح المتخزّن وبس، وترجّع "مسموح" لو الخانة فاضية. والخانة
+// بتبقى فاضية في الحالة الطبيعية — خيار "زي الرتبة" مابيتخزّنش.
+//
+// ⚠️ والفحص القديم كان **بيثبّت العطل** (perms فاضية = مسموح)، فاتغيّر.
+check('📤⭐ الرتبة اللي قالبها مقفول مابتبعتش (من غير قرار صريح)', () => {
+  assert.strictEqual(canSendPending({ role: 'print_operator' }), false, 'موظف طباعة');
+  assert.strictEqual(canSendPending({ role: 'user' }), false, 'مستخدم عادي');
+  assert.strictEqual(canSendPending({ role: 'supervisor' }), false, 'مشرف');
+});
+
+check('📤⭐ والرتبة اللي قالبها مفتوح بتبعت', () => {
+  assert.strictEqual(canSendPending({ role: 'owner' }), true);
+  assert.strictEqual(canSendPending({ role: 'branch_manager' }), true);
+  assert.strictEqual(canSendPending({ role: 'warehouse_keeper' }), true, 'أمين المخزن قالبه بيسمح');
+});
+
+// ⚠️ القرار الصريح بيكسب في **الاتجاهين** — مفتوح أو مقفول.
+check('📤⭐ القرار الصريح بيكسب على الرتبة', () => {
+  assert.strictEqual(canSendPending({ role: 'user', perms: { editMainQty: true } }), true);
+  assert.strictEqual(canSendPending({ role: 'branch_manager', perms: { editMainQty: false } }), false);
+});
+
+// ⚠️ رتبة مش معروفة = ممنوع. الافتراضي عند الشك هو **المنع**.
+check('📤 ورتبة مش معروفة ممنوعة', () => {
+  assert.strictEqual(canSendPending({ role: 'ghost' }), false);
+  assert.strictEqual(canSendPending({}), false);
 });
 
 // ⚠⚠ المهلة: دوسة متكررة معناها إن تليفون كل الموظفين يرن عشر مرات
