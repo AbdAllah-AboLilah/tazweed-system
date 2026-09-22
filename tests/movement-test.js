@@ -396,6 +396,94 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐⭐ والدرجة القديمة من غير رقم مابتطلعش "undefined"',
     grp.labels.indexOf('درجة 12') !== -1 && !grp.labels.some((l) => /undefined/.test(l)), grp);
 
+  // ============================================================
+  // 📊 ن٩ — ملخّص الشهر
+  // ============================================================
+  // ⚠️⚠️ أهم تلات فحوص هنا مش "الأرقام صح" — هما التلات حاجات اللي
+  // الملخّص **مايقولهاش** عشان هتبقى كدب:
+  //   ١) نسبة تغيير لشهر لسه ماخلصش (22 يوم قصاد شهر كامل)
+  //   ٢) "مااتباعش" لفئة مالهاش أرقام خالص (مش واقفة — مجهولة)
+  //   ٣) عدد الخلصانة لشهر فات (الرقم ده من الكميات دلوقتي)
+  const mon = await p.evaluate(() => {
+    const now = new Date();
+    const k = movementMonthKey(now);
+    const pk = movementMonthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    const ppk = movementMonthKey(new Date(now.getFullYear(), now.getMonth() - 2, 1));
+    state.categories = [
+      { id: 'c1', name: 'كريب' }, { id: 'c2', name: 'شيفون' }, { id: 'c3', name: 'قطن' },
+      { id: 'c4', name: 'حرير' }, { id: 'c5', name: 'مجهولة' },
+    ];
+    allGradesCache = [
+      { catId: 'c1', gradeId: 'a', number: 1, branchQty: 5, mainQty: 10 },
+      { catId: 'c1', gradeId: 'b', number: 2, branchQty: 0, mainQty: 0 },
+      { catId: 'c2', gradeId: 'c', number: 1, branchQty: 3, mainQty: 2 },
+      { catId: 'c3', gradeId: 'd', number: 1, branchQty: 4, mainQty: 0 },  // ليها أرقام ومااتباعش
+      { catId: 'c4', gradeId: 'e', number: 1, branchQty: 0, mainQty: 0 },  // خلصانة
+      { catId: 'c5', gradeId: 'f', number: 1, branchQty: 6, mainQty: 0 },  // مالهاش أرقام خالص
+    ];
+    movementStats = {
+      [gradeStatsId('c1', 'a')]: { soldByMonth: { [k]: 40, [pk]: 60, [ppk]: 50 } },
+      [gradeStatsId('c1', 'b')]: { soldByMonth: { [k]: 10, [pk]: 20 } },
+      [gradeStatsId('c2', 'c')]: { soldByMonth: { [k]: 25, [pk]: 10, [ppk]: 30 } },
+      [gradeStatsId('c3', 'd')]: { soldByMonth: { [pk]: 5 } },
+      [gradeStatsId('c4', 'e')]: { soldByMonth: { [k]: 3 } },
+    };
+    const cur = computeMonthlySummary(0);
+    const prev = computeMonthlySummary(1);
+    return {
+      cur, prev,
+      curText: monthlySummaryText(cur),
+      prevText: monthlySummaryText(prev),
+      curHTML: monthlySummaryHTML(cur),
+    };
+  });
+  check('⭐⭐ الشهر ده: المجموع صح (40+10+25+3)', mon.cur.sold === 78, mon.cur);
+  check('⭐⭐ والشهر اللي فات (60+20+10+5)', mon.cur.soldPrev === 95 && mon.prev.sold === 95, mon.prev);
+  check('⭐⭐ والأكتر بيعًا مترتّبين والفئة متجمّعة (كريب = 40+10)',
+    mon.cur.top[0].name === 'كريب' && mon.cur.top[0].sold === 50 && mon.cur.top[1].name === 'شيفون', mon.cur.top);
+  check('⭐⭐ والشهر الكامل ليه نسبة: (95−80)/80 = 19%', mon.prev.change === 19, mon.prev);
+  check('⭐⭐⭐ والشهر اللي لسه ماخلصش **مالوش نسبة**', mon.cur.change === null, mon.cur);
+  check('⭐⭐⭐ ومافيش "%" في نصه ولا في شكله',
+    !/%/.test(mon.curText) && !/mv-m-chg/.test(mon.curHTML), mon.curText);
+  check('⭐⭐ وبيقول إنه لسه ماخلصش', /لحد يوم/.test(mon.curText) && /لسه ماخلصش/.test(mon.curHTML), mon.curText);
+  check('⭐⭐⭐ "مااتباعش" = ليها أرقام وفيها بضاعة بس', JSON.stringify(mon.cur.still) === '["قطن"]', mon.cur.still);
+  check('⭐⭐⭐ والفئة اللي مالهاش أرقام **مش** محسوبة "مااتباعش"',
+    mon.cur.still.indexOf('مجهولة') === -1 && mon.cur.noData === 1, mon.cur);
+  check('⭐ والخلصانة مش محسوبة "مااتباعش" (مافيهاش بضاعة)', mon.cur.still.indexOf('حرير') === -1, mon.cur);
+  check('⭐⭐ الخلصانة دلوقتي بتتعدّ للشهر الجاري', mon.cur.outNow === 2, mon.cur);
+  check('⭐⭐⭐ ومابتتعدّش للشهر اللي فات (الرقم من الكميات دلوقتي)',
+    mon.prev.outNow === null && !/خلصت خالص/.test(mon.prevText), mon.prevText);
+  check('⭐ والنص المنسوخ مافيهوش HTML', !/[<>]/.test(mon.curText), mon.curText);
+
+  // ⚠️⚠️ النسخ لازم يقول الحقيقة: لو المتصفح رفض، مايقولش "اتنسخ"
+  const copy = await p.evaluate(async () => {
+    const out = {};
+    window.renderFromData = () => {
+      document.body.innerHTML = '<div id=root>' + movementScreenHTML() + '</div>';
+      attachMovementEvents();
+    };
+    const realClip = navigator.clipboard;
+    const realExec = document.execCommand;
+    // الاتنين بيرفضوا
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('no')) }, configurable: true });
+    document.execCommand = () => false;
+    renderFromData();
+    document.getElementById('mv-month-copy').click();
+    await new Promise((r) => setTimeout(r, 80));
+    out.refused = document.getElementById('mv-month-copied').textContent;
+    // الاحتياطي بينفع
+    document.execCommand = () => true;
+    document.getElementById('mv-month-copy').click();
+    await new Promise((r) => setTimeout(r, 80));
+    out.fallback = document.getElementById('mv-month-copied').textContent;
+    Object.defineProperty(navigator, 'clipboard', { value: realClip, configurable: true });
+    document.execCommand = realExec;
+    return out;
+  });
+  check('⭐⭐⭐ المتصفح رفض النسخ → مابيقولش "اتنسخ"',
+    !/اتنسخ/.test(copy.refused) && /مارضيش/.test(copy.refused), copy);
+  check('⭐⭐ والطريقة الاحتياطية بتشتغل لما الأولى ترفض', /اتنسخ/.test(copy.fallback), copy);
+
   // ⚠️⚠️ والحقل لازم يوصل من المصدر — مش بس الشاشة تعرف تكتبه.
   const dashSrc = fs.readFileSync('js/dashboard.js', 'utf8');
   const cacheBlock = (dashSrc.match(/allGradesCache = latest\.docs\.map\([\s\S]*?\}\);/) || [''])[0];
