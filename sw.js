@@ -7,7 +7,7 @@
 // ببايت مع النسخة القديمة المسجّلة عنده. لازم نغيّر رقم SW_VERSION هنا في
 // كل مرة نرفع فيها تحديث فعلي (حتى لو التحديث نفسه في app.js مش هنا) —
 // وإلا المتصفح مش هيحس إن فيه حاجة اتغيّرت، والإشعار مش هيظهر خالص.
-const SW_VERSION = '1.15.0';
+const SW_VERSION = '1.16.0';
 
 const CACHE_NAME = 'tazweed-' + SW_VERSION;
 
@@ -213,22 +213,50 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // ============================================================
+  // ⭐⭐⭐ المحفوظ **على طول**، والتحديث في الخلفية
+  // ============================================================
+  // اتبلّغ بالنص: "الوقت كان في فتح الصفحة نفسها".
+  //
+  // النظام بيحمّل **27 ملف** من نفس الموقع مع كل فتحة. وقبل كده كان
+  // بيسأل الشبكة عن **كل واحد فيهم** في كل مرة — حتى لو مافيش حاجة
+  // اتغيّرت. على نت سريع ده ثانية ومش محسوس؛ على شبكة المحل بقى
+  // انتظار حقيقي قدام شاشة فاضية.
+  //
+  // دلوقتي: لو الملف محفوظ، بيترجّع **فورًا** من غير ما نستنى الشبكة،
+  // والتحديث بيتجاب في الخلفية ويتحفظ للفتحة الجاية.
+  //
+  // ⚠️⚠️ وده **مش** بيأخّر وصول التحديثات — وده أهم سؤال هنا.
+  // السبب إن التحديث أصلًا **مش** بييجي من هنا: أول ما رقم النسخة
+  // يتغيّر، المتصفح بينزّل sw.js الجديد، واللي بيعمل حاجتين لوحده:
+  //   ١) install بينزّل كل الملفات من السيرفر (cache: 'reload') في
+  //      مخزن جديد باسم النسخة الجديدة
+  //   ٢) update-prompt.js بيشوف النسخة المستنية ويعمل تحديث للصفحة
+  // يعني لحظة ما التحديث يوصل، المخزن يبقى فيه الملفات الجديدة خلاص.
+  //
+  // ⚠️ waitUntil مهمة: من غيرها المتصفح ممكن يقفل الـService Worker
+  // بعد ما يرد على الصفحة، فالتحديث الخلفي ما يخلصش ومايتحفظش.
+  const background = fetch(request, { cache: 'no-cache' })
+    .then((response) => {
+      if (response && response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
+      }
+      return response;
+    })
+    .catch(() => null);
+  event.waitUntil(background);
+
   event.respondWith(
-    fetch(request, { cache: 'no-cache' })
-      .then((response) => {
-        if (response && response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
-        }
-        return response;
-      })
-      .catch(() =>
-        caches.match(request).then((cached) => {
-          if (cached) return cached;
-          // لو الطلب صفحة كاملة ومفيش نسخة محفوظة منها، نرجّع الصفحة الرئيسية.
-          if (request.mode === 'navigate') return caches.match('./index.html');
-          return Response.error();
-        })
-      )
+    caches.match(request).then((cached) => {
+      if (cached) return cached;
+      // مش محفوظ (أول مرة، أو ملف مش في القايمة): نستنى الشبكة عادي.
+      return background.then((res) => {
+        if (res) return res;
+        // لو الطلب صفحة كاملة ومفيش نسخة محفوظة منها، نرجّع الصفحة الرئيسية.
+        if (request.mode === 'navigate') return caches.match('./index.html');
+        return Response.error();
+      });
+    })
   );
 });
