@@ -2585,6 +2585,33 @@ function activityEntryParts(entry) {
     // الاستيراد بالإيد وصاحب المحل مش هيعرف مين رفع.
     itemLabel = '';
     detailLabel = `📦 ملف الأصناف اترفع من البرنامج المساعد — ${escapeHTML(Number(entry.newValue) || 0)} صنف`;
+  } else if (entry.action === 'undo') {
+    // ============================================================
+    // ↩️ التراجع — كان بيطلع في السجل كلمة "undo" وبس
+    // ============================================================
+    // اتبلّغ بالنص: "انا عاوز لما حد يضغط علي زرار التراجع يكتب في سجل
+    // العمليات ايه اللي حصل بظبط ... يعني اي الدرجة وكانت كام وهكذا
+    // لانه بيظهر خام في السجل".
+    //
+    // وكان صح: مكانش فيه أي فرع هنا للعملية دي، فكانت بتقع على شبكة
+    // الأمان اللي بتكتب اسم العملية الخام.
+    //
+    // ⚠️ gradeNumber هنا **مش رقم**: التراجع بيحط فيها الاسم المعروض
+    // كامل ("درجة 56" أو "أبيض")، فمنقدرش نستخدم `grade` اللي فوق —
+    // كانت هتطلع "درجة درجة 56".
+    //
+    // ⚠️⚠️ والعمليات القديمة (اللي اتسجّلت قبل التحديث ده) مافيهاش
+    // newValue — فبتطلع بالوصف لوحده من غير "رجعت لـ"، مش فاضية.
+    itemLabel = cat + grp + (entry.gradeNumber ? ` — ${escapeHTML(entry.gradeNumber)}` : '');
+    // ⚠️ اسم الدرجة موجود في **عنوان** السطر فوق، والوصف المحفوظ بيبدأ
+    // بيه كمان ("درجة 56 — الفرع: 12 ← 8"). بنشيله من الوصف عشان
+    // مايتكررش — السطر بيطول على الموبايل من غير أي فايدة.
+    let what = entry.oldValue || '';
+    const head = `${entry.gradeNumber || ''} — `;
+    if (entry.gradeNumber && what.indexOf(head) === 0) what = what.slice(head.length);
+    detailLabel =
+      `↩️ تراجع${what ? ` عن «${escapeHTML(what)}»` : ''}` +
+      (entry.newValue ? ` · ${escapeHTML(entry.newValue)}` : '');
   } else if (entry.action === 'edit_user') {
     itemLabel = escapeHTML(entry.categoryName || '');
     const r = ROLE_LABELS_AR[entry.newValue] || entry.newValue || '';
