@@ -1140,7 +1140,11 @@ th {
 /* ============================================================
    🔎 البحث برقم الدرجة
    ============================================================ */
-.grade-search-row {
+/* ⚠️ الصف ده بيتستعمل في مكانين: بحث الدرجة وبحث الفئة. مكتوب
+   مرة واحدة عن قصد — لو اتغيّر الشكل في واحد لازم يتغيّر في التاني،
+   ونسختين معناها إنهم هيتفرّقوا يوم ما حد يعدّل واحدة وينسى التانية. */
+.grade-search-row,
+.side-search-row {
   display: flex;
   gap: 6px;
   margin-bottom: 8px;
@@ -1153,9 +1157,13 @@ th {
   font-size: 14px;
 }
 
-.grade-search-clear {
+.grade-search-clear,
+.side-search-clear {
   padding: 8px 12px;
   font-size: 14px;
+  /* ⚠️ مايضغطش نفسه لما اسم الفئة يطول: العرض بتاعه ثابت والخانة
+     هي اللي بتاخد الباقي. */
+  flex: 0 0 auto;
 }
 
 /* ============================================================
@@ -1330,6 +1338,10 @@ th {
 }
 
 .side-search {
+  /* ⚠️ الخانة بتاخد كل العرض الفاضي، والزرار جنبها. من غير min-width
+     الخانة بتفضل على عرض محتواها في flex وبتزق الزرار بره. */
+  flex: 1;
+  min-width: 0;
   padding: 7px 10px;
   font-size: 13px;
 }
@@ -2562,6 +2574,28 @@ tr.grade-base td:first-child {
 }
 
 /* سطر "آخر تحديث لملف الأصناف" — صغير ومش مزاحم */
+/* 🔢 رقم الملف القصير — ن٣. الشرح عند productsShortCode في
+   js/products.js. ⚠️ بخط ثابت العرض: الرقم بيتقارن حرف بحرف مع
+   شاشة تانية، والخط المتناسب بيخلّي 1 وl شبه بعض. */
+.prod-code {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+}
+
+.prod-code code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: var(--chip-bg, rgba(0, 0, 0, 0.05));
+  border-radius: 5px;
+  padding: 1px 6px;
+  letter-spacing: 0.5px;
+  font-size: 12px;
+}
+
+.prod-code-hint {
+  opacity: 0.75;
+}
+
 .prod-updated {
   margin-top: 8px;
   padding-top: 8px;

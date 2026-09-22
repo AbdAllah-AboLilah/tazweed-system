@@ -133,6 +133,98 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('ومابتبانش جوه تاب تاني', r.unknownNotInTab);
   check('⭐ شريط التابات مابيزحلقش الصفحة', r.bodyOverflow);
   check('وبيتزحلق هو جوه نفسه', r.barScrolls);
+  // ============================================================
+  // 🔎 البحث في السجل — ن٨
+  // ============================================================
+  // ⚠️⚠️ أهم فحصين هنا مش "البحث بيلاقي": هما إن البحث **بيقول** إنه
+  // بيدوّر في المحمّل بس، وإن الرسالة الفاضية بتفرّق بين "مفيش
+  // نتيجة للبحث" و"مفيش عمليات في المدة دي". من غيرهم، اللي يدوّر
+  // على عملية قديمة ومايلاقيهاش هيفتكر إنها ماحصلتش.
+  const srch = await p.evaluate(async () => {
+    const out = {};
+    state.logSearch = '';
+    setLogTab('all');
+    setLogDays(0);
+    renderFromData();
+    const cards = () => document.querySelectorAll('.grade-card').length;
+    out.before = cards();
+    out.clearHiddenWhenEmpty = !document.getElementById('log-search-clear');
+
+    const type = async (v) => {
+      const el = document.getElementById('log-search');
+      el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 320));
+    };
+
+    await type('طباقيه');
+    out.byCategory = cards();
+    out.byCategoryText = document.body.textContent.indexOf('طباقيه') !== -1;
+    out.focusKept = document.activeElement && document.activeElement.id === 'log-search';
+    out.clearShown = !!document.getElementById('log-search-clear');
+
+    // ⭐ بالاسم كمان
+    await type('محمود');
+    out.byPerson = cards();
+
+    // ⭐⭐ من غير همزة — نفس تطبيع باقي البحث في النظام
+    state.activityLog.push({ action: 'add_category', categoryName: 'أورجانزا', userName: 'A',
+      timestamp: { toDate: () => new Date() } });
+    await type('اورجانزا');
+    out.normalized = cards();
+
+    // ============================================================
+    // ⭐⭐⭐ الاسم اللي فيه رموز HTML
+    // ============================================================
+    // ⚠️⚠️ ده الفخ الحقيقي: السطر بيتعرض **مهرّب** (escapeHTML)، يعني
+    // "نصار & كيوي" بتبقى في الـHTML "نصار &amp; كيوي". لو البحث
+    // دوّر في النص المهرّب، اللي يكتب اسم الفئة زي ما هو **مش
+    // هيلاقيها** — وهو شايفها قدامه على الشاشة.
+    state.activityLog.push({ action: 'add_category', categoryName: 'نصار & كيوي', userName: 'A',
+      timestamp: { toDate: () => new Date() } });
+    state.activityLog.push({ action: 'add_category', categoryName: 'مقاس <40>', userName: 'A',
+      timestamp: { toDate: () => new Date() } });
+    await type('نصار & كيوي');
+    out.ampersand = cards();
+    await type('<40>');
+    out.angle = cards();
+
+    // ⭐⭐⭐ مفيش نتيجة = الرسالة بتقول السبب الصح
+    await type('حاجة_مش_موجودة_خالص');
+    out.noneCards = cards();
+    out.noneSaysSearch = document.body.textContent.indexOf('مفيش نتيجة لـ') !== -1;
+
+    // ⭐⭐⭐ وبيقول إنه بيدوّر في المحمّل بس
+    out.saysLoadedOnly = document.body.textContent.indexOf('البحث بيدوّر في') !== -1;
+    state.logHasMore = true;
+    renderFromData();
+    out.warnsWhenMore = document.body.textContent.indexOf('مش في السجل كله') !== -1;
+    state.logHasMore = false;
+
+    // ⚠️ بنقارن بعدد السطور **دلوقتي** مش باللي كان في الأول:
+    // الفحص نفسه ضاف سطر "أورجانزا" في النص.
+    out.expectAfterClear = state.activityLog.length;
+    document.getElementById('log-search-clear').click();
+    await new Promise((r) => setTimeout(r, 60));
+    out.afterClear = cards();
+    out.valueCleared = document.getElementById('log-search').value;
+    return out;
+  });
+  check('⭐⭐ البحث بيفلتر بالفئة', srch.byCategory === 1 && srch.byCategoryText, srch);
+  check('⭐ وبيفلتر باسم الشخص كمان', srch.byPerson === 1, srch);
+  check('⭐⭐ و"اورجانزا" من غير همزة بتلاقي "أورجانزا"', srch.normalized === 1, srch);
+  check('⭐⭐⭐ واسم فيه & بيتلاقى بالاسم زي ما هو (مش &amp;)', srch.ampersand === 1, srch);
+  check('⭐⭐⭐ واسم فيه <> كمان', srch.angle === 1, srch);
+  check('⭐ المؤشر بيفضل في الخانة', srch.focusKept, srch);
+  check('⭐ زرار ✕ بيبان بالكلام ومابيبانش من غيره',
+    srch.clearShown && srch.clearHiddenWhenEmpty, srch);
+  check('⭐⭐ ودوسة واحدة بترجّع كله',
+    srch.afterClear === srch.expectAfterClear && srch.valueCleared === '', srch);
+  check('⭐⭐⭐ مفيش نتيجة = الرسالة بتقول إنها نتيجة بحث مش مدة',
+    srch.noneCards === 0 && srch.noneSaysSearch, srch);
+  check('⭐⭐⭐ وبيقول صراحةً إنه بيدوّر في المحمّل بس', srch.saysLoadedOnly, srch);
+  check('⭐⭐⭐ وبيحذّر لما يكون فيه سجل أقدم مش محمّل', srch.warnsWhenMore, srch);
+
   check('مفيش أخطاء في الصفحة', errs.length === 0, errs);
 
   await b.close();

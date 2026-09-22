@@ -284,7 +284,15 @@ const testPage = `<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"
    <input id="pf-path" type="text" dir="ltr" placeholder="C:\Users\...\List.xlsx" style="font-size:13px"></div>
   <div class="row" style="margin-top:9px">
    <button class="ghost" id="pf-check">&#9989; تأكد من الملف</button>
+   <!-- ⚠️⚠️ الزرار ده **بيفتح النظام** مش بيرفع بنفسه — البرنامج
+        مالوش مفتاح سحابة. الشرح الكامل عند handleProductsUploadNow
+        في productsfile.go. والنص تحته بيقول ده صراحةً عشان اللي
+        بيدوس يعرف إن المتصفح هيفتح، مايفتكرش إن حاجة غلط حصلت. -->
+   <button id="pf-now">&#11014;&#65039; ارفع دلوقتي</button>
   </div>
+  <div class="note" style="margin-top:8px">
+   &#11014;&#65039; <b>«ارفع دلوقتي»</b> بيفتح لك النظام في المتصفح وهو بيرفع على طول.
+   البرنامج ده مالوش حساب على السحابة عن قصد — فالرفع بيحصل من النظام بحسابك انت.</div>
   <div id="pf-out" style="font-size:13px;line-height:1.9;margin-top:9px;min-height:18px"></div>
 
   <!-- ⚠️ الشريط مخفي لحد ما يبقى فيه رفع فعلًا: شريط فاضي واقف على
@@ -824,6 +832,24 @@ pfPath.onchange=async()=>{
   try{ pfShow(await pfSave({path:pfPath.value})); }
   catch(e){ pfOut.textContent='\u274c '+e; pfOut.className='bad'; }
 };
+// ⚠️ الزرار بيتقفل وهو شغّال: دوستين ورا بعض = تبويبين بيفتحوا،
+// والتاني بيرفع تاني على الفاضي.
+const pfNow=document.getElementById('pf-now');
+if(pfNow) pfNow.onclick=async()=>{
+  pfNow.disabled=true;
+  pfOut.textContent='بيفتح النظام...'; pfOut.className='';
+  try{
+    const j=await (await fetch('/products/upload-now',{method:'POST'})).json();
+    if(j.error){ pfOut.textContent='\u274c '+j.error; pfOut.className='bad'; }
+    else{
+      pfOut.innerHTML='\u2705 النظام بيفتح في المتصفح والرفع هيبدأ لوحده.'
+        +'<br><span style="font-size:11.5px;color:var(--mut)">لو التبويب مافتحش، افتح النظام بنفسك ومن شاشة الأصناف دوس \u2b06\ufe0f ارفع من الكمبيوتر.</span>';
+      pfOut.className='ok';
+    }
+  }catch(e){ pfOut.textContent='\u274c '+e; pfOut.className='bad'; }
+  setTimeout(()=>{ pfNow.disabled=false; },3000);
+};
+
 pfCheck.onclick=async()=>{
   pfCheck.disabled=true;
   pfOut.textContent='بيشوف...'; pfOut.className='';

@@ -254,7 +254,12 @@ async function runProductsFileUpload(opts) {
   const o = opts || {};
   if (pfileBusy) return;
   if (typeof isServerReachable === 'function' && !isServerReachable()) {
-    pfileNote = '⚠️ ملف الأصناف اتغيّر بس مفيش نت — هيترفع أول ما النت يرجع.';
+    // ⚠️ اللي دايس بإيده لازم يعرف إن دوسته مامشيتش — "هيترفع أول ما
+    // النت يرجع" صح في التلقائي، لكن في اليدوي بتبان كأن الدوسة
+    // اتنفّذت وهي واقفة.
+    pfileNote = o.manual
+      ? '⚠️ مفيش نت دلوقتي — الرفع مش هيشتغل. جرّب تاني أول ما النت يرجع.'
+      : '⚠️ ملف الأصناف اتغيّر بس مفيش نت — هيترفع أول ما النت يرجع.';
     if (!o.silent && typeof render === 'function' && state.screen === 'products') render();
     return;
   }
@@ -264,8 +269,20 @@ async function runProductsFileUpload(opts) {
   // البصمة المتخزّنة عندنا ممكن تكون قديمة بدقيقة، وفي الدقيقة دي
   // جهاز تاني في المحل يكون رفع نفس الملف. من غير القراءة دي، كل
   // جهاز عليه البرنامج هيرفع نفس الـ47 ألف صنف لوحده.
+  // ============================================================
+  // ⚠️⚠️ الرفع **اليدوي** بيعدّي من فوق الحارس ده
+  // ============================================================
+  // اتطلب بالنص: "ممكن تضيف زرار رفع في البرنامج المساعد عشان لو
+  // مش متاكد انه رفع اضغط عليه يرفع علي طول يعني رفع يدوي".
+  //
+  // والحارس ده معمول للرفع **التلقائي**: بيمنع إن كل جهاز في المحل
+  // يرفع نفس الـ47 ألف صنف لوحده. لكن اللي دايس بإيده وهو مش
+  // متأكد، إجابته المفروضة هي إن الرفع يحصل — مش سكوت يخلّيه مش
+  // متأكد أكتر.
+  //
+  // ⚠️ والتكلفة معروفة ومقبولة: 24 كتابة (الشرح عند saveProducts).
   const st0 = pfileState;
-  if (st0 && st0.fingerprint) {
+  if (!o.manual && st0 && st0.fingerprint) {
     const now = await uploadedFingerprint(true);
     if (now === null || now === st0.fingerprint) {
       if (now === st0.fingerprint) pfileNote = '';
@@ -312,6 +329,24 @@ async function runProductsFileUpload(opts) {
 // ⚠️⚠️ ومكانه شاشة الأصناف مش الشاشة الرئيسية: الرئيسية بتاعة المساعد
 // مترتّبة بالنواقص، وحاجة زي دي بتتزحلق فيها. وده اللي اتطلب صراحةً
 // إننا ناخد بالنا منه.
+// ============================================================
+// ⬆️ الرفع اليدوي — زرار ثابت مش مربوط بتغيّر الملف
+// ============================================================
+// ⚠️ الزرار اللي في الشريط تحت بيبان **بس لما الملف يتغيّر**. واللي
+// مش متأكد إن الرفع حصل، الشريط عنده مش ظاهر أصلًا ومافيش حاجة
+// يدوس عليها. فده زرار تاني، ثابت، شغّال في أي وقت.
+//
+// ⚠️⚠️ وبيبان **بس** لما يكون فيه برنامج مساعد على الجهاز ده وفيه
+// ملف متظبّط فعلًا: زرار بيقول "ارفع" على جهاز مافيهوش ملف بيدي
+// خطأ بدل ما يدي فايدة.
+function productsManualUploadHTML() {
+  const st = pfileState;
+  if (!st || !st.path || !st.exists) return '';
+  if (typeof canManageProducts === 'function' && !canManageProducts(state.profile)) return '';
+  if (pfileBusy) return `<button class="btn" id="pfile-manual" disabled>⏳ بيرفع...</button>`;
+  return `<button class="btn" id="pfile-manual" title="يقرا الملف اللي على الكمبيوتر ويرفعه دلوقتي">⬆️ ارفع من الكمبيوتر</button>`;
+}
+
 function productsFileBannerHTML() {
   const st = pfileState;
   // ⚠️ الشريط بيقرا من المحفوظ بس — مافيش قراءة من السحابة وقت الرسم:
@@ -345,6 +380,31 @@ function productsFileBannerHTML() {
 }
 
 function attachProductsFileEvents() {
+  const manual = document.getElementById('pfile-manual');
+  if (manual) {
+    manual.addEventListener('click', async () => {
+      const st = pfileState;
+      const known =
+        productsMeta && typeof productsMeta.sourceFingerprint === 'string'
+          ? productsMeta.sourceFingerprint
+          : pfileKnownFP;
+      // ⚠️⚠️ التأكيد بيبان **بس** لما الملف يكون هو نفسه المرفوع.
+      // السبب: الرفع بيستبدل كل الأصناف، ولو الملف مااتغيّرش يبقى
+      // الدوسة دي مالهاش أي فايدة غير إنها تصرف 24 كتابة. لكن لو
+      // الملف اتغيّر فعلًا، التأكيد بيبقى سؤال على حاجة انت طالبها.
+      const same = st && st.fingerprint && known && st.fingerprint === known;
+      if (same) {
+        const code = st.fingerprint.slice(0, 8).toUpperCase();
+        const ok = confirm(
+          `الملف اللي على الكمبيوتر هو نفسه اللي مرفوع في النظام (رقم ${code}).\n\n` +
+            'يعني مافيش حاجة جديدة. ترفعه تاني برضه؟'
+        );
+        if (!ok) return;
+      }
+      await runProductsFileUpload({ manual: true });
+    });
+  }
+
   const up = document.getElementById('pfile-upload');
   if (up) {
     up.addEventListener('click', () => {
@@ -387,8 +447,52 @@ const PFILE_BOOT_DELAY_MS = 6000;
 const PFILE_WATCH_MS = 3 * 60 * 1000;
 let pfileWatchTimer = null;
 
+// ============================================================
+// ⬆️ الفتح من زرار البرنامج المساعد — .../?upload=1
+// ============================================================
+// ⚠️⚠️ ليه العلامة دي موجودة: البرنامج المساعد **مالوش أي مفتاح
+// سحابة** (تقسيم شغل ثابت في المشروع كله)، فهو مايقدرش يرفع بنفسه.
+// وزرار «ارفع» جواه من غير ده هيبقى بيكدب.
+//
+// فالزرار بيفتح النظام على العلامة دي، والنظام — وهو اللي معاه
+// حسابك — بيرفع على طول. يعني دوسة واحدة من الكمبيوتر والرفع بيبدأ،
+// من غير ما البرنامج يدّعي حاجة مش بيعملها.
+//
+// ⚠️ والعلامة بتتشال من العنوان أول ما تتقرا: من غير كده، ريفريش
+// واحد على الصفحة = رفع تاني لـ47 ألف صنف من غير ما حد يطلب.
+function consumeUploadFlag() {
+  let asked = false;
+  try {
+    const q = new URLSearchParams(location.search || '');
+    asked = q.get('upload') === '1';
+    if (asked) {
+      q.delete('upload');
+      const rest = q.toString();
+      history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+    }
+  } catch (err) {
+    return false;
+  }
+  return asked;
+}
+
 function scheduleProductsFileCheck() {
+  // ⚠️ بنقرا العلامة **فورًا** مش بعد التأخير: لو الصفحة اتعملها
+  // ريفريش في الست ثواني دول، العنوان لازم يكون اتنضّف خلاص.
+  const askedNow = consumeUploadFlag();
+
   setTimeout(() => {
+    if (askedNow) {
+      // ⚠️ بنودّيه على شاشة الأصناف الأول: الرفع بيرسم حالته هناك
+      // (الشريط وشريط التقدّم)، ولو فضل واقف على شاشة تانية هيشوف
+      // دوسته اختفت من غير أي خبر.
+      if (typeof canManageProducts === 'function' && !canManageProducts(state.profile)) {
+        return;
+      }
+      if (typeof openScreen === 'function') openScreen('products');
+      runProductsFileUpload({ manual: true }).catch(() => {});
+      return;
+    }
     checkProductsFile({ silent: false }).catch(() => {});
   }, PFILE_BOOT_DELAY_MS);
 

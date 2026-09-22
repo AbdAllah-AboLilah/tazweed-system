@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.22.0"
+	version = "1.23.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -433,6 +433,8 @@ func newServer() *http.ServeMux {
 	mux.HandleFunc("/products/file/progress", guard(handleProductsFileProgress))
 	// 🗂️ شاشة "اختار ملف" بتاعة الويندوز — المتصفح مايقدرش يدّي مسار
 	mux.HandleFunc("/products/file/pick", guard(handleProductsFilePick))
+	// ⬆️ الرفع اليدوي — الشرح عند handleProductsUploadNow
+	mux.HandleFunc("/products/upload-now", guard(handleProductsUploadNow))
 
 	// 🎨 تصميم الملصق — النظام بيقرا /design والمصمّم بيكتب عليه.
 	mux.HandleFunc("/design", guard(handleDesign))

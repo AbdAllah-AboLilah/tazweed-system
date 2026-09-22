@@ -261,3 +261,71 @@ func TestStaleProgressStopsShowing(t *testing.T) {
 		t.Fatal("الشريط لسه ماشي بعد ما الخبر انقطع")
 	}
 }
+
+// ============================================================
+// ⬆️ زرار «ارفع دلوقتي» — البرنامج بيفتح النظام، مش بيرفع
+// ============================================================
+// ⚠️⚠️ الفحص ده بيحرس **حدود مسؤولية** مش شكل: لو حد خلّى البرنامج
+// يرفع بنفسه يومًا ما، يبقى حط مفتاح سحابة على جهاز في محل — وده
+// أخطر حاجة في المشروع كله.
+func TestUploadNowNeedsAFileFirst(t *testing.T) {
+	// من غير ملف متظبّط
+	if err := setProductsFile("", false); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	handleProductsUploadNow(rec, httptest.NewRequest(http.MethodPost, "/products/upload-now", nil))
+	var out map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["ok"] == true {
+		t.Fatalf("قال إنه فتح وهو مافيش ملف أصلًا: %v", out)
+	}
+	if s, _ := out["error"].(string); s == "" {
+		t.Fatalf("مافيش سبب مكتوب: %v", out)
+	}
+
+	// وبملف موجود
+	dir := t.TempDir()
+	f := filepath.Join(dir, "List.xlsx")
+	os.WriteFile(f, []byte("اصناف"), 0o644)
+	if err := setProductsFile(f, false); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	handleProductsUploadNow(rec, httptest.NewRequest(http.MethodPost, "/products/upload-now", nil))
+	out = map[string]interface{}{}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["ok"] != true || out["opened"] != true {
+		t.Fatalf("مافتحش النظام والملف موجود: %v", out)
+	}
+}
+
+// ⭐⭐⭐ الصفحة لازم تقول إنه بيفتح النظام — مش إنه بيرفع
+func TestUploadNowButtonDoesNotClaimToUpload(t *testing.T) {
+	if !strings.Contains(testPage, `id="pf-now"`) {
+		t.Fatal("مافيش زرار ارفع دلوقتي")
+	}
+	if !strings.Contains(testPage, "بيفتح لك النظام في المتصفح") {
+		t.Fatal("النص مش بيقول إن النظام هو اللي هيفتح ويرفع")
+	}
+	if !strings.Contains(testPage, "مالوش حساب على السحابة") {
+		t.Fatal("النص مش بيوضّح إن البرنامج مالوش حساب سحابة")
+	}
+}
+
+// ⭐⭐⭐ والبرنامج مالوش أي مفتاح سحابة — ولا في مسار واحد
+//
+// ⚠️ الفحص ده واسع عن قصد: بيدوّر على أي أثر لمفتاح أو توكن في
+// الإعدادات. لو حد ضاف واحد، بيفشل بالاسم.
+func TestHelperStillHoldsNoCloudKeys(t *testing.T) {
+	b, err := json.Marshal(getSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	low := strings.ToLower(string(b))
+	for _, bad := range []string{"apikey", "api_key", "token", "secret", "password", "serviceaccount", "private_key", "refreshtoken"} {
+		if strings.Contains(low, bad) {
+			t.Fatalf("الإعدادات فيها %q — البرنامج المفروض مالوش أي مفتاح سحابة", bad)
+		}
+	}
+}

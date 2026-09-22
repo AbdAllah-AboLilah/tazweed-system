@@ -332,6 +332,87 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
     /changedSinceUpload/.test(testpage) && /changedSinceUpload/.test(mainGo + testpage));
   check('⭐ والسؤال كل ثانية بيقف أول ما الرفع يخلص', /pfStopPoll/.test(testpage));
 
+  // ============================================================
+  // 13) ⬆️ الرفع اليدوي — زرار «ارفع دلوقتي»
+  // ============================================================
+  // اتطلب بالنص: "ممكن تضيف زرار رفع في البرنامج المساعد عشان لو مش
+  // متاكد انه رفع اضغط عليه يرفع علي طول يعني رفع يدوي".
+  //
+  // ⚠️⚠️ والحاجة اللي الفحص ده موجود عشانها: الرفع اليدوي لازم
+  // **يعدّي من فوق حارس التكرار**. الحارس ده معمول للرفع التلقائي
+  // (يمنع كل جهاز في المحل يرفع نفس الـ47 ألف صنف)، لكن اللي دايس
+  // بإيده وهو مش متأكد، إجابته المفروضة إن الرفع يحصل.
+  check('⭐⭐⭐ الرفع اليدوي بيعدّي من فوق حارس التكرار',
+    /if \(!o\.manual && st0 && st0\.fingerprint\)/.test(pf), pf.slice(0, 0));
+  check('⭐⭐ والزرار الثابت بيبان بس لو فيه ملف متظبّط فعلًا',
+    /function productsManualUploadHTML/.test(pf) &&
+    /if \(!st \|\| !st\.path \|\| !st\.exists\) return ''/.test(pf));
+  check('⭐⭐ ومربوط بصلاحية إدارة الأصناف',
+    /productsManualUploadHTML[\s\S]{0,400}canManageProducts/.test(pf));
+  check('⭐ وبيتحط في شريط أدوات شاشة الأصناف',
+    /productsManualUploadHTML\(\)/.test(prod));
+  check('⭐⭐ ولو الملف هو نفسه المرفوع بيسأل الأول (24 كتابة على الفاضي)',
+    /pfile-manual[\s\S]{0,900}confirm\(/.test(pf));
+  check('⭐⭐ ومفيش نت = بيقول إن الدوسة مامشيتش، مش "هيترفع بعدين"',
+    /o\.manual[\s\S]{0,120}الرفع مش هيشتغل/.test(pf));
+
+  // ⚠️⚠️ حدود المسؤولية: البرنامج **بيفتح النظام**، مش بيرفع.
+  check('⭐⭐⭐ زرار البرنامج بيفتح النظام على ?upload=1 (مش بيرفع بنفسه)',
+    /upload-now/.test(mainGo) && /pf-now/.test(testpage));
+  check('⭐⭐ والنظام بيقرا العلامة ويرفع يدوي',
+    /consumeUploadFlag/.test(pf) && /manual: true/.test(pf));
+  check('⭐⭐⭐ والعلامة بتتشال من العنوان (ريفريش مايرفعش تاني)',
+    /history\.replaceState/.test(pf) && /q\.delete\('upload'\)/.test(pf));
+
+  const flag = await p.evaluate(() => {
+    // بنحاكي الفتح على العلامة ونتأكد إنها بتتقرا مرة واحدة بس
+    history.replaceState(null, '', location.pathname + '?upload=1&x=2');
+    const first = consumeUploadFlag();
+    const second = consumeUploadFlag();
+    return { first, second, url: location.search };
+  });
+  check('⭐⭐⭐ العلامة بتتقرا مرة واحدة بس', flag.first === true && flag.second === false, flag);
+  check('⭐⭐ والباقي في العنوان مابيتشالش', /x=2/.test(flag.url) && !/upload/.test(flag.url), flag);
+
+  // ============================================================
+  // 14) 🔢 الرقم القصير — ن٣
+  // ============================================================
+  // اتطلب بالنص: "ايه رايك تكتب جوه بعد التحديث تكتب جواه التاريخ
+  // والوقت ... او حتي تكتب اي دي ارقام مثلا".
+  //
+  // ⚠️⚠️ وأهم فحص هنا: **الشكل واحد في النظام وفي البرنامج**. الرقم
+  // ده وظيفته الوحيدة إنه يتقارن بالعين بين شاشتين — ولو واحد كتبه
+  // صغير والتاني كبير، أو واحد 8 حروف والتاني 6، المقارنة نفسها
+  // بايظة وهي اللي الميزة كلها قايمة عليها.
+  const codeGo = /func shortFP[\s\S]{0,400}?strings\.ToUpper\(fp\[:8\]\)/.test(
+    fs.readFileSync(path.join(root, 'helper/productsfile.go'), 'utf8')
+  );
+  check('⭐⭐⭐ البرنامج: 8 حروف كبيرة', codeGo);
+
+  const codeJs = await p.evaluate(() => {
+    const out = {};
+    productsMeta = { sourceFingerprint: 'b8f1a2c3d4e5f60718293a4b5c6d7e8f90' };
+    out.full = productsShortCode();
+    out.html = productsShortCodeHTML();
+    productsMeta = { sourceFingerprint: 'abc' };
+    out.tooShort = productsShortCode();
+    productsMeta = {};
+    out.missing = productsShortCode();
+    productsMeta = null;
+    out.noMeta = productsShortCode();
+    return out;
+  });
+  check('⭐⭐⭐ النظام: نفس الـ8 حروف الكبيرة بالظبط', codeJs.full === 'B8F1A2C3', codeJs);
+  check('⭐⭐ وبصمة ناقصة = مفيش رقم (مش نص مقصوص)',
+    codeJs.tooShort === '' && codeJs.missing === '' && codeJs.noMeta === '', codeJs);
+  check('⭐ والسطر بيقول إنه لازم يطابق اللي في البرنامج',
+    /لازم يطابق/.test(codeJs.html), codeJs.html);
+  check('⭐ والسطر بيبان في شاشة الأصناف وفي شاشة الطباعة',
+    /productsShortCodeHTML\(\)/.test(prod) &&
+    /productsShortCodeHTML/.test(fs.readFileSync(path.join(root, 'js/print-screen.js'), 'utf8')));
+  check('⭐⭐ والبرنامج بيوري رقم الملف ورقم المرفوع مع بعض',
+    /st\.shortCode/.test(testpage) && /st\.lastUploadShort/.test(testpage));
+
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();
 

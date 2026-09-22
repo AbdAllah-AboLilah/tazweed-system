@@ -141,6 +141,55 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐ "ابيض" من غير همزة بتلاقي "أبيض"', search.normalized.length === 1, search);
   check('زرار المسح بيرجّع الكل', search.cleared === search.before && search.valueCleared === '', search);
 
+  // ---------- 3ب) ❌ نفس زرار المسح في بحث الفئة ----------
+  // اتطلب بالنص: "ممكن كمان نضيف زير X اللي هو في خانة البحث بتاع
+  // الفئة ... اضغط علي اكس يمسح اللي مكتوب زي البحث عن درجة في فئة
+  // معينه كده".
+  //
+  // ⚠️⚠️ الفحص بيتأكد من **تلات حاجات** مش واحدة: الزرار بيبان لما
+  // يكون فيه كلام، بيختفي لما الخانة تبقى فاضية، وبيمسح فعلًا.
+  // من غير التانية، الزرار بيفضل واقف على خانة فاضية ومالوش معنى.
+  const catSearch = await p.evaluate(async () => {
+    state.categories = [
+      { id: 'c1', name: 'كريب سادة لوكس', order: 1 },
+      { id: 'c2', name: 'شيفون مطرز', order: 2 },
+      { id: 'c3', name: 'قطن مصري', order: 3 },
+    ];
+    state.categorySearch = '';
+    state.sideMenuOpen = true;
+    render();
+    const names = () => [...document.querySelectorAll('.side-item-name')].map((e) => e.textContent.trim());
+    const out = { before: names(), clearWhenEmpty: !!document.getElementById('side-search-clear') };
+
+    const el = document.getElementById('side-search');
+    el.value = 'شيفون';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 320));
+    out.filtered = names();
+    out.clearShown = !!document.getElementById('side-search-clear');
+
+    // ⚠️⚠️ مابندوسش على حاجة مش موجودة: لو الزرار اتشال، الفحص لازم
+    // يفشل **بالاسم** مش يقع بـTypeError. الوقوع بيعدّي كفشل في
+    // المُشغّل بس مابيقولش إيه اللي اتكسر بالظبط.
+    const btn = document.getElementById('side-search-clear');
+    if (btn) {
+      btn.click();
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    out.after = names();
+    out.valueCleared = document.getElementById('side-search').value;
+    out.clearGoneAgain = !!document.getElementById('side-search-clear');
+    out.focusKept = document.activeElement && document.activeElement.id === 'side-search';
+    return out;
+  });
+  check('⭐ بحث الفئة بيفلتر', catSearch.filtered.length === 1 && catSearch.filtered[0] === 'شيفون مطرز', catSearch);
+  check('⭐⭐⭐ زرار ✕ بيبان لما يكون فيه كلام', catSearch.clearShown, catSearch);
+  check('⭐⭐ ومابيبانش والخانة فاضية', !catSearch.clearWhenEmpty && !catSearch.clearGoneAgain, catSearch);
+  check('⭐⭐⭐ ودوسة واحدة بترجّع كل الفئات', catSearch.after.length === catSearch.before.length, catSearch);
+  check('⭐⭐ والخانة بتفضى فعلًا', catSearch.valueCleared === '', catSearch);
+  check('⭐ والمؤشر بيفضل في الخانة (الكيبورد مايقفلش في التليفون)', catSearch.focusKept, catSearch);
+  await boot();
+
   // ---------- 4) الشريط المختصر ----------
   const ctx = await p.evaluate(async () => {
     const box = document.querySelector('[data-keep-scroll]') || document.scrollingElement;
