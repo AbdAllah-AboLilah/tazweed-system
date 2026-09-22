@@ -149,6 +149,41 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐ والمفتاح لما يبقى مقفول، مافيش مجموعة خالص',
     names.baseOff === 'أبيض', names);
 
+  // ============================================================
+  // ⭐⭐ "علّم على الظاهر" في وضع ملصقات الدرجة
+  // ============================================================
+  // اتطلب بالنص: "عند الضغط علي ملصقات الدرجة مفيش خيار علم على اللي
+  // ظاهر عاوزه يبقي موجوده". كان موجود في وضع الحذف وناقص هنا بس.
+  const selAll = await p.evaluate(async () => {
+    state.gradeLabelMode = true;
+    state.gradeLabelQty = {};
+    render();
+    const btn = document.getElementById('select-all-labels-btn');
+    const out = { exists: !!btn };
+    if (!btn) return out;
+
+    btn.click();
+    await new Promise((r) => setTimeout(r, 60));
+    const visible = visibleGrades().map((g) => g.id);
+    out.marked = visible.filter((id) => (state.gradeLabelQty || {})[id] > 0).length;
+    out.visible = visible.length;
+
+    // ⚠️ الكمية اللي اتكتبت بالإيد مايتغيّرش عليها
+    const first = visible[0];
+    state.gradeLabelQty[first] = 5;
+    render();
+    document.getElementById('select-all-labels-btn').click();
+    await new Promise((r) => setTimeout(r, 60));
+    out.keptTyped = state.gradeLabelQty[first];
+
+    state.gradeLabelMode = false; state.gradeLabelQty = {}; render();
+    return out;
+  });
+  check('⭐⭐⭐ الزرار موجود في وضع ملصقات الدرجة', selAll.exists, selAll);
+  check('⭐⭐ وبيعلّم على كل اللي ظاهر',
+    selAll.visible > 0 && selAll.marked === selAll.visible, selAll);
+  check('⭐⭐⭐ ومابيلغيش الأعداد اللي كتبتها بإيدك', selAll.keptTyped === 5, selAll);
+
   const groupOpt = await p.evaluate(async () => {
     window.__jobs = [];
     state.gradeLabelMode = true;
