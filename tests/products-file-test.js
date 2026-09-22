@@ -413,6 +413,89 @@ const check = (n, c, x) => (c ? pass : fail).push(n + (x !== undefined && !c ? `
   check('⭐⭐ والبرنامج بيوري رقم الملف ورقم المرفوع مع بعض',
     /st\.shortCode/.test(testpage) && /st\.lastUploadShort/.test(testpage));
 
+  // ============================================================
+  // 15) ⚠️ الفئات اللي باركودها اختفى من الملف — ن٥
+  // ============================================================
+  // ⚠️⚠️ ليه دي مهمة: الفئة بتاخد سعرها من الباركود ده، والملصق
+  // بيطبع السعر على ورق بيروح للزباين. لو الصنف اتشال من الـERP،
+  // الفئة بتفضل شغّالة بآخر سعر عرفته ومحدش واخد باله.
+  const miss = await p.evaluate(() => {
+    const out = {};
+    state.categories = [
+      { id: 'c1', name: 'كريب سادة لوكس', barcodeNumber: '28144' },
+      { id: 'c2', name: 'شيفون مطرز', barcodeNumber: '99999' },
+      { id: 'c3', name: 'قطن مصري', barcodeNumber: ' 77777 ' },  // ⚠️ بمسافات
+      { id: 'c4', name: 'فئة من غير باركود', barcodeNumber: '' },
+      { id: 'c5', name: 'فئة الحقل مش موجود أصلًا' },
+      // ⚠️⚠️ أصفار في الأول: الماسح بيعتبر "012133" و"12133" نفس
+      // الباركود (مكتوبة جنب handleScannedBarcode). لو الدالة دي
+      // قارنت بالنص الخام، الفئة دي كانت هتطلع "مفقودة" وهي سليمة.
+      { id: 'c6', name: 'فئة بأصفار في الأول', barcodeNumber: '0012133' },
+      // ⚠️ والعكس كمان: الملف هو اللي فيه الأصفار
+      { id: 'c7', name: 'فئة من غير أصفار', barcodeNumber: '55555' },
+      // ⚠️ و`code` بدل `barcode` — findProductByBarcode بتدوّر في الاتنين
+      { id: 'c8', name: 'فئة مربوطة بكود قديم', barcodeNumber: '31313' },
+    ];
+    productsCache = [
+      { name: 'كريب', barcode: '28144' },
+      { name: 'قطن', barcode: '77777' },
+      { name: 'بأصفار', barcode: '12133' },
+      { name: 'من غير أصفار', barcode: '00055555' },
+      { name: 'بكود', barcode: '', code: '31313' },
+    ];
+    out.names = categoriesMissingFromProducts().map((c) => c.name);
+    const html = missingProductsBannerHTML();
+    out.bannerName = html.indexOf('شيفون مطرز') !== -1;
+    out.bannerCount = /1 فئة/.test(html);
+    out.bannerNoFalseAlarm =
+      html.indexOf('فئة من غير باركود') === -1 && html.indexOf('فئة الحقل مش موجود') === -1;
+    out.bannerHasFix = html.indexOf('اختار من الأصناف') !== -1;
+
+    // ⚠️ كل الباركودات موجودة = مافيش شريط خالص
+    productsCache = [{ barcode: '28144' }, { barcode: '99999' }, { barcode: '77777' },
+                     { barcode: '12133' }, { barcode: '55555' }, { code: '31313' }];
+    out.allOk = missingProductsBannerHTML() === '';
+
+    // ⚠️⚠️ الأصناف لسه مااتحمّلتش = **مافيش شريط**. من غير الشرط ده،
+    // كل فئة في النظام كانت هتبان "مفقودة" قبل ما الأصناف تتحمّل —
+    // يعني إنذار كداب على كل حاجة أول ما تفتح الشاشة.
+    productsCache = null;
+    out.notLoadedNoBanner = missingProductsBannerHTML() === '' &&
+      categoriesMissingFromProducts().length === 0;
+    productsCache = [];
+    out.emptyNoBanner = missingProductsBannerHTML() === '';
+
+    // ⚠️ القايمة الطويلة بتتقص
+    state.categories = [];
+    for (let i = 0; i < 20; i++) state.categories.push({ id: 'x' + i, name: 'فئة ' + i, barcodeNumber: 'b' + i });
+    productsCache = [{ barcode: 'zzz' }];
+    const big = missingProductsBannerHTML();
+    out.bigCount = /20 فئة/.test(big);
+    out.bigTrimmed = /و12 غيرها/.test(big);
+
+    // ⚠️⚠️ والاسم بيعدّي على التهريب
+    state.categories = [{ id: 'h', name: '<img src=x onerror="window.__pwned=1">', barcodeNumber: 'nope' }];
+    const dirty = missingProductsBannerHTML();
+    out.escaped = dirty.indexOf('<img') === -1 && dirty.indexOf('&lt;img') !== -1;
+    productsCache = null;
+    return out;
+  });
+  check('⭐⭐⭐ الفئة اللي باركودها مش في الملف بتتمسك', miss.names.length === 1 && miss.names[0] === 'شيفون مطرز', miss);
+  check('⭐⭐ والمسافات حوالين الباركود مابتلخبطش', miss.names.indexOf('قطن مصري') === -1, miss);
+  check('⭐⭐⭐ والأصفار اللي في الأول مابتطلّعش إنذار كداب (زي الماسح بالظبط)',
+    miss.names.indexOf('فئة بأصفار في الأول') === -1 &&
+    miss.names.indexOf('فئة من غير أصفار') === -1, miss);
+  check('⭐⭐ والصنف المربوط بـcode بدل barcode بيتلاقى',
+    miss.names.indexOf('فئة مربوطة بكود قديم') === -1, miss);
+  check('⭐⭐⭐ والفئة اللي مالهاش باركود **مش** مفقودة (إنذار كداب)', miss.bannerNoFalseAlarm, miss);
+  check('⭐⭐ والشريط بيقول الاسم والعدد', miss.bannerName && miss.bannerCount, miss);
+  check('⭐ وبيقول الحل', miss.bannerHasFix, miss);
+  check('⭐⭐ وكل حاجة تمام = مافيش شريط', miss.allOk, miss);
+  check('⭐⭐⭐ والأصناف لسه مااتحمّلتش = مافيش شريط (مش كل الفئات مفقودة)',
+    miss.notLoadedNoBanner && miss.emptyNoBanner, miss);
+  check('⭐ والقايمة الطويلة بتتقص والعدد بيفضل صح', miss.bigCount && miss.bigTrimmed, miss);
+  check('⭐⭐⭐ والاسم بيعدّي على التهريب', miss.escaped, miss);
+
   check('مفيش أخطاء في الصفحة', errors.length === 0, errors);
   await b.close();
 
