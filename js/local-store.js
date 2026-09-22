@@ -101,6 +101,11 @@ function saveProfileLocally(uid, profile) {
     categoryAccess: Array.isArray(profile.categoryAccess) ? profile.categoryAccess : [],
     canSendRemotePrint: profile.canSendRemotePrint === true,
     canUsePrintScreen: profile.canUsePrintScreen === true,
+    // ⚠️⚠️ الكمية على ورقة التزويد (الشرح عند RESTOCK_QTY_MODES في
+    // js/print-restock.js). من غير السطر ده: الحساب اللي المفتاح
+    // مفتوح عنده بيطبع الورقة **من غير كميات** أول ما النت يقطع —
+    // في سكوت، لأن النسخة المحلية دي بتشيل أي حقل مش مكتوب هنا.
+    restockQty: ['branch', 'main', 'both'].indexOf(profile.restockQty) > -1 ? profile.restockQty : '',
     savedAt: Date.now(),
   });
 }
