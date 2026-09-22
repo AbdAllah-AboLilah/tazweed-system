@@ -2157,6 +2157,10 @@ function gradeTableHTML() {
           إجمالي <strong>${totalLabels}</strong> ملصق
         </span>
         <button class="btn btn-primary" id="print-grade-labels-btn" ${totalLabels ? '' : 'disabled'}>🏷️ اطبع المحدّد</button>
+        <!-- ⚠️ اتطلب بالنص: "عند الضغط علي ملصقات الدرجة مفيش خيار علم
+             على اللي ظاهر عاوزه يبقي موجوده". وكان موجود في وضع الحذف
+             وناقص هنا بس. -->
+        <button class="btn" id="select-all-labels-btn">علّم على الظاهر</button>
         <button class="btn" id="clear-grade-labels-btn" ${totalLabels ? '' : 'disabled'}>مسح التحديد</button>
         <button class="btn" id="exit-label-mode-btn">✔️ تم</button>
         <span class="action-bar-hint">
@@ -3565,6 +3569,23 @@ function attachDashboardEvents() {
     selectAllGradesBtn.addEventListener('click', () => {
       state.gradeSelected = state.gradeSelected || {};
       visibleGrades().forEach((g) => (state.gradeSelected[g.id] = true));
+      render();
+    });
+  }
+
+  // ⚠️ نفس زرار وضع الحذف بالظبط، و"الظاهر" مش "الكل" عن قصد: لو انت
+  // فالتر على مجموعة أو على "خلصت"، التعليم بيشتغل على اللي قدامك بس.
+  //
+  // ⚠️⚠️ والكميات اللي كتبتها بإيدك **مابتتغيّرش**: اللي مالوش عدد بياخد
+  // واحد، واللي كاتب له 5 بيفضل 5. من غير الشرط ده، دوسة واحدة كانت
+  // هتمسح شغل كتابة الأعداد كله وترجّعه 1.
+  const selectAllLabelsBtn = document.getElementById('select-all-labels-btn');
+  if (selectAllLabelsBtn) {
+    selectAllLabelsBtn.addEventListener('click', () => {
+      state.gradeLabelQty = state.gradeLabelQty || {};
+      visibleGrades().forEach((g) => {
+        if (!state.gradeLabelQty[g.id]) state.gradeLabelQty[g.id] = 1;
+      });
       render();
     });
   }
