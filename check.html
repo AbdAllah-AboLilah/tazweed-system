@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فحص الشبكة — نظام التزويد</title>
+<!--
+  ============================================================
+  🔌 صفحة فحص الشبكة
+  ============================================================
+  اتعملت عشان سبب محدد اتبلّغ بالنص:
+    "مش عاوز يشتغل علي الايفون ... بيفضل جايب الشاشة البيضة دي"
+  والراوتر عنده بيقفل كل المواقع إلا قايمة محددة.
+
+  ⚠️⚠️ المشكلة اللي بتحلّها: لما موقع يتقفل من الراوتر، النظام
+  بيفضل **مستني** من غير أي رسالة — شاشة فاضية ومحدش عارف
+  السبب. الصفحة دي بتجرّب كل موقع **لوحده** وتقول أنهي واحد
+  مش رادّ بالاسم.
+
+  ⚠️ صفحة مستقلة تمامًا: مافيش فايربيز ولا أي مكتبة خارجية،
+  ومش بتتحمّل مع النظام — عشان تشتغل حتى والنظام نفسه واقف.
+
+  ⚠️ وكل نداء معاه رقم عشوائي (tzcheck): من غيره الـService
+  Worker بيرجّع النسخة المحفوظة والموقع المقفول يبان شغّال.
+-->
+<style>
+  :root{
+    --bg:#f4f3ef; --card:#fff; --ink:#1f1d1a; --mut:#6b6558; --line:#ddd9d0;
+    --ok:#2e7d32; --bad:#b03030; --warn:#854f0b; --warn-bg:#faeeda; --accent:#185fa5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#17160f; --card:#211f19; --ink:#f1ede2; --mut:#a9a294; --line:#332f26;
+      --ok:#7cc47f; --bad:#e08b82; --warn:#e0b06a; --warn-bg:#2b2318; --accent:#7fb2e8;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif;
+    font-size:16px;line-height:1.8;padding:16px
+  }
+  .wrap{max-width:560px;margin:0 auto}
+  h1{font-size:21px;margin:8px 0 6px}
+  .sub{color:var(--mut);font-size:13.5px;margin:0 0 16px}
+  button{
+    width:100%;padding:15px;border:0;border-radius:11px;background:var(--accent);
+    color:#fff;font-size:17px;font-weight:600;font-family:inherit;cursor:pointer
+  }
+  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);font-size:15px;padding:12px}
+  button:disabled{opacity:.55}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:14px}
+  .row{display:flex;gap:10px;align-items:flex-start;padding:9px 2px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .ico{flex:none;width:22px;font-size:17px;text-align:center;line-height:1.5}
+  .nm{flex:1;min-width:0}
+  .nm b{font-size:14.5px;font-weight:600;display:block;word-break:break-all;direction:ltr;text-align:right}
+  .nm small{color:var(--mut);font-size:12px;display:block;line-height:1.6}
+  .ms{flex:none;font-size:12px;color:var(--mut);white-space:nowrap;padding-top:3px}
+  .sum{border-radius:11px;padding:13px;font-size:15px;line-height:1.75;margin-top:14px}
+  .sum.good{background:#e7f2e8;color:#1c5c22}
+  .sum.bad{background:#fcebeb;color:#791f1f}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) .sum.good{background:#17281a;color:#8fd193}
+    :root:not([data-theme="light"]) .sum.bad{background:#2d1c1a;color:#e8998f}
+  }
+  .note{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:11px 13px;font-size:12.5px;line-height:1.75;margin-top:14px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)}
+  #dev{font-size:11px;color:var(--mut);direction:ltr;text-align:right;word-break:break-all;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔌 فحص الشبكة</h1>
+  <p class="sub">
+    بيجرّب كل موقع النظام محتاجه — واحد واحد — ويقولك أنهي واحد مش رادّ.
+    سيب الصفحة مفتوحة لحد ما يخلّص.
+  </p>
+
+  <button id="go">ابدأ الفحص</button>
+  <div class="card" id="list"></div>
+  <div id="sum"></div>
+  <button class="ghost" id="cp" style="display:none;margin-top:12px">📋 انسخ النتيجة</button>
+  <div id="dev"></div>
+
+  <div class="note">
+    ⚠️ لو الراوتر بيرجّع صفحة «الموقع مقفول» بدل ما يتجاهل الطلب، الفحص ممكن
+    يشوفه <b>رادّ</b> وهو مقفول. فلو كله أخضر والنظام لسه مش شغّال، قوللي.
+  </div>
+</div>
+
+<script>
+// ⚠️ ⭐ = من غيره النظام مش هيفتح أصلًا. الترتيب مقصود: الأهم الأول
+// عشان الإجابة تبان من غير ما تستنى الفحص كله.
+var HOSTS = [
+  ['الموقع نفسه', 'https://abdallah-abolilah.github.io/tazweed-system/manifest.json', 1],
+  ['مكتبات فايربيز', 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js', 1],
+  ['البيانات (Firestore)', 'https://firestore.googleapis.com/', 1],
+  ['تسجيل الدخول', 'https://identitytoolkit.googleapis.com/', 1],
+  ['تجديد الجلسة', 'https://securetoken.googleapis.com/', 1],
+  ['تسجيل التليفون', 'https://firebaseinstallations.googleapis.com/', 0],
+  ['تسجيل الإشعارات', 'https://fcmregistrations.googleapis.com/', 0],
+  ['الإشعارات (أندرويد)', 'https://fcm.googleapis.com/', 0],
+  ['الإشعارات (آيفون)', 'https://web.push.apple.com/', 0],
+  ['احتياطي الدخول', 'https://www.googleapis.com/', 0],
+  ['مكتبة الباركود', 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js', 0],
+  ['مكتبة QZ', 'https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js', 0],
+  ['تحديث البرنامج المساعد', 'https://raw.githubusercontent.com/AbdAllah-AboLilah/tazweed-system/main/helper/dist/VERSION', 0]
+];
+
+// ⚠️ 7 ثواني: الموقع المقفول مابيرجّعش خطأ — بيفضل ساكت لحد ما الوقت
+// يخلص. ده بالظبط اللي بيخلي النظام يعلّق على شاشة فاضية.
+var TIMEOUT = 7000;
+var results = [];
+
+function host(u){ try { return new URL(u).hostname; } catch(e){ return u; } }
+
+function draw(){
+  var h = '';
+  for (var i=0;i<HOSTS.length;i++){
+    var r = results[i];
+    var ico = r ? (r.ok ? '✅' : '❌') : '⏳';
+    var ms = r ? (r.ok ? r.ms+' م.ث' : 'مش رادّ') : '';
+    var cls = r && !r.ok ? 'bad' : (r && r.ms > 2500 ? 'bad' : '');
+    h += '<div class="row"><div class="ico">'+ico+'</div>'
+      + '<div class="nm"><b>'+host(HOSTS[i][1])+'</b>'
+      + '<small>'+HOSTS[i][0]+(HOSTS[i][2]?' — <b style="display:inline">لازم</b>':'')+'</small></div>'
+      + '<div class="ms '+cls+'">'+ms+'</div></div>';
+  }
+  document.getElementById('list').innerHTML = h;
+}
+
+function one(url){
+  return new Promise(function(resolve){
+    var t0 = Date.now();
+    var ctl = new AbortController();
+    var timer = setTimeout(function(){ ctl.abort(); }, TIMEOUT);
+    // ⚠️ no-cors: إحنا مش عايزين نقرا الرد، عايزين نعرف **وصلنا ولا لأ**.
+    // ورد 404 من السيرفر معناه إن الموقع رادّ — وده اللي بنقيسه.
+    fetch(url + (url.indexOf('?')<0?'?':'&') + 'tzcheck=' + Math.random().toString(36).slice(2), {
+      mode: 'no-cors', cache: 'no-store', signal: ctl.signal
+    }).then(function(){
+      clearTimeout(timer); resolve({ ok:true, ms: Date.now()-t0 });
+    }).catch(function(){
+      clearTimeout(timer); resolve({ ok:false, ms: Date.now()-t0 });
+    });
+  });
+}
+
+document.getElementById('go').onclick = async function(){
+  var btn = this;
+  btn.disabled = true; btn.textContent = 'بيفحص...';
+  results = []; draw();
+  document.getElementById('sum').innerHTML = '';
+  document.getElementById('cp').style.display = 'none';
+
+  for (var i=0;i<HOSTS.length;i++){
+    results[i] = await one(HOSTS[i][1]);
+    draw();
+  }
+
+  var dead = [], slow = [], deadNeeded = 0;
+  for (var j=0;j<HOSTS.length;j++){
+    if (!results[j].ok){ dead.push(host(HOSTS[j][1])); if (HOSTS[j][2]) deadNeeded++; }
+    else if (results[j].ms > 2500) slow.push(host(HOSTS[j][1]));
+  }
+
+  var s = document.getElementById('sum');
+  if (dead.length === 0 && slow.length === 0){
+    s.className = 'sum good';
+    s.innerHTML = '✅ <b>كل المواقع رادّة وبسرعة.</b><br>يبقى المشكلة مش في قفل المواقع — قوللي وأنا أدوّر في مكان تاني.';
+  } else {
+    s.className = 'sum bad';
+    s.innerHTML = (deadNeeded ? '❌ <b>فيه '+deadNeeded+' موقع من اللي «لازم» مش رادّ — دي سبب الشاشة الفاضية.</b><br><br>' : '')
+      + (dead.length ? '<b>مش رادّة ('+dead.length+'):</b><br>' + dead.join('<br>') + '<br><br>' : '')
+      + (slow.length ? '<b>رادّة بس بطيئة:</b><br>' + slow.join('<br>') : '');
+  }
+
+  var txt = 'فحص الشبكة — ' + new Date().toLocaleString('ar-EG') + '\n';
+  for (var k=0;k<HOSTS.length;k++){
+    txt += (results[k].ok?'OK  ':'DEAD') + '  ' + results[k].ms + 'ms  ' + host(HOSTS[k][1]) + '\n';
+  }
+  txt += navigator.userAgent;
+  var cp = document.getElementById('cp');
+  cp.style.display = 'block';
+  cp.onclick = function(){
+    navigator.clipboard.writeText(txt).then(function(){ cp.textContent = '✅ اتنسخت — ابعتهالي'; })
+      .catch(function(){ cp.textContent = 'مقدرش أنسخ — صوّر الشاشة'; });
+  };
+
+  btn.disabled = false; btn.textContent = 'افحص تاني';
+};
+
+document.getElementById('dev').textContent = navigator.userAgent;
+draw();
+</script>
+</body>
+</html>
