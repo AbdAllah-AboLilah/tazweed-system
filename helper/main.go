@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	version = "1.21.0"
+	version = "1.22.0"
 	addr    = "127.0.0.1:7770"
 	// 12 ميجا: ورقة التزويد كصورة أبيض وأسود بتطلع كام عشرة كيلو،
 	// فده سقف واسع جدًا وبرضه بيمنع الاستهلاك.
@@ -188,6 +188,11 @@ type printRequest struct {
 	PNG     string `json:"png"`  // base64، من غير ترويسة data:
 	Cut     *bool  `json:"cut"`  // فاضي = يقص
 	Name    string `json:"name"` // اسم أمر الطباعة في طابور الويندوز
+	// ⚠️⚠️ الورقة التجريبية **مابتتحفظش** في الأوراق المحفوظة:
+	// محلّات الحفظ 20 بس، وورقة بعلامات المسطرة لو أكلت مكان ورقة
+	// تزويد حقيقية تبقى الميزة ضرّت بدل ما تنفع. بتتسجّل في السجل
+	// عادي (عشان تعرف إنك جرّبت) من غير ملف.
+	Test bool `json:"test"`
 }
 
 type printReply struct {
@@ -233,12 +238,27 @@ func handlePrint(w http.ResponseWriter, r *http.Request) {
 	if jobName == "" {
 		jobName = "ورقة تزويد"
 	}
+	kind := "restock"
+	if req.Test {
+		kind = "test"
+	}
 	if err := printRaw(printer, data, jobName); err != nil {
 		log.Println("فشل الإرسال للطابعة:", err)
+		// ⚠️ الفشل بيتسجّل زي النجاح: الحالة اللي بتوجع هي "أنا
+		// دوست ومافيش ورقة طلعت" — والسطر ده هو اللي بيقول ليه.
+		addPrintLog(printLogEntry{Kind: kind, Printer: printer, Name: jobName, Error: err.Error()})
 		writeJSON(w, http.StatusInternalServerError, printReply{Error: err.Error()})
 		return
 	}
 	log.Printf("اتطبعت: %s — %dx%d نقطة، %d بايت\n", printer, wpx, hpx, len(data))
+	// ⚠️⚠️ بعد الطباعة خالص. الشرح في printlog.go: السجل عمره ما
+	// يوقّف الطبعة.
+	sheet := ""
+	if !req.Test {
+		sheet = saveSheet(raw)
+	}
+	addPrintLog(printLogEntry{Kind: kind, Printer: printer, Name: jobName,
+		Bytes: len(data), OK: true, Sheet: sheet, Cut: cut})
 	writeJSON(w, http.StatusOK, printReply{OK: true, Bytes: len(data), Width: wpx, Height: hpx})
 }
 
@@ -264,6 +284,7 @@ type labelRequest struct {
 	HeightMm float64     `json:"heightMm"`
 	Labels   []labelItem `json:"labels"`
 	Name     string      `json:"name"`
+	Test     bool        `json:"test"` // الشرح عند printRequest.Test
 }
 
 type labelReply struct {
@@ -339,12 +360,22 @@ func handleLabel(w http.ResponseWriter, r *http.Request) {
 	if jobName == "" {
 		jobName = "ملصقات"
 	}
+	lkind := "label"
+	if req.Test {
+		lkind = "test"
+	}
 	if err := printRaw(printer, data, jobName); err != nil {
 		log.Println("فشل إرسال الملصقات للطابعة:", err)
+		addPrintLog(printLogEntry{Kind: lkind, Printer: printer, Name: jobName, Count: total, Error: err.Error()})
 		writeJSON(w, http.StatusInternalServerError, labelReply{Error: err.Error()})
 		return
 	}
 	log.Printf("اتطبعت ملصقات: %s — %d لاصقة، %dx%d نقطة، %d بايت\n", printer, total, wpx, hpx, len(data))
+	// ⚠️ الملصقات مابنحفظش صورها: ده 200 لاصقة في الطبعة الواحدة،
+	// والفايدة من "اطبعها تاني" هنا قليلة — اللي بيتعاد هو ورق
+	// التزويد. السطر بيتسجّل بعدده وبس.
+	addPrintLog(printLogEntry{Kind: lkind, Printer: printer, Name: jobName,
+		Count: total, Bytes: len(data), OK: true})
 	writeJSON(w, http.StatusOK, labelReply{OK: true, Bytes: len(data), Count: total, Width: wpx, Height: hpx})
 }
 
@@ -382,6 +413,14 @@ func newServer() *http.ServeMux {
 	mux.HandleFunc("/claim", guard(handleClaim))
 	// 🩺 حالة الطابعة — الحاجة اللي المتصفح مايقدرش عليها
 	mux.HandleFunc("/printer/status", guard(handlePrinterStatus))
+	// ⏳ الطابور الواقف — الشرح في queuewatch.go
+	mux.HandleFunc("/printer/queue", guard(handlePrinterQueue))
+
+	// 🧾 سجل الطباعة المحلي والأوراق المحفوظة — الشرح في printlog.go
+	mux.HandleFunc("/print/log", guard(handlePrintLog))
+	mux.HandleFunc("/print/log/clear", guard(handlePrintLogClear))
+	mux.HandleFunc("/print/sheet", guard(handleSheetFile))
+	mux.HandleFunc("/print/sheet/reprint", guard(handleSheetReprint))
 
 	// ============================================================
 	// 📦 ملف الأصناف — الشرح الكامل في productsfile.go

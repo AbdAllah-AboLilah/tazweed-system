@@ -41,12 +41,32 @@ type productsFileState struct {
 	Size        int64  `json:"size"`
 	ModifiedMs  int64  `json:"modifiedMs"`
 	Fingerprint string `json:"fingerprint"`
-	AutoUpload  bool   `json:"autoUpload"`
-	Error       string `json:"error,omitempty"`
+	// ============================================================
+	// 🔢 الرقم القصير — ن٣
+	// ============================================================
+	// اتطلب بالنص: "ايه رايك تكتب جوه بعد التحديث تكتب جواه التاريخ
+	// والوقت بحيث لو مش متاكد تبص جوه ملف الاكسل تلاقي ان نفس اللي
+	// انت رفعته قبل كده ... او حتي تكتب اي دي ارقام مثلا".
+	//
+	// ⚠️⚠️ والحل مش إننا نكتب جوه الإكسل: الملف ده بيتولّد من
+	// الـERP، وأي حاجة نكتبها جواه بتتمسح أول مرة يتصدّر تاني —
+	// وكمان مش من حقنا نعدّل ملف بيطلع من برنامج تاني.
+	//
+	// فبدل ما نكتب جواه، بنطلّع منه: أول 8 حروف من بصمة الملف.
+	// نفس الملف = نفس الرقم دايمًا، وأي حرف يتغيّر جواه = رقم
+	// مختلف. تبص على الرقم في البرنامج وتبص عليه في النظام:
+	// متطابقين يبقى اللي في النظام هو اللي في الملف.
+	ShortCode  string `json:"shortCode,omitempty"`
+	AutoUpload bool   `json:"autoUpload"`
+	Error      string `json:"error,omitempty"`
 
 	// 🕒 آخر رفع — الشرح عند ProductsLastUploadMs في settings.go
 	LastUploadMs    int64 `json:"lastUploadMs,omitempty"`
 	LastUploadCount int   `json:"lastUploadCount,omitempty"`
+	// ⚠️ الرقم القصير بتاع **اللي اترفع**، مش بتاع اللي على القرص.
+	// الاتنين مع بعض هما اللي بيقولوا لك: متطابقين = متزامن،
+	// مختلفين = الملف اتغيّر بعد الرفع.
+	LastUploadShort string `json:"lastUploadShort,omitempty"`
 	// ⚠️ بيتحسب هنا مش في الصفحة: الصفحة مالهاش دعوة تقارن بصمات.
 	ChangedSinceUpload bool `json:"changedSinceUpload"`
 
@@ -134,6 +154,24 @@ func fileFingerprint(path string, size int64, modMs int64) (string, error) {
 	return sum, nil
 }
 
+// ============================================================
+// 🔢 الرقم القصير — 8 حروف من البصمة
+// ============================================================
+// ⚠️ ليه 8 مش 4 ولا 16: 8 حروف ست عشرية = 4 مليار احتمال، فاحتمال
+// إن ملفين مختلفين يطلعوا بنفس الرقم مايستاهلش الحساب. و16 حرف
+// مالهاش لازمة — الرقم ده بيتقارن **بالعين** بين شاشتين، وحرف زيادة
+// معناه غلطة قراية زيادة.
+//
+// ⚠️⚠️ وبحروف كبيرة: الرقم بيتقرا من شاشة كمبيوتر وشاشة تليفون
+// جنب بعض، و"b8" و"B8" لازم يبانوا واحد. hex أصلًا بيطلع صغير،
+// فالتكبير بيخلّي الشكل ثابت في الاتنين.
+func shortFP(fp string) string {
+	if len(fp) < 8 {
+		return ""
+	}
+	return strings.ToUpper(fp[:8])
+}
+
 func itoa(n int64) string {
 	if n == 0 {
 		return "0"
@@ -163,6 +201,7 @@ func productsFileInfo() productsFileState {
 		AutoUpload:      s.ProductsAutoUpload,
 		LastUploadMs:    s.ProductsLastUploadMs,
 		LastUploadCount: s.ProductsLastUploadCount,
+		LastUploadShort: shortFP(s.ProductsLastUploadFP),
 		Progress:        currentUpload(),
 	}
 	if strings.TrimSpace(out.Path) == "" {
@@ -192,6 +231,7 @@ func productsFileInfo() productsFileState {
 		return out
 	}
 	out.Fingerprint = fp
+	out.ShortCode = shortFP(fp)
 	// ⚠️ "اتغيّر بعد آخر رفع" = فيه رفع قبل كده، والبصمة دلوقتي مختلفة.
 	// من غير الشرط الأول، أول مرة خالص كانت هتقول "اتغيّر" وهي عمرها
 	// ما اترفعت أصلًا.
