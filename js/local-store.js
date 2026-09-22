@@ -258,6 +258,32 @@ function clearUndoStack() {
   if (typeof state === 'object') state.undoCount = 0;
 }
 
+// ============================================================
+// ↩️ القيم اللي رجعت — بالعربي، للسجل
+// ============================================================
+// اتطلب بالنص: "يكتب ... ايه اللي حصل بظبط ... يعني اي الدرجة وكانت
+// كام وهكذا".
+//
+// ⚠️ الوصف المحفوظ في الحركة (entry.label) بيقول **اللي اتعمل**
+// ("الفرع: 12 ← 8"). ده بيقول **اللي رجع** ("رصيد الفرع رجع 12") —
+// والاتنين مع بعض بيخلّوا السطر يتقرا من غير ما ترجع تحسب.
+//
+// ⚠️⚠️ بيتحسب من entry.before لأنها هي اللي اتكتبت فعلًا في السحابة
+// لحظة التراجع — مش من تخمين.
+function undoRestoredText(entry) {
+  if (entry && entry.type === 'delete') return 'الدرجة رجعت بكل بياناتها';
+  const b = (entry && entry.before) || {};
+  const bits = [];
+  if (typeof b.branchQty === 'number') bits.push(`رصيد الفرع رجع ${b.branchQty}`);
+  if (typeof b.mainQty === 'number') bits.push(`المخزن الرئيسي رجع ${b.mainQty}`);
+  if (b.requestedQty) bits.push(`الكمية المطلوبة رجعت ${b.requestedQty}`);
+  if (b.status) {
+    const ar = typeof statusLabel === 'function' ? statusLabel(b.status) : b.status;
+    bits.push(`الحالة رجعت «${ar}»`);
+  }
+  return bits.join(' · ');
+}
+
 // بتنفّذ التراجع عن آخر حركة. بترجّع نص بيوصف اللي حصل، أو null لو اتلغى.
 async function undoLastAction() {
   const stack = getUndoStack();
@@ -315,6 +341,7 @@ async function undoLastAction() {
     gradeId: entry.gradeId,
     gradeNumber: entry.gradeLabel || '',
     oldValue: entry.label || '',
+    newValue: undoRestoredText(entry),
   });
 
   return `↩️ اترجعت: ${entry.label}`;
